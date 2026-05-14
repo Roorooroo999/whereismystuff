@@ -1,0 +1,12 @@
+# Posit Connect publish configuration
+# Update the server URL and account as needed
+
+connect:
+  - source: wheres_my_stuff_dashboard.qmd
+    server: https://posit.wal-mart.com/  # Update with your Posit Connect URL
+    account: your_account                 # Update with your account
+    title: "Where's My Stuff - Inventory Rollup"
+    access_type: acl                      # Access control list
+
+# Environment variables needed on Posit Connect:
+# GOOGLE_APPLICATION_CREDENTIALS - path to service account JSON key

@@ -1,0 +1,1009 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Where's My Stuff - Inventory Rollup Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --walmart-blue: #0071ce;
+            --walmart-yellow: #ffc220;
+        }
+        body {
+            background-color: #f8f9fa;
+        }
+        .sidebar {
+            background-color: #fff;
+            border-right: 1px solid #dee2e6;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .main-content {
+            padding: 20px;
+        }
+        .kpi-card {
+            border-radius: 10px;
+            padding: 20px;
+            color: white;
+            margin-bottom: 15px;
+        }
+        .kpi-card .value {
+            font-size: 2rem;
+            font-weight: bold;
+        }
+        .kpi-card .label {
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }
+        .kpi-card i {
+            font-size: 2.5rem;
+            opacity: 0.7;
+        }
+        .bg-store { background: linear-gradient(135deg, #28a745, #20c997); }
+        .bg-transit { background: linear-gradient(135deg, #ffc107, #fd7e14); }
+        .bg-dc { background: linear-gradient(135deg, #17a2b8, #6f42c1); }
+        .bg-items { background: linear-gradient(135deg, #0071ce, #004c91); }
+        .chart-container {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .chart-title {
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #333;
+        }
+        .nav-tabs .nav-link.active {
+            background-color: var(--walmart-blue);
+            color: white;
+            border-color: var(--walmart-blue);
+        }
+        .nav-tabs .nav-link {
+            color: var(--walmart-blue);
+        }
+        .table-container {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .filter-label {
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: #333;
+        }
+        .brand-header {
+            background: var(--walmart-blue);
+            color: white;
+            padding: 15px 20px;
+            margin: -20px -20px 20px -20px;
+        }
+        .refresh-time {
+            font-size: 0.8rem;
+            color: #6c757d;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <div class="col-md-2 sidebar">
+                <div class="brand-header">
+                    <h5 class="mb-0"><i class="bi bi-box-seam"></i> Filters</h5>
+                </div>
+
+                <div class="mb-3">
+                    <label class="filter-label">SBU (Segment)</label>
+                    <select class="form-select form-select-sm" multiple size="6">
+                        <option>FOOD</option>
+                        <option>CONSUMABLES</option>
+                        <option>HARDLINES</option>
+                        <option>FASHION</option>
+                        <option>HOME</option>
+                        <option>ENTERTAINMENT TOYS AND SEASONAL</option>
+                    </select>
+                </div>
+
+                <div class="mb-3">
+                    <label class="filter-label">Division</label>
+                    <select class="form-select form-select-sm" multiple size="5">
+                        <option>CONSUMABLES</option>
+                        <option>FRESH</option>
+                        <option>CAC</option>
+                        <option>PANTRY</option>
+                        <option>FASHION</option>
+                        <option>ETS</option>
+                        <option>HARDLINES</option>
+                        <option>HOME</option>
+                        <option>UNASSIGNED</option>
+                    </select>
+                </div>
+
+                <div class="mb-3">
+                    <label class="filter-label">Department</label>
+                    <select class="form-select form-select-sm" multiple size="8">
+                        <option>GROCERY</option>
+                        <option>HOUSEHOLD CHEMICALS</option>
+                        <option>PETS</option>
+                        <option>BABY</option>
+                        <option>COSMETICS</option>
+                        <option>DAIRY</option>
+                        <option>FROZEN</option>
+                        <option>SNACKS</option>
+                        <option>BEVERAGES</option>
+                        <option>CANDY</option>
+                        <option>PAPER GOODS</option>
+                        <option>CLEANING SUPPLIES</option>
+                        <option>PERSONAL CARE</option>
+                        <option>PHARMACY OTC</option>
+                        <option>LAWN & GARDEN</option>
+                        <option>SPORTING GOODS</option>
+                        <option>TOYS</option>
+                        <option>ELECTRONICS</option>
+                        <option>HOME DECOR</option>
+                        <option>FURNITURE</option>
+                        <option>AUTOMOTIVE</option>
+                        <option>HARDWARE</option>
+                        <option>MEAT</option>
+                        <option>PRODUCE</option>
+                        <option>BAKERY</option>
+                        <option>DELI</option>
+                        <option>APPAREL</option>
+                        <option>FOOTWEAR</option>
+                        <option>JEWELRY</option>
+                        <option>INFANT APPAREL</option>
+                    </select>
+                </div>
+
+                <div class="mb-3">
+                    <label class="filter-label">Item (MDS_FAM_ID or WALMART_NBR)</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="Search...">
+                </div>
+
+                <div class="mb-3">
+                    <label class="filter-label">Replen Type</label>
+                    <select class="form-select form-select-sm">
+                        <option value="">All</option>
+                        <option>REPLEN</option>
+                        <option>NON-REPLEN</option>
+                    </select>
+                </div>
+
+                <button class="btn btn-primary w-100 mb-3" onclick="refreshData()">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh Data
+                </button>
+
+                <button class="btn btn-outline-secondary w-100 mb-3" onclick="clearFilters()">
+                    <i class="bi bi-x-circle"></i> Clear Filters
+                </button>
+
+                <div id="filter-status" class="alert alert-info d-none" role="alert">
+                    <small><strong>Filters Applied:</strong> <span id="filter-text"></span></small>
+                </div>
+
+                <p class="refresh-time">
+                    <em>Last refreshed: <span id="refresh-time">May 14, 2026 11:25 AM</span></em>
+                    <br><small>BUS_DT: May 13, 2026</small>
+                </p>
+            </div>
+
+            <!-- Main Content -->
+            <div class="col-md-10 main-content">
+                <h3 class="mb-4"><i class="bi bi-box-seam" style="color: var(--walmart-blue);"></i> Where's My Stuff - Inventory Rollup</h3>
+
+                <!-- Tabs -->
+                <ul class="nav nav-tabs mb-4" id="dashboardTabs">
+                    <li class="nav-item">
+                        <a class="nav-link active" data-bs-toggle="tab" href="#overview">Overview</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" data-bs-toggle="tab" href="#detail">Detail View</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" data-bs-toggle="tab" href="#dc">DC Breakdown</a>
+                    </li>
+                </ul>
+
+                <div class="tab-content">
+                    <!-- Overview Tab -->
+                    <div class="tab-pane fade show active" id="overview">
+                        <!-- KPI Cards Row 1 - Units -->
+                        <div class="row">
+                            <div class="col">
+                                <div class="kpi-card bg-items d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <div class="value">1.56M</div>
+                                        <div class="label">Total Items</div>
+                                    </div>
+                                    <i class="bi bi-box"></i>
+                                </div>
+                            </div>
+                            <div class="col">
+                                <div class="kpi-card bg-store d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <div class="value">4.75B</div>
+                                        <div class="label">Store On-Hand</div>
+                                    </div>
+                                    <i class="bi bi-shop"></i>
+                                </div>
+                            </div>
+                            <div class="col">
+                                <div class="kpi-card d-flex justify-content-between align-items-center" style="background: linear-gradient(135deg, #6f42c1, #9b59b6);">
+                                    <div>
+                                        <div class="value">225M</div>
+                                        <div class="label">DC Reserved</div>
+                                    </div>
+                                    <i class="bi bi-archive"></i>
+                                </div>
+                            </div>
+                            <div class="col">
+                                <div class="kpi-card bg-transit d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <div class="value">117.9M</div>
+                                        <div class="label">In-Transit</div>
+                                    </div>
+                                    <i class="bi bi-truck"></i>
+                                </div>
+                            </div>
+                            <div class="col">
+                                <div class="kpi-card bg-dc d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <div class="value">1.63B</div>
+                                        <div class="label">DC On-Hand</div>
+                                    </div>
+                                    <i class="bi bi-building"></i>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- KPI Cards Row 2 - Cost (estimated @ $2.50 avg unit cost) -->
+                        <div class="row mt-2">
+                            <div class="col-md-3">
+                                <div class="kpi-card d-flex justify-content-between align-items-center" style="background: linear-gradient(135deg, #198754, #0d6efd);">
+                                    <div>
+                                        <div class="value">$16.81B</div>
+                                        <div class="label">Total Inventory Cost</div>
+                                    </div>
+                                    <i class="bi bi-currency-dollar"></i>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="kpi-card d-flex justify-content-between align-items-center" style="background: linear-gradient(135deg, #198754, #20c997);">
+                                    <div>
+                                        <div class="value">$11.88B</div>
+                                        <div class="label">Store Cost</div>
+                                    </div>
+                                    <i class="bi bi-shop"></i>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="kpi-card d-flex justify-content-between align-items-center" style="background: linear-gradient(135deg, #e67e22, #f39c12);">
+                                    <div>
+                                        <div class="value">$295M</div>
+                                        <div class="label">In-Transit Cost</div>
+                                    </div>
+                                    <i class="bi bi-truck"></i>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="kpi-card d-flex justify-content-between align-items-center" style="background: linear-gradient(135deg, #3498db, #9b59b6);">
+                                    <div>
+                                        <div class="value">$4.07B</div>
+                                        <div class="label">DC Cost</div>
+                                    </div>
+                                    <i class="bi bi-building"></i>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Charts Row -->
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="chart-container">
+                                    <div class="chart-title">Inventory by Network</div>
+                                    <canvas id="networkChart"></canvas>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="chart-container">
+                                    <div class="chart-title">Inventory by Division</div>
+                                    <canvas id="divisionChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="chart-container">
+                                    <div class="chart-title">Inventory by Replen Type</div>
+                                    <canvas id="replenChart"></canvas>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="chart-container">
+                                    <div class="chart-title">Top 10 Departments by Inventory</div>
+                                    <canvas id="deptChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Detail View Tab -->
+                    <div class="tab-pane fade" id="detail">
+                        <div class="table-container">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h5 class="mb-0">Item Detail Table</h5>
+                                <div>
+                                    <button class="btn btn-sm btn-outline-primary"><i class="bi bi-download"></i> CSV</button>
+                                    <button class="btn btn-sm btn-outline-success"><i class="bi bi-file-earmark-excel"></i> Excel</button>
+                                </div>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table table-striped table-hover">
+                                    <thead class="table-dark">
+                                        <tr>
+                                            <th>MDS_FAM_ID</th>
+                                            <th>WALMART_NBR</th>
+                                            <th>Department</th>
+                                            <th>Division</th>
+                                            <th>Replen Type</th>
+                                            <th>Store OH</th>
+                                            <th>In-Transit</th>
+                                            <th>DC OH</th>
+                                            <th>Total</th>
+                                            <th>Unit Cost</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td>386274066</td>
+                                            <td>123456789</td>
+                                            <td>GROCERY</td>
+                                            <td>CONSUMABLES</td>
+                                            <td>REPLEN</td>
+                                            <td>45,230</td>
+                                            <td>1,200</td>
+                                            <td>12,500</td>
+                                            <td>58,930</td>
+                                            <td>$4.99</td>
+                                        </tr>
+                                        <tr>
+                                            <td>386274067</td>
+                                            <td>123456790</td>
+                                            <td>PETS</td>
+                                            <td>CONSUMABLES</td>
+                                            <td>REPLEN</td>
+                                            <td>32,100</td>
+                                            <td>890</td>
+                                            <td>8,900</td>
+                                            <td>41,890</td>
+                                            <td>$12.49</td>
+                                        </tr>
+                                        <tr>
+                                            <td>386274068</td>
+                                            <td>123456791</td>
+                                            <td>BABY</td>
+                                            <td>CONSUMABLES</td>
+                                            <td>NON-REPLEN</td>
+                                            <td>18,500</td>
+                                            <td>450</td>
+                                            <td>5,200</td>
+                                            <td>24,150</td>
+                                            <td>$8.99</td>
+                                        </tr>
+                                        <tr>
+                                            <td>258549386</td>
+                                            <td>987654321</td>
+                                            <td>COSMETICS</td>
+                                            <td>CONSUMABLES</td>
+                                            <td>REPLEN</td>
+                                            <td>28,900</td>
+                                            <td>670</td>
+                                            <td>7,800</td>
+                                            <td>37,370</td>
+                                            <td>$6.49</td>
+                                        </tr>
+                                        <tr>
+                                            <td>258549385</td>
+                                            <td>987654320</td>
+                                            <td>HOUSEHOLD CHEMICALS</td>
+                                            <td>CONSUMABLES</td>
+                                            <td>REPLEN</td>
+                                            <td>52,300</td>
+                                            <td>1,890</td>
+                                            <td>15,600</td>
+                                            <td>69,790</td>
+                                            <td>$3.29</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <nav>
+                                <ul class="pagination pagination-sm justify-content-end">
+                                    <li class="page-item disabled"><a class="page-link" href="#">Previous</a></li>
+                                    <li class="page-item active"><a class="page-link" href="#">1</a></li>
+                                    <li class="page-item"><a class="page-link" href="#">2</a></li>
+                                    <li class="page-item"><a class="page-link" href="#">3</a></li>
+                                    <li class="page-item"><a class="page-link" href="#">Next</a></li>
+                                </ul>
+                            </nav>
+                        </div>
+                    </div>
+
+                    <!-- DC Breakdown Tab -->
+                    <div class="tab-pane fade" id="dc">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="chart-container">
+                                    <div class="chart-title">DC Inventory by Type</div>
+                                    <canvas id="dcTypeChart"></canvas>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="table-container">
+                                    <div class="chart-title">DC Breakdown by Type</div>
+                                    <table class="table table-sm table-striped">
+                                        <thead class="table-dark">
+                                            <tr>
+                                                <th>DC Type</th>
+                                                <th>Items</th>
+                                                <th>DC Units</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr><td>Grocery</td><td>22,476</td><td>651,645,354</td></tr>
+                                            <tr><td>Regional</td><td>37,976</td><td>489,268,473</td></tr>
+                                            <tr><td>Imports</td><td>14,116</td><td>281,426,234</td></tr>
+                                            <tr><td>Fashion</td><td>24,524</td><td>131,832,572</td></tr>
+                                            <tr><td>GIDC</td><td>308</td><td>59,210,197</td></tr>
+                                            <tr><td>Closed</td><td>202,801</td><td>11,989,288</td></tr>
+                                            <tr><td>Support</td><td>1,976</td><td>1,678,621</td></tr>
+                                            <tr><td>Market Service Center</td><td>117</td><td>1,155,260</td></tr>
+                                            <tr><td>Disaster Relief</td><td>49</td><td>351,806</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // ============================================================
+        // API Configuration
+        // ============================================================
+        const API_BASE_URL = 'http://localhost:8000';  // Change to your deployed API URL
+
+        // Get filter elements
+        const sbuSelect = document.querySelectorAll('.sidebar select')[0];
+        const divisionSelect = document.querySelectorAll('.sidebar select')[1];
+        const deptSelect = document.querySelectorAll('.sidebar select')[2];
+        const itemInput = document.querySelector('.sidebar input[type="text"]');
+        const replenSelect = document.querySelectorAll('.sidebar select')[3];
+
+        // Chart instances (for updating)
+        let networkChart, divisionChart, replenChart;
+
+        // ============================================================
+        // API Functions
+        // ============================================================
+
+        async function fetchSummary(filters = {}) {
+            const params = new URLSearchParams();
+
+            if (filters.sbu && filters.sbu.length > 0) {
+                filters.sbu.forEach(s => params.append('sbu', s));
+            }
+            if (filters.division && filters.division.length > 0) {
+                filters.division.forEach(d => params.append('division', d));
+            }
+            if (filters.department && filters.department.length > 0) {
+                filters.department.forEach(d => params.append('department', d));
+            }
+            if (filters.replen_type) {
+                params.append('replen_type', filters.replen_type);
+            }
+            if (filters.item_id) {
+                params.append('item_id', filters.item_id);
+            }
+
+            const url = `${API_BASE_URL}/api/summary?${params.toString()}`;
+            const response = await fetch(url);
+
+            if (!response.ok) {
+                throw new Error(`API error: ${response.status}`);
+            }
+
+            return await response.json();
+        }
+
+        async function fetchItemDetails(itemId) {
+            const url = `${API_BASE_URL}/api/item/${itemId}`;
+            const response = await fetch(url);
+
+            if (!response.ok) {
+                if (response.status === 404) {
+                    return null;
+                }
+                throw new Error(`API error: ${response.status}`);
+            }
+
+            return await response.json();
+        }
+
+        async function fetchByDivision(filters = {}) {
+            const params = new URLSearchParams();
+            if (filters.sbu) filters.sbu.forEach(s => params.append('sbu', s));
+            if (filters.replen_type) params.append('replen_type', filters.replen_type);
+
+            const url = `${API_BASE_URL}/api/by-division?${params.toString()}`;
+            const response = await fetch(url);
+            return await response.json();
+        }
+
+        async function fetchByReplen(filters = {}) {
+            const params = new URLSearchParams();
+            if (filters.sbu) filters.sbu.forEach(s => params.append('sbu', s));
+            if (filters.division) filters.division.forEach(d => params.append('division', d));
+
+            const url = `${API_BASE_URL}/api/by-replen?${params.toString()}`;
+            const response = await fetch(url);
+            return await response.json();
+        }
+
+        // ============================================================
+        // Filter Functions
+        // ============================================================
+
+        function getSelectedFilters() {
+            const filters = [];
+            const filterObj = {};
+
+            const sbuSelected = Array.from(sbuSelect.selectedOptions).map(o => o.text);
+            if (sbuSelected.length > 0) {
+                filters.push('SBU: ' + sbuSelected.join(', '));
+                filterObj.sbu = sbuSelected;
+            }
+
+            const divSelected = Array.from(divisionSelect.selectedOptions).map(o => o.text);
+            if (divSelected.length > 0) {
+                filters.push('Division: ' + divSelected.join(', '));
+                filterObj.division = divSelected;
+            }
+
+            const deptSelected = Array.from(deptSelect.selectedOptions).map(o => o.text);
+            if (deptSelected.length > 0) {
+                filters.push('Dept: ' + deptSelected.join(', '));
+                filterObj.department = deptSelected;
+            }
+
+            if (itemInput.value.trim()) {
+                filters.push('Item: ' + itemInput.value);
+                filterObj.item_id = itemInput.value.trim();
+            }
+
+            if (replenSelect.value) {
+                filters.push('Replen: ' + replenSelect.value);
+                filterObj.replen_type = replenSelect.value;
+            }
+
+            return { display: filters, params: filterObj };
+        }
+
+        // ============================================================
+        // Data Refresh Functions
+        // ============================================================
+
+        async function refreshData() {
+            const btn = event.target.closest('button');
+            const originalHtml = btn.innerHTML;
+
+            // Show loading state
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Loading...';
+            btn.disabled = true;
+
+            try {
+                const { display: filters, params: filterParams } = getSelectedFilters();
+
+                // Show filter status
+                const filterStatus = document.getElementById('filter-status');
+                const filterText = document.getElementById('filter-text');
+
+                if (filters.length > 0) {
+                    filterStatus.classList.remove('d-none');
+                    filterText.textContent = filters.join(' | ');
+                } else {
+                    filterStatus.classList.add('d-none');
+                }
+
+                // Check if item search
+                if (filterParams.item_id) {
+                    await refreshItemView(filterParams.item_id);
+                } else {
+                    await refreshSummaryView(filterParams);
+                }
+
+                // Update refresh time
+                const now = new Date();
+                document.getElementById('refresh-time').textContent = now.toLocaleString();
+
+                showToast('Data refreshed successfully!');
+
+            } catch (error) {
+                console.error('Refresh error:', error);
+                showToast('Error refreshing data: ' + error.message, 'error');
+            } finally {
+                btn.innerHTML = originalHtml;
+                btn.disabled = false;
+            }
+        }
+
+        async function refreshSummaryView(filterParams) {
+            // Fetch summary data from API
+            const data = await fetchSummary(filterParams);
+
+            // Update KPI cards
+            updateKPICards(data);
+
+            // Update charts
+            await updateCharts(filterParams);
+        }
+
+        async function refreshItemView(itemId) {
+            const items = await fetchItemDetails(itemId);
+
+            if (!items || items.length === 0) {
+                showToast(`Item ${itemId} not found`, 'warning');
+                return;
+            }
+
+            // Aggregate item data (may have multiple rows for DC types)
+            const item = items[0];
+            const totals = items.reduce((acc, row) => ({
+                store: acc.store + row.store_oh_units,
+                dc_reserved: acc.dc_reserved + row.dc_reserved_units,
+                transit: acc.transit + row.transit_units,
+                dc: acc.dc + row.dc_oh_units,
+                cost: acc.cost + (row.total_cost || 0)
+            }), { store: 0, dc_reserved: 0, transit: 0, dc: 0, cost: 0 });
+
+            // Update KPI cards for single item
+            document.querySelectorAll('.kpi-card .value')[0].textContent = '1';
+            document.querySelectorAll('.kpi-card .value')[1].textContent = formatNumber(totals.store);
+            document.querySelectorAll('.kpi-card .value')[2].textContent = formatNumber(totals.dc_reserved);
+            document.querySelectorAll('.kpi-card .value')[3].textContent = formatNumber(totals.transit);
+            document.querySelectorAll('.kpi-card .value')[4].textContent = formatNumber(totals.dc);
+
+            const totalUnits = totals.store + totals.dc_reserved + totals.transit + totals.dc;
+            document.querySelectorAll('.kpi-card .value')[5].textContent = '$' + formatNumber(totals.cost);
+            document.querySelectorAll('.kpi-card .value')[6].textContent = '$' + formatNumber(totals.store * (item.unit_cost || 0));
+            document.querySelectorAll('.kpi-card .value')[7].textContent = '$' + formatNumber(totals.transit * (item.unit_cost || 0));
+            document.querySelectorAll('.kpi-card .value')[8].textContent = '$' + formatNumber(totals.dc * (item.unit_cost || 0));
+
+            // Update detail table with item info
+            updateDetailTable(items);
+
+            showToast(`Found item: ${item.omni_dept_desc} - ${item.omni_division}`);
+        }
+
+        function updateKPICards(data) {
+            document.querySelectorAll('.kpi-card .value')[0].textContent = formatNumber(data.total_items);
+            document.querySelectorAll('.kpi-card .value')[1].textContent = formatNumber(data.store_units);
+            document.querySelectorAll('.kpi-card .value')[2].textContent = formatNumber(data.dc_reserved_units);
+            document.querySelectorAll('.kpi-card .value')[3].textContent = formatNumber(data.transit_units);
+            document.querySelectorAll('.kpi-card .value')[4].textContent = formatNumber(data.dc_units);
+            document.querySelectorAll('.kpi-card .value')[5].textContent = '$' + formatNumber(data.total_cost);
+            document.querySelectorAll('.kpi-card .value')[6].textContent = '$' + formatNumber(data.store_cost);
+            document.querySelectorAll('.kpi-card .value')[7].textContent = '$' + formatNumber(data.transit_cost);
+            document.querySelectorAll('.kpi-card .value')[8].textContent = '$' + formatNumber(data.dc_cost);
+        }
+
+        async function updateCharts(filterParams) {
+            // Update Division Chart
+            try {
+                const divisionData = await fetchByDivision(filterParams);
+                if (divisionChart && divisionData.length > 0) {
+                    divisionChart.data.labels = divisionData.map(d => d.division);
+                    divisionChart.data.datasets[0].data = divisionData.map(d => d.total_units / 1e6);
+                    divisionChart.update();
+                }
+            } catch (e) {
+                console.error('Division chart error:', e);
+            }
+
+            // Update Replen Chart
+            try {
+                const replenData = await fetchByReplen(filterParams);
+                if (replenChart && replenData.length > 0) {
+                    const replenLabels = replenData.map(r => r.REPLEN_TYPE);
+                    replenChart.data.labels = replenLabels;
+                    replenChart.data.datasets[0].data = replenData.map(r => (r.store_units || 0) / 1e6);
+                    replenChart.data.datasets[1].data = replenData.map(r => (r.dc_reserved_units || 0) / 1e6);
+                    replenChart.data.datasets[2].data = replenData.map(r => (r.transit_units || 0) / 1e6);
+                    replenChart.data.datasets[3].data = replenData.map(r => (r.dc_units || 0) / 1e6);
+                    replenChart.update();
+                }
+            } catch (e) {
+                console.error('Replen chart error:', e);
+            }
+        }
+
+        function updateDetailTable(items) {
+            const tbody = document.querySelector('#detail table tbody');
+            tbody.innerHTML = items.map(item => `
+                <tr>
+                    <td>${item.mds_fam_id}</td>
+                    <td>${item.item_nbr || '-'}</td>
+                    <td>${item.omni_dept_desc}</td>
+                    <td>${item.omni_division}</td>
+                    <td>${item.replen_type}</td>
+                    <td>${item.store_oh_units.toLocaleString()}</td>
+                    <td>${item.transit_units.toLocaleString()}</td>
+                    <td>${item.dc_oh_units.toLocaleString()}</td>
+                    <td>${item.total_units.toLocaleString()}</td>
+                    <td>$${(item.unit_cost || 0).toFixed(2)}</td>
+                </tr>
+            `).join('');
+        }
+
+        // ============================================================
+        // Clear Filters
+        // ============================================================
+
+        function clearFilters() {
+            sbuSelect.selectedIndex = -1;
+            divisionSelect.selectedIndex = -1;
+            deptSelect.selectedIndex = -1;
+            itemInput.value = '';
+            replenSelect.selectedIndex = 0;
+
+            document.getElementById('filter-status').classList.add('d-none');
+
+            // Reset to default values
+            resetToFullData();
+            showToast('Filters cleared');
+        }
+
+        function resetToFullData() {
+            document.querySelectorAll('.kpi-card .value')[0].textContent = '1.56M';
+            document.querySelectorAll('.kpi-card .value')[1].textContent = '4.75B';
+            document.querySelectorAll('.kpi-card .value')[2].textContent = '225M';
+            document.querySelectorAll('.kpi-card .value')[3].textContent = '117.9M';
+            document.querySelectorAll('.kpi-card .value')[4].textContent = '1.63B';
+            document.querySelectorAll('.kpi-card .value')[5].textContent = '$33.42B';
+            document.querySelectorAll('.kpi-card .value')[6].textContent = '$25.59B';
+            document.querySelectorAll('.kpi-card .value')[7].textContent = '$824M';
+            document.querySelectorAll('.kpi-card .value')[8].textContent = '$6.49B';
+        }
+
+        // ============================================================
+        // Utility Functions
+        // ============================================================
+
+        function formatNumber(num) {
+            if (num >= 1e9) return (num / 1e9).toFixed(2) + 'B';
+            if (num >= 1e6) return (num / 1e6).toFixed(1) + 'M';
+            if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K';
+            return num.toLocaleString();
+        }
+
+        function showToast(message, type = 'success') {
+            const bgClass = type === 'error' ? 'bg-danger' : type === 'warning' ? 'bg-warning' : 'bg-success';
+            const icon = type === 'error' ? 'bi-x-circle' : type === 'warning' ? 'bi-exclamation-circle' : 'bi-check-circle';
+
+            const toast = document.createElement('div');
+            toast.className = 'position-fixed bottom-0 end-0 p-3';
+            toast.style.zIndex = '9999';
+            toast.innerHTML = `
+                <div class="toast show" role="alert">
+                    <div class="toast-header ${bgClass} text-white">
+                        <i class="bi ${icon} me-2"></i>
+                        <strong class="me-auto">${type.charAt(0).toUpperCase() + type.slice(1)}</strong>
+                        <button type="button" class="btn-close btn-close-white" onclick="this.closest('.position-fixed').remove()"></button>
+                    </div>
+                    <div class="toast-body">${message}</div>
+                </div>
+            `;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+
+        // ============================================================
+        // Item Search with Debounce
+        // ============================================================
+
+        let searchTimeout;
+        itemInput.addEventListener('input', function() {
+            clearTimeout(searchTimeout);
+            const value = this.value.trim();
+
+            if (value.length >= 3) {
+                searchTimeout = setTimeout(() => {
+                    // Show searching indicator
+                    this.classList.add('is-loading');
+                }, 500);
+            }
+        });
+
+        // Enter key triggers search
+        itemInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && this.value.trim()) {
+                refreshData();
+            }
+        });
+    </script>
+    <script>
+        // Network Chart (Real data: Store 4.75B, DC Reserved 225M, Transit 117.9M, DC 1.63B)
+        networkChart = new Chart(document.getElementById('networkChart'), {
+            type: 'bar',
+            data: {
+                labels: ['Store (4.75B)', 'DC Reserved (225M)', 'In-Transit (117.9M)', 'DC OH (1.63B)'],
+                datasets: [{
+                    label: 'Units',
+                    data: [4.75, 0.225, 0.12, 1.63],
+                    backgroundColor: ['#28a745', '#6f42c1', '#ffc107', '#17a2b8']
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                let val = context.raw;
+                                return val >= 1 ? val.toFixed(2) + 'B units' : (val * 1000).toFixed(0) + 'M units';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: { display: true, text: 'Units (Billions)' }
+                    }
+                }
+            }
+        });
+
+        // Division Chart (Real data from WHERES_MY_STUFF_ROLLUP - May 14, 2026)
+        divisionChart = new Chart(document.getElementById('divisionChart'), {
+            type: 'bar',
+            data: {
+                labels: ['PANTRY', 'CONSUMABLES', 'CAC', 'HARDLINES', 'FASHION', 'FRESH', 'HOME', 'ETS'],
+                datasets: [{
+                    label: 'Units',
+                    data: [1539, 1329, 917, 830, 652, 576, 502, 380],
+                    backgroundColor: '#0071ce'
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return context.raw.toLocaleString() + 'M units';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        title: { display: true, text: 'Units (Millions)' }
+                    }
+                }
+            }
+        });
+
+        // Replen Chart (Real data: REPLEN vs NON-REPLEN with DC Reserved)
+        replenChart = new Chart(document.getElementById('replenChart'), {
+            type: 'bar',
+            data: {
+                labels: ['REPLEN', 'NON-REPLEN'],
+                datasets: [
+                    { label: 'Store', data: [4375, 378], backgroundColor: '#28a745' },
+                    { label: 'DC Reserved', data: [223, 1.6], backgroundColor: '#6f42c1' },
+                    { label: 'Transit', data: [118, 0.05], backgroundColor: '#ffc107' },
+                    { label: 'DC OH', data: [1485, 144], backgroundColor: '#17a2b8' }
+                ]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return context.dataset.label + ': ' + context.raw.toLocaleString() + 'M units';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: { display: true, text: 'Units (Millions)' }
+                    }
+                }
+            }
+        });
+
+        // Department Chart
+        new Chart(document.getElementById('deptChart'), {
+            type: 'bar',
+            data: {
+                labels: ['GROCERY', 'PETS', 'HOUSEHOLD CHEM', 'BABY', 'COSMETICS', 'DAIRY', 'FROZEN', 'SNACKS', 'BEVERAGES', 'CANDY'],
+                datasets: [{
+                    label: 'Units',
+                    data: [520, 380, 340, 290, 260, 240, 220, 195, 180, 165],
+                    backgroundColor: '#6f42c1'
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return context.raw.toLocaleString() + 'M units';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        title: { display: true, text: 'Units (Millions)' }
+                    }
+                }
+            }
+        });
+
+        // DC Type Chart (Real data from WHERES_MY_STUFF_ROLLUP)
+        new Chart(document.getElementById('dcTypeChart'), {
+            type: 'bar',
+            data: {
+                labels: ['Grocery (652M)', 'Regional (489M)', 'Imports (281M)', 'Fashion (132M)', 'GIDC (59M)', 'Closed (12M)', 'Support (1.7M)', 'Market Svc Ctr (1.2M)', 'Disaster Relief (0.4M)'],
+                datasets: [{
+                    label: 'DC Units',
+                    data: [652, 489, 281, 132, 59, 12, 1.7, 1.2, 0.35],
+                    backgroundColor: ['#28a745', '#0071ce', '#ffc107', '#e83e8c', '#6f42c1', '#6c757d', '#20c997', '#17a2b8', '#fd7e14']
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return context.raw.toLocaleString() + 'M units';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        title: { display: true, text: 'Units (Millions)' }
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+</html>

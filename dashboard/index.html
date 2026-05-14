@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Where's My Stuff - Inventory Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+    <style>
+        :root { --walmart-blue: #0071ce; --walmart-yellow: #ffc220; --bg-dark: #1a1a2e; --bg-card: #16213e; --bg-sidebar: #0f0f1a; --text-light: #e8e8e8; --text-muted: #a0a0a0; }
+        body { background-color: var(--bg-dark); font-family: 'Segoe UI', system-ui, sans-serif; color: var(--text-light); }
+        .sidebar { background: var(--bg-sidebar); min-height: calc(100vh - 56px); border-right: 1px solid #2a2a4a; padding: 15px; overflow-y: auto; }
+        .kpi-card { border-radius: 10px; padding: 15px; color: white; margin-bottom: 10px; box-shadow: 0 3px 6px rgba(0,0,0,0.3); }
+        .kpi-card .value { font-size: 1.5rem; font-weight: 700; text-shadow: 1px 1px 2px rgba(0,0,0,0.3); }
+        .kpi-card .label { font-size: 0.8rem; font-weight: 600; }
+        .kpi-card .sub-value { font-size: 0.75rem; font-weight: 500; }
+        .bg-store { background: linear-gradient(135deg, #1e7e34, #28a745); }
+        .bg-dc-oh { background: linear-gradient(135deg, #0069d9, #007bff); }
+        .bg-transit { background: linear-gradient(135deg, #c45c00, #e67300); }
+        .bg-dc-reserved { background: linear-gradient(135deg, #5a23c8, #7c3aed); }
+        .bg-dc-labeled { background: linear-gradient(135deg, #c21a6d, #e91e8c); }
+        .bg-dc-unlabeled { background: linear-gradient(135deg, #6c3483, #8e44ad); }
+        .bg-total { background: linear-gradient(135deg, #1e3a5f, #2c5282); }
+        .chart-container { background: var(--bg-card); border-radius: 10px; padding: 15px; margin-bottom: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+        .chart-title { font-weight: 600; margin-bottom: 10px; color: var(--text-light); font-size: 0.95rem; }
+        .nav-tabs { border-bottom: 1px solid #2a2a4a; }
+        .nav-tabs .nav-link.active { background-color: var(--walmart-blue); color: white; border-color: var(--walmart-blue); }
+        .nav-tabs .nav-link { color: #6cb2eb; font-weight: 500; border: 1px solid transparent; }
+        .nav-tabs .nav-link:hover { border-color: #2a2a4a; }
+        .filter-section { margin-bottom: 12px; }
+        .filter-label { font-weight: 600; font-size: 0.8rem; margin-bottom: 3px; color: var(--text-muted); }
+        .form-select, .form-control { background-color: #1a1a2e; border-color: #2a2a4a; color: var(--text-light); }
+        .form-select:focus, .form-control:focus { background-color: #1a1a2e; border-color: var(--walmart-blue); color: var(--text-light); box-shadow: 0 0 0 0.2rem rgba(0,113,206,0.25); }
+        .form-select option { background-color: #1a1a2e; color: var(--text-light); }
+        .btn-primary { background-color: var(--walmart-blue); border-color: var(--walmart-blue); }
+        .btn-outline-secondary { color: var(--text-muted); border-color: #2a2a4a; }
+        .btn-outline-secondary:hover { background-color: #2a2a4a; color: var(--text-light); }
+        .table-container { background: var(--bg-card); border-radius: 10px; padding: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+        .table { color: var(--text-light); }
+        .table-dark { background-color: #0f0f1a; }
+        .table-striped > tbody > tr:nth-of-type(odd) { background-color: rgba(255,255,255,0.03); }
+        .table-striped > tbody > tr:nth-of-type(even) { background-color: rgba(255,255,255,0.01); }
+        .table-hover > tbody > tr:hover { background-color: rgba(0,113,206,0.1); color: var(--text-light); }
+        .table-primary { background-color: rgba(0,113,206,0.3) !important; color: #fff !important; }
+        .table-primary td, .table-primary th { color: #fff !important; }
+        .sbu-row { background-color: #1e4976 !important; border-left: 4px solid #0071ce !important; }
+        .sbu-row td { color: #fff !important; font-weight: 600 !important; background-color: #1e4976 !important; }
+        .sbu-row td strong { color: #fff !important; }
+        .sbu-row:hover td { background-color: #2a5a8a !important; }
+        .dept-row { background-color: #1a2744 !important; }
+        .dept-row td { color: #b8c8d8 !important; background-color: inherit !important; }
+        .dept-row:hover td { background-color: #253550 !important; }
+        #sbu-dept-table tbody tr:nth-child(odd).dept-row { background-color: #1e2d4d !important; }
+        #sbu-dept-table tbody tr:nth-child(odd).dept-row td { background-color: #1e2d4d !important; }
+        .truncate-text { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .dc-sbu-row { background-color: #1e4976 !important; border-left: 4px solid #17a2b8 !important; }
+        .dc-sbu-row td { color: #fff !important; font-weight: 600 !important; }
+        .loading-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(26,26,46,0.9); display: none; justify-content: center; align-items: center; z-index: 9999; }
+        .loading-overlay.show { display: flex; }
+        .status-badge { font-size: 0.7rem; padding: 2px 6px; border-radius: 10px; }
+        .status-live { background: #1e4620; color: #4ade80; }
+        .alert-info { background-color: rgba(0,113,206,0.2); border-color: #0071ce; color: #6cb2eb; }
+        .dept-breakdown { display: none; }
+        .dept-breakdown.show { display: block; }
+        .text-muted { color: var(--text-muted) !important; }
+        h5, h6 { color: var(--text-light); }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark" style="background: var(--walmart-blue);">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#"><i class="bi bi-box-seam me-2"></i>Where's My Stuff</a>
+            <div class="d-flex align-items-center text-white">
+                <span class="status-badge status-live me-2" id="api-status"><i class="bi bi-circle-fill me-1"></i>Live</span>
+                <span class="me-2" style="font-size:0.85rem;">BUS_DT: <strong id="bus-date">-</strong></span>
+                <button class="btn btn-outline-light btn-sm" onclick="refreshData()"><i class="bi bi-arrow-clockwise"></i></button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="loading-overlay" id="loading">
+        <div class="text-center">
+            <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;"></div>
+            <p class="mt-3 text-muted">Loading...</p>
+        </div>
+    </div>
+
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar Filters -->
+            <div class="col-lg-2 sidebar">
+                <h6 class="text-uppercase text-muted mb-2" style="font-size:0.75rem;"><i class="bi bi-funnel me-1"></i>Filters</h6>
+
+                <div class="filter-section">
+                    <label class="filter-label">SBU (Division)</label>
+                    <select class="form-select form-select-sm" id="sbu-filter" multiple size="8" onchange="onSBUChange()">
+                        <option>PANTRY</option>
+                        <option>CONSUMABLES</option>
+                        <option>CAC</option>
+                        <option>HARDLINES</option>
+                        <option>FASHION</option>
+                        <option>FRESH</option>
+                        <option>HOME</option>
+                        <option>ETS</option>
+                    </select>
+                </div>
+
+                <div class="filter-section">
+                    <label class="filter-label">Department</label>
+                    <select class="form-select form-select-sm" id="dept-filter" multiple size="5" onchange="onDeptChange()">
+                        <option value="">Loading...</option>
+                    </select>
+                </div>
+
+                <div class="filter-section">
+                    <label class="filter-label">Category</label>
+                    <select class="form-select form-select-sm" id="catg-filter" multiple size="4">
+                        <option value="">Select Department first</option>
+                    </select>
+                </div>
+
+                <div class="filter-section">
+                    <label class="filter-label">Replen Type</label>
+                    <select class="form-select form-select-sm" id="replen-filter">
+                        <option value="">All</option>
+                        <option>REPLEN</option>
+                        <option>NON-REPLEN</option>
+                    </select>
+                </div>
+
+                <div class="filter-section">
+                    <label class="filter-label">Item Search</label>
+                    <input type="text" class="form-control form-control-sm" id="item-search" placeholder="MDS_FAM_ID / Item#">
+                </div>
+
+                <button class="btn btn-primary btn-sm w-100 mb-2" onclick="applyFilters()"><i class="bi bi-search me-1"></i>Apply</button>
+                <button class="btn btn-outline-secondary btn-sm w-100" onclick="clearFilters()"><i class="bi bi-x-circle me-1"></i>Clear</button>
+
+                <div id="filter-badge" class="alert alert-info mt-2 d-none py-1 px-2" style="font-size:0.7rem;">
+                    <strong>Active:</strong> <span id="filter-text"></span>
+                </div>
+            </div>
+
+            <!-- Main Content -->
+            <div class="col-lg-10 p-3">
+                <ul class="nav nav-tabs mb-3" id="mainTabs">
+                    <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#overview"><i class="bi bi-speedometer2 me-1"></i>Overview</a></li>
+                    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#sbu-view"><i class="bi bi-bar-chart me-1"></i>By SBU</a></li>
+                    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#dc-view"><i class="bi bi-building me-1"></i>DC Breakdown</a></li>
+                </ul>
+
+                <div class="tab-content">
+                    <!-- Overview Tab -->
+                    <div class="tab-pane fade show active" id="overview">
+                        <!-- KPI Cards -->
+                        <div class="row">
+                            <div class="col">
+                                <div class="kpi-card bg-store">
+                                    <div class="value" id="kpi-store">-</div>
+                                    <div class="label">Store OH</div>
+                                    <div class="sub-value" id="kpi-store-cost">-</div>
+                                </div>
+                            </div>
+                            <div class="col">
+                                <div class="kpi-card bg-dc-oh">
+                                    <div class="value" id="kpi-dc">-</div>
+                                    <div class="label">DC On-Hand</div>
+                                    <div class="sub-value" id="kpi-dc-cost">-</div>
+                                </div>
+                            </div>
+                            <div class="col">
+                                <div class="kpi-card bg-transit">
+                                    <div class="value" id="kpi-transit">-</div>
+                                    <div class="label">In-Transit</div>
+                                    <div class="sub-value" id="kpi-transit-cost">-</div>
+                                </div>
+                            </div>
+                            <div class="col">
+                                <div class="kpi-card bg-dc-reserved">
+                                    <div class="value" id="kpi-reserved">-</div>
+                                    <div class="label">DC Reserved</div>
+                                    <div class="sub-value" id="kpi-reserved-cost">-</div>
+                                </div>
+                            </div>
+                            <div class="col">
+                                <div class="kpi-card bg-dc-labeled">
+                                    <div class="value" id="kpi-labeled">-</div>
+                                    <div class="label">DC Labeled</div>
+                                    <div class="sub-value" id="kpi-labeled-cost">-</div>
+                                </div>
+                            </div>
+                            <div class="col">
+                                <div class="kpi-card bg-dc-unlabeled">
+                                    <div class="value" id="kpi-unlabeled">-</div>
+                                    <div class="label">DC Unlabeled</div>
+                                    <div class="sub-value" id="kpi-unlabeled-cost">-</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Totals Row -->
+                        <div class="row mt-2">
+                            <div class="col-md-6">
+                                <div class="kpi-card bg-total">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <div class="value" id="kpi-total-units">-</div>
+                                            <div class="label">Total Units</div>
+                                        </div>
+                                        <i class="bi bi-boxes" style="font-size: 2rem; opacity: 0.5;"></i>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="kpi-card" style="background: linear-gradient(135deg, #27ae60, #2ecc71);">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <div class="value" id="kpi-total-cost">-</div>
+                                            <div class="label">Total Inventory Cost</div>
+                                        </div>
+                                        <i class="bi bi-currency-dollar" style="font-size: 2rem; opacity: 0.5;"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Row 1: Inventory by SBU (Stacked) -->
+                        <div class="row mt-3">
+                            <div class="col-12">
+                                <div class="chart-container">
+                                    <div class="chart-title"><i class="bi bi-bar-chart-steps me-1"></i>Inventory by SBU</div>
+                                    <div style="position:relative; height:300px;">
+                                        <canvas id="sbuChart"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Row 2: Channel Mix -->
+                        <div class="row mt-3">
+                            <div class="col-12">
+                                <div class="chart-container" style="padding: 12px 15px;">
+                                    <div class="chart-title" style="margin-bottom:8px;">Channel Mix (%)</div>
+                                    <div style="position:relative; height:80px;">
+                                        <canvas id="channelChart"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Row 3: Department Breakdown -->
+                        <div class="row mt-3">
+                            <div class="col-12">
+                                <div class="chart-container">
+                                    <div class="chart-title"><i class="bi bi-bar-chart-steps me-1"></i>Department Inventory Breakdown (Top 15)</div>
+                                    <div style="position:relative; height:420px;">
+                                        <canvas id="deptStackedChart"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Department Breakdown (shows when SBU selected) -->
+                        <div class="dept-breakdown" id="dept-breakdown-section">
+                            <div class="table-container">
+                                <div class="chart-title"><i class="bi bi-list-nested me-1"></i>Department Breakdown</div>
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-striped table-hover">
+                                        <thead class="table-dark">
+                                            <tr>
+                                                <th>Department</th>
+                                                <th class="text-end">Store OH</th>
+                                                <th class="text-end">DC OH</th>
+                                                <th class="text-end">In-Transit</th>
+                                                <th class="text-end">DC Reserved</th>
+                                                <th class="text-end">DC Labeled</th>
+                                                <th class="text-end">DC Unlabeled</th>
+                                                <th class="text-end">Total</th>
+                                                <th class="text-end">Cost</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="dept-tbody"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SBU View Tab -->
+                    <div class="tab-pane fade" id="sbu-view">
+                        <div class="table-container">
+                            <h5 class="mb-3">Inventory by SBU with Department Breakdown</h5>
+                            <div class="table-responsive">
+                                <table class="table table-sm" id="sbu-dept-table" style="font-size:0.8rem; color:#e8e8e8;">
+                                    <thead class="table-dark">
+                                        <tr>
+                                            <th style="width:130px;">SBU / Department</th>
+                                            <th class="text-center" style="width:30px;">#</th>
+                                            <th class="text-end" style="width:50px;">Store</th>
+                                            <th class="text-end" style="width:50px;">DC</th>
+                                            <th class="text-end" style="width:45px;">Trnst</th>
+                                            <th class="text-end" style="width:45px;">Rsv</th>
+                                            <th class="text-end" style="width:40px;">Lbl</th>
+                                            <th class="text-end" style="width:40px;">Unl</th>
+                                            <th class="text-end" style="width:50px;">Total</th>
+                                            <th class="text-end" style="width:55px;">Cost</th>
+                                            <th style="width:70px;">Mix</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="sbu-tbody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- DC Breakdown Tab -->
+                    <div class="tab-pane fade" id="dc-view">
+                        <div class="row">
+                            <div class="col-md-7">
+                                <div class="table-container" style="background:#16213e;">
+                                    <div class="chart-title">DC Type Breakdown with SBU Detail</div>
+                                    <div class="table-responsive">
+                                        <table class="table table-sm" style="color:#e8e8e8; font-size:0.8rem; background:#16213e;">
+                                            <thead style="background:#0f0f1a;">
+                                                <tr>
+                                                    <th style="width:140px; color:#e8e8e8; background:#0f0f1a;">DC Type / SBU</th>
+                                                    <th class="text-end" style="width:60px; color:#e8e8e8; background:#0f0f1a;">DC OH</th>
+                                                    <th class="text-end" style="width:55px; color:#e8e8e8; background:#0f0f1a;">Labeled</th>
+                                                    <th class="text-end" style="width:55px; color:#e8e8e8; background:#0f0f1a;">Unlabeled</th>
+                                                    <th class="text-end" style="width:60px; color:#e8e8e8; background:#0f0f1a;">Total</th>
+                                                    <th class="text-end" style="width:65px; color:#e8e8e8; background:#0f0f1a;">Cost</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="dc-type-tbody"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-5">
+                                <div class="chart-container">
+                                    <div class="chart-title">DC Inventory by Type</div>
+                                    <div style="position:relative; height:500px;">
+                                        <canvas id="dcTypeChart"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const API_BASE_URL = window.location.origin;
+        let channelChart, sbuChart, dcTypeChart, deptStackedChart;
+
+        // Dark mode chart defaults
+        Chart.defaults.color = '#e8e8e8';
+        Chart.defaults.borderColor = '#2a2a4a';
+
+        function formatNumber(num) {
+            if (num >= 1e9) return (num / 1e9).toFixed(2) + 'B';
+            if (num >= 1e6) return (num / 1e6).toFixed(1) + 'M';
+            if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K';
+            return num?.toLocaleString() || '0';
+        }
+
+        function formatCurrency(num) {
+            if (num >= 1e9) return '$' + (num / 1e9).toFixed(2) + 'B';
+            if (num >= 1e6) return '$' + (num / 1e6).toFixed(1) + 'M';
+            return '$' + (num?.toLocaleString() || '0');
+        }
+
+        function showLoading(show) { document.getElementById('loading').classList.toggle('show', show); }
+
+        // API Functions
+        async function fetchSummary(filters = {}) {
+            const params = new URLSearchParams();
+            if (filters.sbu) filters.sbu.forEach(s => params.append('sbu', s));
+            if (filters.department) filters.department.forEach(d => params.append('department', d));
+            if (filters.category) filters.category.forEach(c => params.append('category', c));
+            if (filters.replen_type) params.append('replen_type', filters.replen_type);
+            if (filters.item_id) params.append('item_id', filters.item_id);
+            const response = await fetch(`${API_BASE_URL}/api/summary?${params}`);
+            if (!response.ok) throw new Error(`API error: ${response.status}`);
+            return response.json();
+        }
+
+        async function fetchBySBU(filters = {}) {
+            const params = new URLSearchParams();
+            if (filters.replen_type) params.append('replen_type', filters.replen_type);
+            const response = await fetch(`${API_BASE_URL}/api/by-sbu?${params}`);
+            return response.json();
+        }
+
+        async function fetchBySBUDept(filters = {}) {
+            const params = new URLSearchParams();
+            if (filters.replen_type) params.append('replen_type', filters.replen_type);
+            const response = await fetch(`${API_BASE_URL}/api/by-sbu-dept?${params}`);
+            return response.json();
+        }
+
+        async function fetchByDCType(filters = {}) {
+            const params = new URLSearchParams();
+            if (filters.sbu) filters.sbu.forEach(s => params.append('sbu', s));
+            if (filters.department) filters.department.forEach(d => params.append('department', d));
+            if (filters.category) filters.category.forEach(c => params.append('category', c));
+            if (filters.replen_type) params.append('replen_type', filters.replen_type);
+            const response = await fetch(`${API_BASE_URL}/api/by-dc-type?${params}`);
+            return response.json();
+        }
+
+        async function fetchByDCTypeSBU(filters = {}) {
+            const params = new URLSearchParams();
+            if (filters.sbu) filters.sbu.forEach(s => params.append('sbu', s));
+            if (filters.department) filters.department.forEach(d => params.append('department', d));
+            if (filters.category) filters.category.forEach(c => params.append('category', c));
+            if (filters.replen_type) params.append('replen_type', filters.replen_type);
+            const response = await fetch(`${API_BASE_URL}/api/by-dc-type-sbu?${params}`);
+            return response.json();
+        }
+
+        async function fetchByDepartment(filters = {}) {
+            const params = new URLSearchParams();
+            if (filters.sbu) filters.sbu.forEach(s => params.append('sbu', s));
+            if (filters.category) filters.category.forEach(c => params.append('category', c));
+            if (filters.replen_type) params.append('replen_type', filters.replen_type);
+            const response = await fetch(`${API_BASE_URL}/api/by-department?${params}`);
+            return response.json();
+        }
+
+        async function fetchDepartments(sbu = []) {
+            const params = new URLSearchParams();
+            if (sbu.length) sbu.forEach(s => params.append('sbu', s));
+            const response = await fetch(`${API_BASE_URL}/api/filters/departments?${params}`);
+            return response.json();
+        }
+
+        async function fetchCategories(sbu = [], department = []) {
+            const params = new URLSearchParams();
+            if (sbu.length) sbu.forEach(s => params.append('sbu', s));
+            if (department.length) department.forEach(d => params.append('department', d));
+            const response = await fetch(`${API_BASE_URL}/api/filters/categories?${params}`);
+            return response.json();
+        }
+
+        // UI Updates
+        function updateKPIs(data) {
+            document.getElementById('kpi-store').textContent = formatNumber(data.store_units);
+            document.getElementById('kpi-store-cost').textContent = formatCurrency(data.store_cost);
+            document.getElementById('kpi-dc').textContent = formatNumber(data.dc_units);
+            document.getElementById('kpi-dc-cost').textContent = formatCurrency(data.dc_cost);
+            document.getElementById('kpi-transit').textContent = formatNumber(data.transit_units);
+            document.getElementById('kpi-transit-cost').textContent = formatCurrency(data.transit_cost);
+            document.getElementById('kpi-reserved').textContent = formatNumber(data.dc_reserved_units);
+            document.getElementById('kpi-reserved-cost').textContent = formatCurrency(data.dc_reserved_cost);
+            document.getElementById('kpi-labeled').textContent = formatNumber(data.dc_labeled_units);
+            document.getElementById('kpi-labeled-cost').textContent = formatCurrency(data.dc_labeled_cost);
+            document.getElementById('kpi-unlabeled').textContent = formatNumber(data.dc_unlabeled_units);
+            document.getElementById('kpi-unlabeled-cost').textContent = formatCurrency(data.dc_unlabeled_cost);
+            document.getElementById('kpi-total-units').textContent = formatNumber(data.total_units);
+            document.getElementById('kpi-total-cost').textContent = formatCurrency(data.total_cost);
+
+            const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+            document.getElementById('bus-date').textContent = yesterday.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+
+        function updateChannelChart(data) {
+            const ctx = document.getElementById('channelChart').getContext('2d');
+            if (channelChart) channelChart.destroy();
+            const total = data.store_units + data.dc_units + data.transit_units + data.dc_reserved_units + data.dc_labeled_units + data.dc_unlabeled_units;
+            channelChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: [''],
+                    datasets: [
+                        { label: 'Store OH', data: [data.store_units], backgroundColor: '#1e7e34', stack: 'stack1' },
+                        { label: 'DC OH', data: [data.dc_units], backgroundColor: '#0069d9', stack: 'stack1' },
+                        { label: 'In-Transit', data: [data.transit_units], backgroundColor: '#c45c00', stack: 'stack1' },
+                        { label: 'DC Reserved', data: [data.dc_reserved_units], backgroundColor: '#5a23c8', stack: 'stack1' },
+                        { label: 'DC Labeled', data: [data.dc_labeled_units], backgroundColor: '#c21a6d', stack: 'stack1' },
+                        { label: 'DC Unlabeled', data: [data.dc_unlabeled_units], backgroundColor: '#6c3483', stack: 'stack1' }
+                    ]
+                },
+                plugins: [ChartDataLabels],
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'top', labels: { boxWidth: 12, padding: 20, font: { size: 11 } } },
+                        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${formatNumber(ctx.raw)} (${(ctx.raw/total*100).toFixed(1)}%)` } },
+                        datalabels: {
+                            color: '#fff',
+                            font: { weight: 'bold', size: 14 },
+                            formatter: (value) => value > 0 ? (value/total*100).toFixed(1) + '%' : '',
+                            display: (ctx) => ctx.dataset.data[0] / total > 0.03
+                        }
+                    },
+                    scales: {
+                        x: { stacked: true, display: false },
+                        y: { stacked: true, display: false }
+                    }
+                }
+            });
+        }
+
+        function updateSBUChart(sbuData) {
+            const ctx = document.getElementById('sbuChart').getContext('2d');
+            if (sbuChart) sbuChart.destroy();
+            // Filter out UNASSIGNED
+            const filteredData = sbuData.filter(d => d.sbu !== 'UNASSIGNED');
+            sbuChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: filteredData.map(d => d.sbu),
+                    datasets: [
+                        { label: 'Store OH', data: filteredData.map(d => d.store_units / 1e6), backgroundColor: '#1e7e34', stack: 'stack1' },
+                        { label: 'DC OH', data: filteredData.map(d => d.dc_units / 1e6), backgroundColor: '#0069d9', stack: 'stack1' },
+                        { label: 'In-Transit', data: filteredData.map(d => d.transit_units / 1e6), backgroundColor: '#c45c00', stack: 'stack1' },
+                        { label: 'DC Reserved', data: filteredData.map(d => d.dc_reserved_units / 1e6), backgroundColor: '#5a23c8', stack: 'stack1' },
+                        { label: 'DC Labeled', data: filteredData.map(d => d.dc_labeled_units / 1e6), backgroundColor: '#c21a6d', stack: 'stack1' },
+                        { label: 'DC Unlabeled', data: filteredData.map(d => (d.dc_unlabeled_units || 0) / 1e6), backgroundColor: '#6c3483', stack: 'stack1' }
+                    ]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    layout: { padding: { left: 10 } },
+                    plugins: {
+                        legend: { position: 'top', labels: { boxWidth: 14, padding: 20, font: { size: 12 } } },
+                        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${formatNumber(ctx.raw * 1e6)}` } }
+                    },
+                    scales: {
+                        x: { stacked: true, title: { display: true, text: 'Units (M)', font: { size: 12 } }, ticks: { font: { size: 11 } } },
+                        y: { stacked: true, ticks: { font: { size: 13, weight: 'bold' } } }
+                    }
+                }
+            });
+        }
+
+        function updateSBUTable(sbuData, sbuDeptData) {
+            // Filter out UNASSIGNED
+            const filteredSbuData = sbuData.filter(d => d.sbu !== 'UNASSIGNED');
+            const filteredDeptData = sbuDeptData.filter(d => d.sbu !== 'UNASSIGNED');
+
+            // Group department data by SBU
+            const deptBySBU = {};
+            filteredDeptData.forEach(row => {
+                if (!deptBySBU[row.sbu]) deptBySBU[row.sbu] = [];
+                deptBySBU[row.sbu].push(row);
+            });
+
+            // Helper to create stacked bar HTML
+            function createStackedBar(store, dc, transit, reserved, labeled, unlabeled, total) {
+                if (total === 0) return '<span class="text-muted">-</span>';
+                const pctStore = (store / total * 100).toFixed(1);
+                const pctDC = (dc / total * 100).toFixed(1);
+                const pctTransit = (transit / total * 100).toFixed(1);
+                const pctReserved = (reserved / total * 100).toFixed(1);
+                const pctLabeled = (labeled / total * 100).toFixed(1);
+                const pctUnlabeled = (unlabeled / total * 100).toFixed(1);
+                return `
+                <div class="d-flex" style="height:12px; border-radius:2px; overflow:hidden;">
+                    <div style="width:${pctStore}%; background:#1e7e34;" title="Store: ${pctStore}%"></div>
+                    <div style="width:${pctDC}%; background:#0069d9;" title="DC OH: ${pctDC}%"></div>
+                    <div style="width:${pctTransit}%; background:#c45c00;" title="Transit: ${pctTransit}%"></div>
+                    <div style="width:${pctReserved}%; background:#5a23c8;" title="Rsrvd: ${pctReserved}%"></div>
+                    <div style="width:${pctLabeled}%; background:#c21a6d;" title="Lbld: ${pctLabeled}%"></div>
+                    <div style="width:${pctUnlabeled}%; background:#6c3483;" title="Unlbld: ${pctUnlabeled}%"></div>
+                </div>`;
+            }
+
+            // Build hierarchical table with SBU totals and department details
+            let html = '';
+            filteredSbuData.forEach(sbu => {
+                const sbuBar = createStackedBar(sbu.store_units, sbu.dc_units, sbu.transit_units, sbu.dc_reserved_units, sbu.dc_labeled_units, sbu.dc_unlabeled_units || 0, sbu.total_units);
+                // SBU Total Row (clickable to expand/collapse)
+                html += `
+                <tr class="sbu-row" style="cursor:pointer;" onclick="toggleDepts('${sbu.sbu.replace(/'/g, "\\'")}')">
+                    <td><strong><i class="bi bi-chevron-down me-1" id="chevron-${sbu.sbu.replace(/\s+/g, '-')}"></i>${sbu.sbu}</strong></td>
+                    <td class="text-center">-</td>
+                    <td class="text-end"><strong>${formatNumber(sbu.store_units)}</strong></td>
+                    <td class="text-end"><strong>${formatNumber(sbu.dc_units)}</strong></td>
+                    <td class="text-end"><strong>${formatNumber(sbu.transit_units)}</strong></td>
+                    <td class="text-end"><strong>${formatNumber(sbu.dc_reserved_units)}</strong></td>
+                    <td class="text-end"><strong>${formatNumber(sbu.dc_labeled_units)}</strong></td>
+                    <td class="text-end"><strong>${formatNumber(sbu.dc_unlabeled_units || 0)}</strong></td>
+                    <td class="text-end"><strong>${formatNumber(sbu.total_units)}</strong></td>
+                    <td class="text-end"><strong>${formatCurrency(sbu.total_cost)}</strong></td>
+                    <td>${sbuBar}</td>
+                </tr>`;
+
+                // Department Rows under this SBU
+                const depts = deptBySBU[sbu.sbu] || [];
+                depts.forEach(dept => {
+                    const deptBar = createStackedBar(dept.store_units, dept.dc_units, dept.transit_units, dept.dc_reserved_units, dept.dc_labeled_units, dept.dc_unlabeled_units || 0, dept.total_units);
+                    const deptName = dept.department.length > 15 ? dept.department.substring(0, 15) + '...' : dept.department;
+                    html += `
+                    <tr class="dept-row dept-${sbu.sbu.replace(/\s+/g, '-')}">
+                        <td style="padding-left:20px;" title="${dept.department}">${deptName}</td>
+                        <td class="text-center" style="color:#888;">${dept.dept_nbr || '-'}</td>
+                        <td class="text-end">${formatNumber(dept.store_units)}</td>
+                        <td class="text-end">${formatNumber(dept.dc_units)}</td>
+                        <td class="text-end">${formatNumber(dept.transit_units)}</td>
+                        <td class="text-end">${formatNumber(dept.dc_reserved_units)}</td>
+                        <td class="text-end">${formatNumber(dept.dc_labeled_units)}</td>
+                        <td class="text-end">${formatNumber(dept.dc_unlabeled_units || 0)}</td>
+                        <td class="text-end">${formatNumber(dept.total_units)}</td>
+                        <td class="text-end">${formatCurrency(dept.total_cost)}</td>
+                        <td>${deptBar}</td>
+                    </tr>`;
+                });
+            });
+            document.getElementById('sbu-tbody').innerHTML = html;
+        }
+
+        function toggleDepts(sbu) {
+            const className = 'dept-' + sbu.replace(/\s+/g, '-');
+            const rows = document.querySelectorAll('.' + className);
+            const chevron = document.getElementById('chevron-' + sbu.replace(/\s+/g, '-'));
+            rows.forEach(row => {
+                row.style.display = row.style.display === 'none' ? '' : 'none';
+            });
+            if (chevron) {
+                chevron.className = rows[0]?.style.display === 'none' ? 'bi bi-chevron-right me-1' : 'bi bi-chevron-down me-1';
+            }
+        }
+
+        function updateDCTypeTable(dcData, dcSbuData) {
+            // Group SBU data by DC Type
+            const sbuByDCType = {};
+            dcSbuData.forEach(row => {
+                if (!sbuByDCType[row.dc_type]) sbuByDCType[row.dc_type] = [];
+                sbuByDCType[row.dc_type].push(row);
+            });
+
+            // Build hierarchical table with DC Type totals and SBU sub-rows
+            let html = '';
+            dcData.forEach((dc, i) => {
+                // DC Type Total Row (clickable to expand/collapse)
+                html += `
+                <tr class="dc-type-row" style="background:#1e4976 !important; cursor:pointer; border-left:4px solid #0071ce;" onclick="toggleDcSbu('${dc.dc_type.replace(/'/g, "\\'")}')">
+                    <td style="background:#1e4976 !important; color:#fff !important;"><strong><i class="bi bi-chevron-down me-1" id="dc-chevron-${dc.dc_type.replace(/\s+/g, '-')}"></i>${dc.dc_type}</strong></td>
+                    <td class="text-end" style="background:#1e4976 !important; color:#fff !important;"><strong>${formatNumber(dc.dc_oh_units)}</strong></td>
+                    <td class="text-end" style="background:#1e4976 !important; color:#fff !important;"><strong>${formatNumber(dc.dc_labeled_units)}</strong></td>
+                    <td class="text-end" style="background:#1e4976 !important; color:#fff !important;"><strong>${formatNumber(dc.dc_unlabeled_units)}</strong></td>
+                    <td class="text-end" style="background:#1e4976 !important; color:#fff !important;"><strong>${formatNumber(dc.total_dc_units)}</strong></td>
+                    <td class="text-end" style="background:#1e4976 !important; color:#fff !important;"><strong>${formatCurrency(dc.total_dc_cost)}</strong></td>
+                </tr>`;
+
+                // SBU Rows under this DC Type
+                const sbus = sbuByDCType[dc.dc_type] || [];
+                sbus.forEach((sbu, j) => {
+                    const rowBg = j % 2 === 0 ? '#1a2744' : '#1e2d4d';
+                    html += `
+                    <tr class="dc-sbu-detail dc-sbu-${dc.dc_type.replace(/\s+/g, '-')}" style="background:${rowBg} !important;">
+                        <td style="padding-left:20px; color:#a8c8e8; background:${rowBg} !important;">${sbu.sbu}</td>
+                        <td class="text-end" style="color:#c8d8e8; background:${rowBg} !important;">${formatNumber(sbu.dc_oh_units)}</td>
+                        <td class="text-end" style="color:#c8d8e8; background:${rowBg} !important;">${formatNumber(sbu.dc_labeled_units)}</td>
+                        <td class="text-end" style="color:#c8d8e8; background:${rowBg} !important;">${formatNumber(sbu.dc_unlabeled_units)}</td>
+                        <td class="text-end" style="color:#c8d8e8; background:${rowBg} !important;">${formatNumber(sbu.total_dc_units)}</td>
+                        <td class="text-end" style="color:#c8d8e8; background:${rowBg} !important;">${formatCurrency(sbu.total_dc_cost)}</td>
+                    </tr>`;
+                });
+            });
+            document.getElementById('dc-type-tbody').innerHTML = html;
+
+            // Chart - Stacked by inventory type
+            const ctx = document.getElementById('dcTypeChart').getContext('2d');
+            if (dcTypeChart) dcTypeChart.destroy();
+            dcTypeChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: dcData.map(d => d.dc_type),
+                    datasets: [
+                        { label: 'DC OH', data: dcData.map(d => d.dc_oh_units / 1e6), backgroundColor: '#0069d9', stack: 'stack1' },
+                        { label: 'DC Labeled', data: dcData.map(d => d.dc_labeled_units / 1e6), backgroundColor: '#c21a6d', stack: 'stack1' },
+                        { label: 'DC Unlabeled', data: dcData.map(d => d.dc_unlabeled_units / 1e6), backgroundColor: '#6c3483', stack: 'stack1' }
+                    ]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'top', labels: { color: '#e8e8e8', boxWidth: 12, padding: 15 } },
+                        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${formatNumber(ctx.raw * 1e6)}` } }
+                    },
+                    scales: {
+                        x: { stacked: true, title: { display: true, text: 'Units (M)', color: '#e8e8e8' }, ticks: { color: '#e8e8e8' }, grid: { color: '#2a2a4a' } },
+                        y: { stacked: true, ticks: { color: '#e8e8e8', font: { size: 11 } }, grid: { color: '#2a2a4a' } }
+                    }
+                }
+            });
+        }
+
+        function toggleDcSbu(dcType) {
+            const className = 'dc-sbu-' + dcType.replace(/\s+/g, '-');
+            const rows = document.querySelectorAll('.' + className);
+            const chevron = document.getElementById('dc-chevron-' + dcType.replace(/\s+/g, '-'));
+            rows.forEach(row => {
+                row.style.display = row.style.display === 'none' ? '' : 'none';
+            });
+            if (chevron) {
+                chevron.className = rows[0]?.style.display === 'none' ? 'bi bi-chevron-right me-1' : 'bi bi-chevron-down me-1';
+            }
+        }
+
+        function updateDeptTable(deptData) {
+            document.getElementById('dept-tbody').innerHTML = deptData.slice(0, 20).map(row => `
+                <tr>
+                    <td>${row.department}</td>
+                    <td class="text-end">${formatNumber(row.store_units)}</td>
+                    <td class="text-end">${formatNumber(row.dc_oh_units)}</td>
+                    <td class="text-end">${formatNumber(row.transit_units)}</td>
+                    <td class="text-end">${formatNumber(row.dc_reserved_units)}</td>
+                    <td class="text-end">${formatNumber(row.dc_labeled_units)}</td>
+                    <td class="text-end">${formatNumber(row.dc_unlabeled_units)}</td>
+                    <td class="text-end"><strong>${formatNumber(row.total_units)}</strong></td>
+                    <td class="text-end">${formatCurrency(row.total_cost)}</td>
+                </tr>`).join('');
+        }
+
+        function updateDeptStackedChart(deptData) {
+            const ctx = document.getElementById('deptStackedChart').getContext('2d');
+            if (deptStackedChart) deptStackedChart.destroy();
+
+            // Take top 15 departments by total_units
+            const top15 = deptData.slice(0, 15);
+            const labels = top15.map(d => d.department);
+
+            deptStackedChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: 'Store OH', data: top15.map(d => d.store_units / 1e6), backgroundColor: '#1e7e34', stack: 'stack1' },
+                        { label: 'DC OH', data: top15.map(d => d.dc_oh_units / 1e6), backgroundColor: '#0069d9', stack: 'stack1' },
+                        { label: 'In-Transit', data: top15.map(d => d.transit_units / 1e6), backgroundColor: '#c45c00', stack: 'stack1' },
+                        { label: 'DC Reserved', data: top15.map(d => d.dc_reserved_units / 1e6), backgroundColor: '#5a23c8', stack: 'stack1' },
+                        { label: 'DC Labeled', data: top15.map(d => d.dc_labeled_units / 1e6), backgroundColor: '#c21a6d', stack: 'stack1' },
+                        { label: 'DC Unlabeled', data: top15.map(d => d.dc_unlabeled_units / 1e6), backgroundColor: '#6c3483', stack: 'stack1' }
+                    ]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    layout: { padding: { left: 10 } },
+                    plugins: {
+                        legend: { position: 'top', labels: { boxWidth: 14, padding: 20, font: { size: 12 } } },
+                        tooltip: {
+                            callbacks: {
+                                label: ctx => `${ctx.dataset.label}: ${formatNumber(ctx.raw * 1e6)}`
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            stacked: true,
+                            title: { display: true, text: 'Units (Millions)', font: { size: 12 } },
+                            ticks: { font: { size: 11 } }
+                        },
+                        y: {
+                            stacked: true,
+                            ticks: { font: { size: 12, weight: '500' } }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Filters
+        function getFilters() {
+            const filters = {};
+            const sbu = Array.from(document.getElementById('sbu-filter').selectedOptions).map(o => o.value);
+            const dept = Array.from(document.getElementById('dept-filter').selectedOptions).map(o => o.value).filter(v => v);
+            const catg = Array.from(document.getElementById('catg-filter').selectedOptions).map(o => o.value).filter(v => v);
+            const replen = document.getElementById('replen-filter').value;
+            const item = document.getElementById('item-search').value.trim();
+            if (sbu.length) filters.sbu = sbu;
+            if (dept.length) filters.department = dept;
+            if (catg.length) filters.category = catg;
+            if (replen) filters.replen_type = replen;
+            if (item) filters.item_id = item;
+            return filters;
+        }
+
+        async function onSBUChange() {
+            const sbu = Array.from(document.getElementById('sbu-filter').selectedOptions).map(o => o.value);
+            const deptSelect = document.getElementById('dept-filter');
+            const catgSelect = document.getElementById('catg-filter');
+            deptSelect.innerHTML = '<option value="">Loading...</option>';
+            catgSelect.innerHTML = '<option value="">Select Department first</option>';
+            const departments = await fetchDepartments(sbu);
+            deptSelect.innerHTML = departments.map(d => `<option value="${d}">${d}</option>`).join('');
+        }
+
+        async function onDeptChange() {
+            const sbu = Array.from(document.getElementById('sbu-filter').selectedOptions).map(o => o.value);
+            const dept = Array.from(document.getElementById('dept-filter').selectedOptions).map(o => o.value).filter(v => v);
+            const catgSelect = document.getElementById('catg-filter');
+            if (dept.length === 0) {
+                catgSelect.innerHTML = '<option value="">Select Department first</option>';
+                return;
+            }
+            catgSelect.innerHTML = '<option value="">Loading categories...</option>';
+            try {
+                const categories = await fetchCategories(sbu, dept);
+                if (categories.length === 0) {
+                    catgSelect.innerHTML = '<option value="">No categories found</option>';
+                } else {
+                    catgSelect.innerHTML = categories.map(c => `<option value="${c.category}">${c.category}</option>`).join('');
+                }
+            } catch (e) {
+                console.error('Error loading categories:', e);
+                catgSelect.innerHTML = '<option value="">Error loading</option>';
+            }
+        }
+
+        async function applyFilters() {
+            const filters = getFilters();
+            const parts = [];
+            if (filters.sbu) parts.push(`SBU: ${filters.sbu.length}`);
+            if (filters.department) parts.push(`Dept: ${filters.department.length}`);
+            if (filters.category) parts.push(`Catg: ${filters.category.length}`);
+            if (filters.replen_type) parts.push(filters.replen_type);
+            if (filters.item_id) parts.push(`Item: ${filters.item_id}`);
+            if (parts.length) {
+                document.getElementById('filter-text').textContent = parts.join(' | ');
+                document.getElementById('filter-badge').classList.remove('d-none');
+            } else {
+                document.getElementById('filter-badge').classList.add('d-none');
+            }
+            await refreshData(filters);
+        }
+
+        function clearFilters() {
+            document.getElementById('sbu-filter').selectedIndex = -1;
+            document.getElementById('dept-filter').selectedIndex = -1;
+            document.getElementById('catg-filter').selectedIndex = -1;
+            document.getElementById('catg-filter').innerHTML = '<option value="">Select Department first</option>';
+            document.getElementById('replen-filter').selectedIndex = 0;
+            document.getElementById('item-search').value = '';
+            document.getElementById('filter-badge').classList.add('d-none');
+            document.getElementById('dept-breakdown-section').classList.remove('show');
+            onSBUChange();
+            refreshData({});
+        }
+
+        async function refreshData(filters = {}) {
+            showLoading(true);
+            try {
+                const [summary, sbuData, sbuDeptData, dcTypeData, dcTypeSbuData, deptData] = await Promise.all([
+                    fetchSummary(filters),
+                    fetchBySBU(filters),
+                    fetchBySBUDept(filters),
+                    fetchByDCType(filters),
+                    fetchByDCTypeSBU(filters),
+                    fetchByDepartment(filters)
+                ]);
+
+                updateKPIs(summary);
+                updateChannelChart(summary);
+                updateSBUChart(sbuData);
+                updateSBUTable(sbuData, sbuDeptData);
+                updateDCTypeTable(dcTypeData, dcTypeSbuData);
+                updateDeptStackedChart(deptData);
+
+                // Show dept breakdown if SBU is selected
+                if (filters.sbu && filters.sbu.length > 0) {
+                    updateDeptTable(deptData);
+                    document.getElementById('dept-breakdown-section').classList.add('show');
+                } else {
+                    document.getElementById('dept-breakdown-section').classList.remove('show');
+                }
+
+                document.getElementById('api-status').className = 'status-badge status-live';
+                document.getElementById('api-status').innerHTML = '<i class="bi bi-circle-fill me-1"></i>Live';
+            } catch (error) {
+                console.error(error);
+                document.getElementById('api-status').className = 'status-badge';
+                document.getElementById('api-status').style.background = '#f8d7da';
+                document.getElementById('api-status').innerHTML = '<i class="bi bi-exclamation-circle me-1"></i>Error';
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => { onSBUChange(); refreshData(); });
+        document.getElementById('item-search').addEventListener('keypress', e => { if (e.key === 'Enter') applyFilters(); });
+    </script>
+</body>
+</html>

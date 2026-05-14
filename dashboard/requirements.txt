@@ -1,0 +1,12 @@
+# R packages required for the dashboard
+# Install with: install.packages(c("shiny", "bigrquery", "DBI", "dplyr", "ggplot2", "plotly", "DT", "scales", "tidyr"))
+
+shiny
+bigrquery
+DBI
+dplyr
+ggplot2
+plotly
+DT
+scales
+tidyr

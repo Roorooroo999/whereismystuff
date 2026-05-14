@@ -1,0 +1,420 @@
+---
+title: "Where's My Stuff - Inventory Rollup"
+format:
+  dashboard:
+    theme: cosmo
+    orientation: columns
+server: shiny
+---
+
+```{r}
+#| context: setup
+#| include: false
+
+library(shiny)
+library(bigrquery)
+library(DBI)
+library(dplyr)
+library(ggplot2)
+library(plotly)
+library(DT)
+library(scales)
+
+# BigQuery connection
+project_id <- "wmt-instockinventory-datamart"
+billing_project <- "wmt-instockinventory-datamart"
+
+# Authenticate (uses ADC on Posit Connect)
+bq_auth(path = Sys.getenv("GOOGLE_APPLICATION_CREDENTIALS"))
+
+con <- dbConnect(
+  bigrquery::bigquery(),
+  project = project_id,
+  billing = billing_project
+)
+
+# Query the rollup data
+query <- "
+SELECT
+  BUS_DT,
+  MDS_FAM_ID,
+  WALMART_NBR,
+  OMNI_SEG_DESC AS SBU,
+  OMNI_DIVISION,
+  OMNI_DEPT_NBR,
+  OMNI_DEPT_DESC,
+  REPLEN_TYPE,
+  DC_TYPE_DESC,
+  UNIT_COST,
+  STORE_OH_UNITS,
+  IN_TRANSIT_UNITS,
+  DC_OH_UNITS
+FROM `wmt-instockinventory-datamart.WM_AD_HOC.WHERES_MY_STUFF_ROLLUP`
+"
+
+rollup_data <- dbGetQuery(con, query)
+
+# Get unique values for filters
+departments <- sort(unique(rollup_data$OMNI_DEPT_DESC))
+sbus <- sort(unique(rollup_data$SBU))
+divisions <- sort(unique(rollup_data$OMNI_DIVISION))
+```
+
+# Filters
+
+## {.sidebar}
+
+```{r}
+selectInput(
+  "sbu_filter",
+  "SBU (Segment):",
+  choices = c("All" = "", sbus),
+  selected = "",
+  multiple = TRUE
+)
+
+selectInput(
+  "division_filter",
+  "Division:",
+  choices = c("All" = "", divisions),
+  selected = "",
+  multiple = TRUE
+)
+
+selectInput(
+  "dept_filter",
+  "Department:",
+  choices = c("All" = "", departments),
+  selected = "",
+  multiple = TRUE
+)
+
+textInput(
+  "item_filter",
+  "Item (MDS_FAM_ID or WALMART_NBR):",
+  value = ""
+)
+
+selectInput(
+  "replen_filter",
+  "Replen Type:",
+  choices = c("All" = "", "REPLEN", "NON-REPLEN"),
+  selected = ""
+)
+
+actionButton("refresh_btn", "Refresh Data", class = "btn-primary")
+
+hr()
+
+p(em(paste("Last refreshed:", Sys.time())))
+```
+
+```{r}
+#| context: server
+
+# Reactive filtered data
+filtered_data <- reactive({
+  data <- rollup_data
+
+  # Apply SBU filter
+  if (!is.null(input$sbu_filter) && length(input$sbu_filter) > 0 && input$sbu_filter[1] != "") {
+    data <- data %>% filter(SBU %in% input$sbu_filter)
+  }
+
+  # Apply Division filter
+  if (!is.null(input$division_filter) && length(input$division_filter) > 0 && input$division_filter[1] != "") {
+    data <- data %>% filter(OMNI_DIVISION %in% input$division_filter)
+  }
+
+  # Apply Department filter
+  if (!is.null(input$dept_filter) && length(input$dept_filter) > 0 && input$dept_filter[1] != "") {
+    data <- data %>% filter(OMNI_DEPT_DESC %in% input$dept_filter)
+  }
+
+  # Apply Item filter
+  if (!is.null(input$item_filter) && input$item_filter != "") {
+    item_search <- input$item_filter
+    data <- data %>%
+      filter(
+        grepl(item_search, as.character(MDS_FAM_ID), ignore.case = TRUE) |
+        grepl(item_search, as.character(WALMART_NBR), ignore.case = TRUE)
+      )
+  }
+
+  # Apply Replen filter
+  if (!is.null(input$replen_filter) && input$replen_filter != "") {
+    data <- data %>% filter(REPLEN_TYPE == input$replen_filter)
+  }
+
+  data
+})
+
+# Summary metrics
+summary_metrics <- reactive({
+  data <- filtered_data()
+
+  list(
+    total_items = n_distinct(data$MDS_FAM_ID),
+    store_units = sum(data$STORE_OH_UNITS, na.rm = TRUE),
+    transit_units = sum(data$IN_TRANSIT_UNITS, na.rm = TRUE),
+    dc_units = sum(data$DC_OH_UNITS, na.rm = TRUE),
+    total_units = sum(data$STORE_OH_UNITS, na.rm = TRUE) +
+                  sum(data$IN_TRANSIT_UNITS, na.rm = TRUE) +
+                  sum(data$DC_OH_UNITS, na.rm = TRUE),
+    store_cost = sum(data$STORE_OH_UNITS * data$UNIT_COST, na.rm = TRUE),
+    transit_cost = sum(data$IN_TRANSIT_UNITS * data$UNIT_COST, na.rm = TRUE),
+    dc_cost = sum(data$DC_OH_UNITS * data$UNIT_COST, na.rm = TRUE)
+  )
+})
+```
+
+# Overview
+
+## Row {height=25%}
+
+```{r}
+#| title: "Total Items"
+#| component: valuebox
+
+renderValueBox({
+  valueBox(
+    value = format(summary_metrics()$total_items, big.mark = ","),
+    icon = "box",
+    color = "primary"
+  )
+})
+```
+
+```{r}
+#| title: "Store On-Hand Units"
+#| component: valuebox
+
+renderValueBox({
+  valueBox(
+    value = format(summary_metrics()$store_units, big.mark = ","),
+    icon = "shop",
+    color = "success"
+  )
+})
+```
+
+```{r}
+#| title: "In-Transit Units"
+#| component: valuebox
+
+renderValueBox({
+  valueBox(
+    value = format(summary_metrics()$transit_units, big.mark = ","),
+    icon = "truck",
+    color = "warning"
+  )
+})
+```
+
+```{r}
+#| title: "DC On-Hand Units"
+#| component: valuebox
+
+renderValueBox({
+  valueBox(
+    value = format(summary_metrics()$dc_units, big.mark = ","),
+    icon = "building",
+    color = "info"
+  )
+})
+```
+
+## Row {height=75%}
+
+### Column {width=50%}
+
+```{r}
+#| title: "Inventory by Network"
+
+renderPlotly({
+  metrics <- summary_metrics()
+
+  df <- data.frame(
+    Network = c("Store", "In-Transit", "DC"),
+    Units = c(metrics$store_units, metrics$transit_units, metrics$dc_units)
+  )
+
+  p <- ggplot(df, aes(x = reorder(Network, -Units), y = Units, fill = Network)) +
+    geom_col() +
+    scale_y_continuous(labels = label_comma()) +
+    scale_fill_manual(values = c("Store" = "#28a745", "In-Transit" = "#ffc107", "DC" = "#17a2b8")) +
+    labs(x = "", y = "Units") +
+    theme_minimal() +
+    theme(legend.position = "none")
+
+  ggplotly(p)
+})
+```
+
+```{r}
+#| title: "Inventory by Division"
+
+renderPlotly({
+  data <- filtered_data() %>%
+    group_by(OMNI_DIVISION) %>%
+    summarise(
+      Total_Units = sum(STORE_OH_UNITS + IN_TRANSIT_UNITS + DC_OH_UNITS, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    arrange(desc(Total_Units))
+
+  p <- ggplot(data, aes(x = reorder(OMNI_DIVISION, Total_Units), y = Total_Units, fill = OMNI_DIVISION)) +
+    geom_col() +
+    coord_flip() +
+    scale_y_continuous(labels = label_comma()) +
+    labs(x = "", y = "Total Units") +
+    theme_minimal() +
+    theme(legend.position = "none")
+
+  ggplotly(p)
+})
+```
+
+### Column {width=50%}
+
+```{r}
+#| title: "Inventory by Replen Type"
+
+renderPlotly({
+  data <- filtered_data() %>%
+    group_by(REPLEN_TYPE) %>%
+    summarise(
+      Store = sum(STORE_OH_UNITS, na.rm = TRUE),
+      Transit = sum(IN_TRANSIT_UNITS, na.rm = TRUE),
+      DC = sum(DC_OH_UNITS, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    tidyr::pivot_longer(cols = c(Store, Transit, DC), names_to = "Network", values_to = "Units")
+
+  p <- ggplot(data, aes(x = REPLEN_TYPE, y = Units, fill = Network)) +
+    geom_col(position = "dodge") +
+    scale_y_continuous(labels = label_comma()) +
+    scale_fill_manual(values = c("Store" = "#28a745", "Transit" = "#ffc107", "DC" = "#17a2b8")) +
+    labs(x = "", y = "Units") +
+    theme_minimal()
+
+  ggplotly(p)
+})
+```
+
+```{r}
+#| title: "Top 10 Departments by Inventory"
+
+renderPlotly({
+  data <- filtered_data() %>%
+    group_by(OMNI_DEPT_DESC) %>%
+    summarise(
+      Total_Units = sum(STORE_OH_UNITS + IN_TRANSIT_UNITS + DC_OH_UNITS, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    arrange(desc(Total_Units)) %>%
+    head(10)
+
+  p <- ggplot(data, aes(x = reorder(OMNI_DEPT_DESC, Total_Units), y = Total_Units)) +
+    geom_col(fill = "#6f42c1") +
+    coord_flip() +
+    scale_y_continuous(labels = label_comma()) +
+    labs(x = "", y = "Total Units") +
+    theme_minimal()
+
+  ggplotly(p)
+})
+```
+
+# Detail View
+
+## Row
+
+```{r}
+#| title: "Item Detail Table"
+
+renderDT({
+  data <- filtered_data() %>%
+    group_by(MDS_FAM_ID, WALMART_NBR, OMNI_DEPT_DESC, OMNI_DIVISION, REPLEN_TYPE) %>%
+    summarise(
+      STORE_OH = sum(STORE_OH_UNITS, na.rm = TRUE),
+      IN_TRANSIT = sum(IN_TRANSIT_UNITS, na.rm = TRUE),
+      DC_OH = sum(DC_OH_UNITS, na.rm = TRUE),
+      TOTAL = sum(STORE_OH_UNITS + IN_TRANSIT_UNITS + DC_OH_UNITS, na.rm = TRUE),
+      UNIT_COST = mean(UNIT_COST, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    arrange(desc(TOTAL))
+
+  datatable(
+    data,
+    filter = "top",
+    options = list(
+      pageLength = 25,
+      scrollX = TRUE,
+      dom = 'Bfrtip',
+      buttons = c('copy', 'csv', 'excel')
+    ),
+    extensions = 'Buttons'
+  ) %>%
+    formatCurrency("UNIT_COST", currency = "$", digits = 2) %>%
+    formatRound(c("STORE_OH", "IN_TRANSIT", "DC_OH", "TOTAL"), digits = 0, mark = ",")
+})
+```
+
+# DC Breakdown
+
+## Row {height=40%}
+
+```{r}
+#| title: "DC Inventory by Type"
+
+renderPlotly({
+  data <- filtered_data() %>%
+    filter(!is.na(DC_TYPE_DESC)) %>%
+    group_by(DC_TYPE_DESC) %>%
+    summarise(
+      DC_Units = sum(DC_OH_UNITS, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    arrange(desc(DC_Units))
+
+  p <- ggplot(data, aes(x = reorder(DC_TYPE_DESC, DC_Units), y = DC_Units, fill = DC_TYPE_DESC)) +
+    geom_col() +
+    coord_flip() +
+    scale_y_continuous(labels = label_comma()) +
+    labs(x = "", y = "DC Units") +
+    theme_minimal() +
+    theme(legend.position = "none")
+
+  ggplotly(p)
+})
+```
+
+## Row {height=60%}
+
+```{r}
+#| title: "DC Breakdown by Division & Type"
+
+renderDT({
+  data <- filtered_data() %>%
+    filter(!is.na(DC_TYPE_DESC)) %>%
+    group_by(OMNI_DIVISION, DC_TYPE_DESC) %>%
+    summarise(
+      Items = n_distinct(MDS_FAM_ID),
+      DC_Units = sum(DC_OH_UNITS, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    arrange(desc(DC_Units))
+
+  datatable(
+    data,
+    filter = "top",
+    options = list(
+      pageLength = 20,
+      scrollX = TRUE
+    )
+  ) %>%
+    formatRound(c("DC_Units"), digits = 0, mark = ",")
+})
+```

@@ -1,12 +1,18 @@
 # Posit Connect publish configuration
-# Update the server URL and account as needed
+# For Git-backed deployment
 
-connect:
-  - source: wheres_my_stuff_dashboard.qmd
-    server: https://posit.wal-mart.com/  # Update with your Posit Connect URL
-    account: your_account                 # Update with your account
-    title: "Where's My Stuff - Inventory Rollup"
-    access_type: acl                      # Access control list
+project:
+  type: website
 
-# Environment variables needed on Posit Connect:
-# GOOGLE_APPLICATION_CREDENTIALS - path to service account JSON key
+website:
+  title: "Where's My Stuff - Inventory Dashboard"
+
+format:
+  html:
+    theme: darkly
+
+# For Posit Connect Git deployment:
+# 1. Go to Posit Connect → Publish → Import from Git
+# 2. Enter repo URL: https://github.com/Roorooroo999/whereismystuff
+# 3. Set directory to: dashboard
+# 4. Select branch: main

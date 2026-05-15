@@ -4,15 +4,19 @@ FastAPI backend for BigQuery-powered dashboard filtering
 Deployed on Google Cloud Run
 """
 
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI, Query, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 from google.cloud import bigquery
 import os
+import logging
 from typing import Optional, List
 from pydantic import BaseModel
 from pathlib import Path
+
+logger = logging.getLogger("uvicorn.error")
 
 app = FastAPI(
     title="Where's My Stuff API",
@@ -28,6 +32,19 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# No-cache middleware to prevent stale filtered results
+class NoCacheMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+            # Log query params for debugging
+            if request.query_params:
+                logger.info(f"{request.url.path} filters: {dict(request.query_params)}")
+        return response
+
+app.add_middleware(NoCacheMiddleware)
 
 # BigQuery client (uses ADC - Application Default Credentials)
 # In Cloud Run, ADC automatically uses the service account attached to the instance

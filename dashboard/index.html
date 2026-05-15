@@ -446,6 +446,9 @@
             const qs = buildQueryString(filters);
             const suffix = qs ? '?' + qs : '';
 
+            console.log('[API] Filters:', JSON.stringify(filters));
+            console.log('[API] Query string:', suffix || '(none)');
+
             const endpoints = [
                 'summary',
                 'by-sbu',
@@ -455,11 +458,16 @@
                 'by-department'
             ];
 
-            const requests = endpoints.map(name =>
-                fetch(`${API_BASE}/api/${name}${suffix}`)
+            const requests = endpoints.map(name => {
+                const url = `${API_BASE}/api/${name}${suffix}`;
+                return fetch(url, { cache: 'no-store' })
                     .then(r => {
                         if (!r.ok) throw new Error(`${name} failed: ${r.status}`);
                         return r.json();
+                    })
+                    .then(data => {
+                        console.log(`[API] ${name}: ${Array.isArray(data) ? data.length + ' rows' : 'object'}`);
+                        return data;
                     })
             );
 

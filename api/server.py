@@ -50,7 +50,10 @@ class NoCacheMiddleware(BaseHTTPMiddleware):
 app.add_middleware(NoCacheMiddleware)
 
 # BigQuery config
-PROJECT_ID = os.environ.get("PROJECT_ID", "wmt-instockinventory-datamart")
+# DATA_PROJECT = where the table lives; CLIENT_PROJECT = where the job runs (must have bigquery.jobs.create)
+DATA_PROJECT = os.environ.get("DATA_PROJECT", "wmt-instockinventory-datamart")
+CLIENT_PROJECT = os.environ.get("CLIENT_PROJECT", "wmt-execution-intel-prod")
+PROJECT_ID = DATA_PROJECT  # for backward compat in table references
 DATASET = os.environ.get("DATASET", "WM_AD_HOC")
 TABLE = os.environ.get("TABLE", "WHERES_MY_STUFF_ROLLUP")
 REFRESH_INTERVAL = int(os.environ.get("CACHE_REFRESH_SECONDS", "3600"))  # 1 hour default
@@ -82,12 +85,13 @@ class DataCache:
 
     def _get_client(self):
         # Priority: GOOGLE_CREDENTIALS env var (JSON string) → GOOGLE_APPLICATION_CREDENTIALS file → ADC
+        # Uses CLIENT_PROJECT for running jobs (needs bigquery.jobs.create permission)
         creds_json = os.environ.get("GOOGLE_CREDENTIALS", "")
         if creds_json:
             info = json.loads(creds_json)
             credentials = service_account.Credentials.from_service_account_info(info)
-            return bigquery.Client(project=PROJECT_ID, credentials=credentials)
-        return bigquery.Client(project=PROJECT_ID)
+            return bigquery.Client(project=CLIENT_PROJECT, credentials=credentials)
+        return bigquery.Client(project=CLIENT_PROJECT)
 
     def load(self):
         """Load all data from BigQuery in ONE query, pre-aggregated at the finest filter grain."""
@@ -633,7 +637,7 @@ async def get_by_replen(
 # Item-level lookup still hits BigQuery directly (rare, specific item search)
 @app.get("/api/item/{item_id}")
 async def get_item(item_id: str):
-    client = bigquery.Client(project=PROJECT_ID)
+    client = cache._get_client()
     query = f"""
     SELECT
         MDS_FAM_ID AS mds_fam_id, ITEM_NBR AS item_nbr,
@@ -669,7 +673,7 @@ async def search_items(
     q: str = Query(..., min_length=3),
     limit: int = Query(20, le=100)
 ):
-    client = bigquery.Client(project=PROJECT_ID)
+    client = cache._get_client()
     query = f"""
     SELECT DISTINCT MDS_FAM_ID AS mds_fam_id, ITEM_NBR AS item_nbr,
         OMNI_DIVISION AS sbu, OMNI_DEPT_DESC AS department

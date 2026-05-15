@@ -66,6 +66,10 @@
         .dept-breakdown.show { display: block; }
         .text-muted { color: var(--text-muted) !important; }
         h5, h6 { color: var(--text-light); }
+        .filter-tag { display: inline-block; font-size: 0.65rem; padding: 1px 6px; border-radius: 8px; background: rgba(0,113,206,0.25); color: #6cb2eb; margin-right: 4px; margin-top: 4px; }
+        .filter-bar { margin-top: 4px; min-height: 0; }
+        .chart-container.filtered { border-left: 3px solid var(--walmart-blue); }
+        .table-container.filtered { border-left: 3px solid var(--walmart-blue); }
     </style>
 </head>
 <body>
@@ -244,8 +248,8 @@
                         <!-- Row 1: Inventory by SBU (Stacked) -->
                         <div class="row mt-3">
                             <div class="col-12">
-                                <div class="chart-container">
-                                    <div class="chart-title"><i class="bi bi-bar-chart-steps me-1"></i>Inventory by SBU</div>
+                                <div class="chart-container" id="panel-sbu-chart">
+                                    <div class="chart-title"><i class="bi bi-bar-chart-steps me-1"></i>Inventory by SBU <span class="filter-bar" id="fb-sbu-chart"></span></div>
                                     <div style="position:relative; height:300px;">
                                         <canvas id="sbuChart"></canvas>
                                     </div>
@@ -256,8 +260,8 @@
                         <!-- Row 2: Channel Mix -->
                         <div class="row mt-3">
                             <div class="col-12">
-                                <div class="chart-container" style="padding: 12px 15px;">
-                                    <div class="chart-title" style="margin-bottom:8px;">Channel Mix (%)</div>
+                                <div class="chart-container" id="panel-channel" style="padding: 12px 15px;">
+                                    <div class="chart-title" style="margin-bottom:8px;">Channel Mix (%) <span class="filter-bar" id="fb-channel"></span></div>
                                     <div style="position:relative; height:80px;">
                                         <canvas id="channelChart"></canvas>
                                     </div>
@@ -268,8 +272,8 @@
                         <!-- Row 3: DC Inventory by Type (Overview) -->
                         <div class="row mt-3">
                             <div class="col-12">
-                                <div class="chart-container">
-                                    <div class="chart-title"><i class="bi bi-building me-1"></i>DC Inventory by Type</div>
+                                <div class="chart-container" id="panel-dc-chart">
+                                    <div class="chart-title"><i class="bi bi-building me-1"></i>DC Inventory by Type <span class="filter-bar" id="fb-dc-chart"></span></div>
                                     <div style="position:relative; height:350px;">
                                         <canvas id="dcTypeChartOverview"></canvas>
                                     </div>
@@ -280,8 +284,8 @@
                         <!-- Row 4: Department Breakdown -->
                         <div class="row mt-3">
                             <div class="col-12">
-                                <div class="chart-container">
-                                    <div class="chart-title"><i class="bi bi-bar-chart-steps me-1"></i>Department Inventory Breakdown (Top 15)</div>
+                                <div class="chart-container" id="panel-dept-chart">
+                                    <div class="chart-title"><i class="bi bi-bar-chart-steps me-1"></i>Department Inventory Breakdown (Top 15) <span class="filter-bar" id="fb-dept-chart"></span></div>
                                     <div style="position:relative; height:420px;">
                                         <canvas id="deptStackedChart"></canvas>
                                     </div>
@@ -317,11 +321,12 @@
 
                     <!-- SBU View Tab -->
                     <div class="tab-pane fade" id="sbu-view">
-                        <div class="table-container">
-                            <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div class="table-container" id="panel-sbu-table">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
                                 <h5 class="mb-0">Inventory by SBU with Department Breakdown</h5>
                                 <button class="btn btn-outline-light btn-sm" onclick="exportSBUTable()"><i class="bi bi-download me-1"></i>Export CSV</button>
                             </div>
+                            <div class="filter-bar mb-2" id="fb-sbu-table"></div>
                             <div class="table-responsive">
                                 <table class="table table-sm" id="sbu-dept-table" style="font-size:0.8rem; color:#e8e8e8;">
                                     <thead class="table-dark">
@@ -347,11 +352,12 @@
 
                     <!-- DC Breakdown Tab -->
                     <div class="tab-pane fade" id="dc-view">
-                        <div class="table-container" style="background:#16213e;">
+                        <div class="table-container" id="panel-dc-table" style="background:#16213e;">
                             <div class="d-flex justify-content-between align-items-center">
                                 <div class="chart-title mb-0">DC Type Breakdown with SBU Detail</div>
                                 <button class="btn btn-outline-light btn-sm" onclick="exportDCTypeTable()"><i class="bi bi-download me-1"></i>Export CSV</button>
                             </div>
+                            <div class="filter-bar mb-2" id="fb-dc-table"></div>
                             <div class="table-responsive">
                                 <table class="table table-sm" style="color:#e8e8e8; font-size:0.85rem; background:#16213e;">
                                     <thead style="background:#0f0f1a;">
@@ -795,6 +801,45 @@
             });
         }
 
+        // ========== FILTER INDICATORS ==========
+        function updateFilterIndicators(filters) {
+            // Build tag HTML from active filters
+            const tags = [];
+            if (filters.sbu.length) tags.push({ label: 'SBU', values: filters.sbu, color: '#1e7e34' });
+            if (filters.department.length) tags.push({ label: 'Dept', values: filters.department, color: '#0069d9' });
+            if (filters.category.length) tags.push({ label: 'Category', values: filters.category, color: '#5a23c8' });
+            if (filters.dc_type.length) tags.push({ label: 'DC Type', values: filters.dc_type, color: '#c45c00' });
+            if (filters.replen_type) tags.push({ label: 'Replen', values: [filters.replen_type], color: '#c21a6d' });
+            if (filters.item_id) tags.push({ label: 'Item', values: [filters.item_id], color: '#6c3483' });
+
+            const hasFilters = tags.length > 0;
+
+            // Build compact tag HTML
+            let tagHTML = '';
+            if (hasFilters) {
+                tagHTML = tags.map(t => {
+                    const valText = t.values.length <= 2
+                        ? t.values.join(', ')
+                        : t.values.slice(0, 1).join(', ') + ' +' + (t.values.length - 1);
+                    return `<span class="filter-tag" style="border-left:2px solid ${t.color};">${t.label}: ${valText}</span>`;
+                }).join('');
+            }
+
+            // All filter-bar spans get the same tags
+            const filterBars = ['fb-sbu-chart', 'fb-channel', 'fb-dc-chart', 'fb-dept-chart', 'fb-sbu-table', 'fb-dc-table'];
+            filterBars.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.innerHTML = tagHTML;
+            });
+
+            // Add/remove .filtered class on panels for blue left-border
+            const panels = ['panel-sbu-chart', 'panel-channel', 'panel-dc-chart', 'panel-dept-chart', 'panel-sbu-table', 'panel-dc-table'];
+            panels.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.classList.toggle('filtered', hasFilters);
+            });
+        }
+
         // ========== EXPORT FUNCTIONS ==========
         function downloadCSV(csvContent, filename) {
             const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -1002,6 +1047,7 @@
                 const data = await fetchAllData(filters);
                 CACHED_DATA = data;
 
+                updateFilterIndicators(filters);
                 updateKPIs(data.summary);
                 updateChannelChart(data.summary);
                 updateSBUChart(data.sbu);

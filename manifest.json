@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "locale": "en_US",
+  "metadata": {
+    "appmode": "python-fastapi",
+    "entrypoint": "api.server:app",
+    "title": "Where's My Stuff - Inventory Dashboard",
+    "description": "Inventory Rollup Dashboard API - Walmart Total Inventory Team",
+    "content_category": "api"
+  },
+  "python": {
+    "version": "3.11",
+    "package_manager": {
+      "name": "pip",
+      "package_file": "requirements.txt"
+    }
+  },
+  "files": {
+    "requirements.txt": {
+      "checksum": "auto"
+    },
+    "api/server.py": {
+      "checksum": "auto"
+    },
+    "api/__init__.py": {
+      "checksum": "auto"
+    },
+    "dashboard/index.html": {
+      "checksum": "auto"
+    }
+  },
+  "environment": {
+    "PROJECT_ID": "wmt-instockinventory-datamart",
+    "DATASET": "WM_AD_HOC",
+    "TABLE": "WHERES_MY_STUFF_ROLLUP"
+  }
+}

@@ -781,11 +781,16 @@ async def get_by_department(
 # ============================================================
 
 def get_dashboard_path():
-    """Get dashboard path - works in both local dev and Cloud Run"""
+    """Get dashboard path - works in local dev, Cloud Run, and Posit Connect"""
     # Cloud Run: dashboard copied to /app/dashboard
     cloud_run_path = Path("/app/dashboard/index.html")
     if cloud_run_path.exists():
         return cloud_run_path
+
+    # Posit Connect / CWD-based: dashboard/ in current working directory
+    cwd_path = Path.cwd() / "dashboard" / "index.html"
+    if cwd_path.exists():
+        return cwd_path
 
     # Local dev: dashboard in ../dashboard relative to api/
     local_path = Path(__file__).parent.parent / "dashboard" / "index.html"

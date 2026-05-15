@@ -110,6 +110,7 @@ async def get_summary(
     division: Optional[List[str]] = Query(None, description="Filter by Division(s)"),
     department: Optional[List[str]] = Query(None, description="Filter by Department(s)"),
     category: Optional[List[str]] = Query(None, description="Filter by Category(s)"),
+    dc_type: Optional[List[str]] = Query(None, description="Filter by DC Type(s)"),
     replen_type: Optional[str] = Query(None, description="Filter by Replen Type"),
     item_id: Optional[str] = Query(None, description="Filter by MDS_FAM_ID or WALMART_NBR")
 ):
@@ -137,6 +138,10 @@ async def get_summary(
     if category:
         cat_list = ", ".join([f"'{c}'" for c in category])
         where_clauses.append(f"OMNI_CATG_DESC IN ({cat_list})")
+
+    if dc_type:
+        dc_list = ", ".join([f"'{d}'" for d in dc_type])
+        where_clauses.append(f"DC_TYPE_DESC IN ({dc_list})")
 
     if replen_type:
         where_clauses.append(f"REPLEN_TYPE = '{replen_type}'")
@@ -195,20 +200,44 @@ async def get_summary(
 
 @app.get("/api/by-sbu", response_model=List[SBUData])
 async def get_by_sbu(
+    sbu: Optional[List[str]] = Query(None),
     division: Optional[List[str]] = Query(None),
-    replen_type: Optional[str] = Query(None)
+    department: Optional[List[str]] = Query(None),
+    category: Optional[List[str]] = Query(None),
+    dc_type: Optional[List[str]] = Query(None),
+    replen_type: Optional[str] = Query(None),
+    item_id: Optional[str] = Query(None)
 ):
     """Get inventory breakdown by SBU"""
     client = get_bq_client()
 
     where_clauses = ["BUS_DT = DATE_SUB(CURRENT_DATE('America/Chicago'), INTERVAL 1 DAY)"]
 
+    if sbu:
+        sbu_list = ", ".join([f"'{s}'" for s in sbu])
+        where_clauses.append(f"OMNI_DIVISION IN ({sbu_list})")
+
     if division:
         div_list = ", ".join([f"'{d}'" for d in division])
         where_clauses.append(f"OMNI_DIVISION IN ({div_list})")
 
+    if department:
+        dept_list = ", ".join([f"'{d}'" for d in department])
+        where_clauses.append(f"OMNI_DEPT_DESC IN ({dept_list})")
+
+    if category:
+        cat_list = ", ".join([f"'{c}'" for c in category])
+        where_clauses.append(f"OMNI_CATG_DESC IN ({cat_list})")
+
+    if dc_type:
+        dc_list = ", ".join([f"'{d}'" for d in dc_type])
+        where_clauses.append(f"DC_TYPE_DESC IN ({dc_list})")
+
     if replen_type:
         where_clauses.append(f"REPLEN_TYPE = '{replen_type}'")
+
+    if item_id:
+        where_clauses.append(f"(CAST(MDS_FAM_ID AS STRING) = '{item_id}' OR CAST(ITEM_NBR AS STRING) = '{item_id}')")
 
     where_sql = " AND ".join(where_clauses)
 
@@ -240,15 +269,44 @@ async def get_by_sbu(
 
 @app.get("/api/by-sbu-dept")
 async def get_by_sbu_dept(
-    replen_type: Optional[str] = Query(None)
+    sbu: Optional[List[str]] = Query(None),
+    division: Optional[List[str]] = Query(None),
+    department: Optional[List[str]] = Query(None),
+    category: Optional[List[str]] = Query(None),
+    dc_type: Optional[List[str]] = Query(None),
+    replen_type: Optional[str] = Query(None),
+    item_id: Optional[str] = Query(None)
 ):
     """Get inventory breakdown by SBU with Department rollup (hierarchical view)"""
     client = get_bq_client()
 
     where_clauses = ["BUS_DT = DATE_SUB(CURRENT_DATE('America/Chicago'), INTERVAL 1 DAY)"]
 
+    if sbu:
+        sbu_list = ", ".join([f"'{s}'" for s in sbu])
+        where_clauses.append(f"OMNI_DIVISION IN ({sbu_list})")
+
+    if division:
+        div_list = ", ".join([f"'{d}'" for d in division])
+        where_clauses.append(f"OMNI_DIVISION IN ({div_list})")
+
+    if department:
+        dept_list = ", ".join([f"'{d}'" for d in department])
+        where_clauses.append(f"OMNI_DEPT_DESC IN ({dept_list})")
+
+    if category:
+        cat_list = ", ".join([f"'{c}'" for c in category])
+        where_clauses.append(f"OMNI_CATG_DESC IN ({cat_list})")
+
+    if dc_type:
+        dc_list = ", ".join([f"'{d}'" for d in dc_type])
+        where_clauses.append(f"DC_TYPE_DESC IN ({dc_list})")
+
     if replen_type:
         where_clauses.append(f"REPLEN_TYPE = '{replen_type}'")
+
+    if item_id:
+        where_clauses.append(f"(CAST(MDS_FAM_ID AS STRING) = '{item_id}' OR CAST(ITEM_NBR AS STRING) = '{item_id}')")
 
     where_sql = " AND ".join(where_clauses)
 
@@ -513,7 +571,9 @@ async def get_by_dc_type(
     division: Optional[List[str]] = Query(None),
     department: Optional[List[str]] = Query(None),
     category: Optional[List[str]] = Query(None),
-    replen_type: Optional[str] = Query(None)
+    dc_type: Optional[List[str]] = Query(None),
+    replen_type: Optional[str] = Query(None),
+    item_id: Optional[str] = Query(None)
 ):
     """Get inventory breakdown by DC Type (Regional, Grocery, Fashion, etc.)"""
     client = get_bq_client()
@@ -539,8 +599,15 @@ async def get_by_dc_type(
         cat_list = ", ".join([f"'{c}'" for c in category])
         where_clauses.append(f"OMNI_CATG_DESC IN ({cat_list})")
 
+    if dc_type:
+        dc_list = ", ".join([f"'{d}'" for d in dc_type])
+        where_clauses.append(f"DC_TYPE_DESC IN ({dc_list})")
+
     if replen_type:
         where_clauses.append(f"REPLEN_TYPE = '{replen_type}'")
+
+    if item_id:
+        where_clauses.append(f"(CAST(MDS_FAM_ID AS STRING) = '{item_id}' OR CAST(ITEM_NBR AS STRING) = '{item_id}')")
 
     where_sql = " AND ".join(where_clauses)
 
@@ -572,9 +639,12 @@ async def get_by_dc_type(
 @app.get("/api/by-dc-type-sbu")
 async def get_by_dc_type_sbu(
     sbu: Optional[List[str]] = Query(None),
+    division: Optional[List[str]] = Query(None),
     department: Optional[List[str]] = Query(None),
     category: Optional[List[str]] = Query(None),
-    replen_type: Optional[str] = Query(None)
+    dc_type: Optional[List[str]] = Query(None),
+    replen_type: Optional[str] = Query(None),
+    item_id: Optional[str] = Query(None)
 ):
     """Get inventory breakdown by DC Type with SBU detail (hierarchical)"""
     client = get_bq_client()
@@ -588,6 +658,10 @@ async def get_by_dc_type_sbu(
         sbu_list = ", ".join([f"'{s}'" for s in sbu])
         where_clauses.append(f"OMNI_DIVISION IN ({sbu_list})")
 
+    if division:
+        div_list = ", ".join([f"'{d}'" for d in division])
+        where_clauses.append(f"OMNI_DIVISION IN ({div_list})")
+
     if department:
         dept_list = ", ".join([f"'{d}'" for d in department])
         where_clauses.append(f"OMNI_DEPT_DESC IN ({dept_list})")
@@ -596,8 +670,15 @@ async def get_by_dc_type_sbu(
         cat_list = ", ".join([f"'{c}'" for c in category])
         where_clauses.append(f"OMNI_CATG_DESC IN ({cat_list})")
 
+    if dc_type:
+        dc_list = ", ".join([f"'{d}'" for d in dc_type])
+        where_clauses.append(f"DC_TYPE_DESC IN ({dc_list})")
+
     if replen_type:
         where_clauses.append(f"REPLEN_TYPE = '{replen_type}'")
+
+    if item_id:
+        where_clauses.append(f"(CAST(MDS_FAM_ID AS STRING) = '{item_id}' OR CAST(ITEM_NBR AS STRING) = '{item_id}')")
 
     where_sql = " AND ".join(where_clauses)
 
@@ -629,8 +710,11 @@ async def get_by_dc_type_sbu(
 async def get_by_department(
     sbu: Optional[List[str]] = Query(None),
     division: Optional[List[str]] = Query(None),
+    department: Optional[List[str]] = Query(None),
     category: Optional[List[str]] = Query(None),
-    replen_type: Optional[str] = Query(None)
+    dc_type: Optional[List[str]] = Query(None),
+    replen_type: Optional[str] = Query(None),
+    item_id: Optional[str] = Query(None)
 ):
     """Get inventory breakdown by Department"""
     client = get_bq_client()
@@ -645,12 +729,23 @@ async def get_by_department(
         div_list = ", ".join([f"'{d}'" for d in division])
         where_clauses.append(f"OMNI_DIVISION IN ({div_list})")
 
+    if department:
+        dept_list = ", ".join([f"'{d}'" for d in department])
+        where_clauses.append(f"OMNI_DEPT_DESC IN ({dept_list})")
+
     if category:
         cat_list = ", ".join([f"'{c}'" for c in category])
         where_clauses.append(f"OMNI_CATG_DESC IN ({cat_list})")
 
+    if dc_type:
+        dc_list = ", ".join([f"'{d}'" for d in dc_type])
+        where_clauses.append(f"DC_TYPE_DESC IN ({dc_list})")
+
     if replen_type:
         where_clauses.append(f"REPLEN_TYPE = '{replen_type}'")
+
+    if item_id:
+        where_clauses.append(f"(CAST(MDS_FAM_ID AS STRING) = '{item_id}' OR CAST(ITEM_NBR AS STRING) = '{item_id}')")
 
     where_sql = " AND ".join(where_clauses)
 

@@ -73,7 +73,7 @@
         <div class="container-fluid">
             <a class="navbar-brand" href="#"><i class="bi bi-box-seam me-2"></i>Where's My Stuff</a>
             <div class="d-flex align-items-center text-white">
-                <span class="status-badge status-live me-2" id="api-status"><i class="bi bi-circle-fill me-1"></i>Live</span>
+                <span class="status-badge status-live me-2" id="api-status"><i class="bi bi-circle-fill me-1"></i>Instant</span>
                 <span class="me-2" style="font-size:0.85rem;">BUS_DT: <strong id="bus-date">-</strong></span>
                 <button class="btn btn-outline-light btn-sm" onclick="refreshData()"><i class="bi bi-arrow-clockwise"></i></button>
             </div>
@@ -95,7 +95,7 @@
 
                 <div class="filter-section">
                     <label class="filter-label">SBU (Division)</label>
-                    <select class="form-select form-select-sm" id="sbu-filter" multiple size="8" onchange="onSBUChange()">
+                    <select class="form-select form-select-sm" id="sbu-filter" multiple size="8" onchange="onSBUChange(); applyFilters();">
                         <option>PANTRY</option>
                         <option>CONSUMABLES</option>
                         <option>CAC</option>
@@ -109,21 +109,36 @@
 
                 <div class="filter-section">
                     <label class="filter-label">Department</label>
-                    <select class="form-select form-select-sm" id="dept-filter" multiple size="5" onchange="onDeptChange()">
+                    <select class="form-select form-select-sm" id="dept-filter" multiple size="5" onchange="onDeptChange(); applyFilters();">
                         <option value="">Loading...</option>
                     </select>
                 </div>
 
                 <div class="filter-section">
                     <label class="filter-label">Category</label>
-                    <select class="form-select form-select-sm" id="catg-filter" multiple size="4">
-                        <option value="">Select Department first</option>
+                    <select class="form-select form-select-sm" id="catg-filter" multiple size="4" onchange="applyFilters();">
+                        <option value="">Select Dept first</option>
+                    </select>
+                </div>
+
+                <div class="filter-section">
+                    <label class="filter-label">DC Type</label>
+                    <select class="form-select form-select-sm" id="dc-type-filter" multiple size="4" onchange="applyFilters();">
+                        <option>Grocery</option>
+                        <option>Regional</option>
+                        <option>Imports</option>
+                        <option>Fashion</option>
+                        <option>GIDC</option>
+                        <option>Closed</option>
+                        <option>Support</option>
+                        <option>Market Service Center</option>
+                        <option>Disaster Relief</option>
                     </select>
                 </div>
 
                 <div class="filter-section">
                     <label class="filter-label">Replen Type</label>
-                    <select class="form-select form-select-sm" id="replen-filter">
+                    <select class="form-select form-select-sm" id="replen-filter" onchange="applyFilters();">
                         <option value="">All</option>
                         <option>REPLEN</option>
                         <option>NON-REPLEN</option>
@@ -250,7 +265,19 @@
                             </div>
                         </div>
 
-                        <!-- Row 3: Department Breakdown -->
+                        <!-- Row 3: DC Inventory by Type (Overview) -->
+                        <div class="row mt-3">
+                            <div class="col-12">
+                                <div class="chart-container">
+                                    <div class="chart-title"><i class="bi bi-building me-1"></i>DC Inventory by Type</div>
+                                    <div style="position:relative; height:350px;">
+                                        <canvas id="dcTypeChartOverview"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Row 4: Department Breakdown -->
                         <div class="row mt-3">
                             <div class="col-12">
                                 <div class="chart-container">
@@ -317,34 +344,22 @@
 
                     <!-- DC Breakdown Tab -->
                     <div class="tab-pane fade" id="dc-view">
-                        <div class="row">
-                            <div class="col-md-7">
-                                <div class="table-container" style="background:#16213e;">
-                                    <div class="chart-title">DC Type Breakdown with SBU Detail</div>
-                                    <div class="table-responsive">
-                                        <table class="table table-sm" style="color:#e8e8e8; font-size:0.8rem; background:#16213e;">
-                                            <thead style="background:#0f0f1a;">
-                                                <tr>
-                                                    <th style="width:140px; color:#e8e8e8; background:#0f0f1a;">DC Type / SBU</th>
-                                                    <th class="text-end" style="width:60px; color:#e8e8e8; background:#0f0f1a;">DC OH</th>
-                                                    <th class="text-end" style="width:55px; color:#e8e8e8; background:#0f0f1a;">Labeled</th>
-                                                    <th class="text-end" style="width:55px; color:#e8e8e8; background:#0f0f1a;">Unlabeled</th>
-                                                    <th class="text-end" style="width:60px; color:#e8e8e8; background:#0f0f1a;">Total</th>
-                                                    <th class="text-end" style="width:65px; color:#e8e8e8; background:#0f0f1a;">Cost</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody id="dc-type-tbody"></tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="col-md-5">
-                                <div class="chart-container">
-                                    <div class="chart-title">DC Inventory by Type</div>
-                                    <div style="position:relative; height:500px;">
-                                        <canvas id="dcTypeChart"></canvas>
-                                    </div>
-                                </div>
+                        <div class="table-container" style="background:#16213e;">
+                            <div class="chart-title">DC Type Breakdown with SBU Detail</div>
+                            <div class="table-responsive">
+                                <table class="table table-sm" style="color:#e8e8e8; font-size:0.85rem; background:#16213e;">
+                                    <thead style="background:#0f0f1a;">
+                                        <tr>
+                                            <th style="width:180px; color:#e8e8e8; background:#0f0f1a;">DC Type / SBU</th>
+                                            <th class="text-end" style="width:100px; color:#e8e8e8; background:#0f0f1a;">DC OH</th>
+                                            <th class="text-end" style="width:100px; color:#e8e8e8; background:#0f0f1a;">Labeled</th>
+                                            <th class="text-end" style="width:100px; color:#e8e8e8; background:#0f0f1a;">Unlabeled</th>
+                                            <th class="text-end" style="width:100px; color:#e8e8e8; background:#0f0f1a;">Total</th>
+                                            <th class="text-end" style="width:120px; color:#e8e8e8; background:#0f0f1a;">Cost</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="dc-type-tbody"></tbody>
+                                </table>
                             </div>
                         </div>
                     </div>
@@ -355,8 +370,16 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        const API_BASE_URL = window.location.origin;
-        let channelChart, sbuChart, dcTypeChart, deptStackedChart;
+        // ========== API CONFIG (Live BigQuery via FastAPI) ==========
+        // When served from FastAPI (same origin), API_BASE = '' so paths are relative.
+        // When opened as file://, fall back to localhost:8000.
+        const API_BASE = (window.location.protocol === 'file:' || window.location.hostname === '')
+            ? 'http://localhost:8000'
+            : '';
+
+        let CACHED_DATA = null;
+
+        let channelChart, sbuChart, dcTypeChartOverview, deptStackedChart;
 
         // Dark mode chart defaults
         Chart.defaults.color = '#e8e8e8';
@@ -377,78 +400,67 @@
 
         function showLoading(show) { document.getElementById('loading').classList.toggle('show', show); }
 
-        // API Functions
-        async function fetchSummary(filters = {}) {
+        function setStatus(state, label) {
+            const el = document.getElementById('api-status');
+            el.className = 'status-badge ' + (state === 'live' ? 'status-live' : 'status-live');
+            el.innerHTML = '<i class="bi bi-circle-fill me-1"></i>' + label;
+        }
+
+        // ========== FILTER COLLECTION ==========
+        function getCurrentFilters() {
+            return {
+                sbu: Array.from(document.getElementById('sbu-filter').selectedOptions).map(o => o.value).filter(v => v),
+                department: Array.from(document.getElementById('dept-filter').selectedOptions).map(o => o.value).filter(v => v),
+                category: Array.from(document.getElementById('catg-filter').selectedOptions).map(o => o.value).filter(v => v),
+                dc_type: Array.from(document.getElementById('dc-type-filter').selectedOptions).map(o => o.value).filter(v => v),
+                replen_type: document.getElementById('replen-filter').value || '',
+                item_id: document.getElementById('item-search').value.trim()
+            };
+        }
+
+        function buildQueryString(filters) {
             const params = new URLSearchParams();
-            if (filters.sbu) filters.sbu.forEach(s => params.append('sbu', s));
-            if (filters.department) filters.department.forEach(d => params.append('department', d));
-            if (filters.category) filters.category.forEach(c => params.append('category', c));
+            (filters.sbu || []).forEach(v => params.append('sbu', v));
+            (filters.department || []).forEach(v => params.append('department', v));
+            (filters.category || []).forEach(v => params.append('category', v));
+            (filters.dc_type || []).forEach(v => params.append('dc_type', v));
             if (filters.replen_type) params.append('replen_type', filters.replen_type);
             if (filters.item_id) params.append('item_id', filters.item_id);
-            const response = await fetch(`${API_BASE_URL}/api/summary?${params}`);
-            if (!response.ok) throw new Error(`API error: ${response.status}`);
-            return response.json();
+            return params.toString();
         }
 
-        async function fetchBySBU(filters = {}) {
-            const params = new URLSearchParams();
-            if (filters.replen_type) params.append('replen_type', filters.replen_type);
-            const response = await fetch(`${API_BASE_URL}/api/by-sbu?${params}`);
-            return response.json();
+        // ========== API FETCH (Parallel) ==========
+        async function fetchAllData(filters) {
+            const qs = buildQueryString(filters);
+            const suffix = qs ? '?' + qs : '';
+
+            const endpoints = [
+                'summary',
+                'by-sbu',
+                'by-sbu-dept',
+                'by-dc-type',
+                'by-dc-type-sbu',
+                'by-department'
+            ];
+
+            const requests = endpoints.map(name =>
+                fetch(`${API_BASE}/api/${name}${suffix}`)
+                    .then(r => {
+                        if (!r.ok) throw new Error(`${name} failed: ${r.status}`);
+                        return r.json();
+                    })
+            );
+
+            const [summary, sbu, sbu_dept, dc_type, dc_type_sbu, dept] =
+                await Promise.all(requests);
+
+            const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+            const bus_date = yesterday.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+            return { summary, sbu, sbu_dept, dc_type, dc_type_sbu, dept, bus_date };
         }
 
-        async function fetchBySBUDept(filters = {}) {
-            const params = new URLSearchParams();
-            if (filters.replen_type) params.append('replen_type', filters.replen_type);
-            const response = await fetch(`${API_BASE_URL}/api/by-sbu-dept?${params}`);
-            return response.json();
-        }
-
-        async function fetchByDCType(filters = {}) {
-            const params = new URLSearchParams();
-            if (filters.sbu) filters.sbu.forEach(s => params.append('sbu', s));
-            if (filters.department) filters.department.forEach(d => params.append('department', d));
-            if (filters.category) filters.category.forEach(c => params.append('category', c));
-            if (filters.replen_type) params.append('replen_type', filters.replen_type);
-            const response = await fetch(`${API_BASE_URL}/api/by-dc-type?${params}`);
-            return response.json();
-        }
-
-        async function fetchByDCTypeSBU(filters = {}) {
-            const params = new URLSearchParams();
-            if (filters.sbu) filters.sbu.forEach(s => params.append('sbu', s));
-            if (filters.department) filters.department.forEach(d => params.append('department', d));
-            if (filters.category) filters.category.forEach(c => params.append('category', c));
-            if (filters.replen_type) params.append('replen_type', filters.replen_type);
-            const response = await fetch(`${API_BASE_URL}/api/by-dc-type-sbu?${params}`);
-            return response.json();
-        }
-
-        async function fetchByDepartment(filters = {}) {
-            const params = new URLSearchParams();
-            if (filters.sbu) filters.sbu.forEach(s => params.append('sbu', s));
-            if (filters.category) filters.category.forEach(c => params.append('category', c));
-            if (filters.replen_type) params.append('replen_type', filters.replen_type);
-            const response = await fetch(`${API_BASE_URL}/api/by-department?${params}`);
-            return response.json();
-        }
-
-        async function fetchDepartments(sbu = []) {
-            const params = new URLSearchParams();
-            if (sbu.length) sbu.forEach(s => params.append('sbu', s));
-            const response = await fetch(`${API_BASE_URL}/api/filters/departments?${params}`);
-            return response.json();
-        }
-
-        async function fetchCategories(sbu = [], department = []) {
-            const params = new URLSearchParams();
-            if (sbu.length) sbu.forEach(s => params.append('sbu', s));
-            if (department.length) department.forEach(d => params.append('department', d));
-            const response = await fetch(`${API_BASE_URL}/api/filters/categories?${params}`);
-            return response.json();
-        }
-
-        // UI Updates
+        // ========== UI UPDATE FUNCTIONS ==========
         function updateKPIs(data) {
             document.getElementById('kpi-store').textContent = formatNumber(data.store_units);
             document.getElementById('kpi-store-cost').textContent = formatCurrency(data.store_cost);
@@ -670,11 +682,24 @@
                 });
             });
             document.getElementById('dc-type-tbody').innerHTML = html;
+        }
 
-            // Chart - Stacked by inventory type
-            const ctx = document.getElementById('dcTypeChart').getContext('2d');
-            if (dcTypeChart) dcTypeChart.destroy();
-            dcTypeChart = new Chart(ctx, {
+        function toggleDcSbu(dcType) {
+            const className = 'dc-sbu-' + dcType.replace(/\s+/g, '-');
+            const rows = document.querySelectorAll('.' + className);
+            const chevron = document.getElementById('dc-chevron-' + dcType.replace(/\s+/g, '-'));
+            rows.forEach(row => {
+                row.style.display = row.style.display === 'none' ? '' : 'none';
+            });
+            if (chevron) {
+                chevron.className = rows[0]?.style.display === 'none' ? 'bi bi-chevron-right me-1' : 'bi bi-chevron-down me-1';
+            }
+        }
+
+        function updateDCTypeOverviewChart(dcData) {
+            const ctx = document.getElementById('dcTypeChartOverview').getContext('2d');
+            if (dcTypeChartOverview) dcTypeChartOverview.destroy();
+            dcTypeChartOverview = new Chart(ctx, {
                 type: 'bar',
                 data: {
                     labels: dcData.map(d => d.dc_type),
@@ -698,18 +723,6 @@
                     }
                 }
             });
-        }
-
-        function toggleDcSbu(dcType) {
-            const className = 'dc-sbu-' + dcType.replace(/\s+/g, '-');
-            const rows = document.querySelectorAll('.' + className);
-            const chevron = document.getElementById('dc-chevron-' + dcType.replace(/\s+/g, '-'));
-            rows.forEach(row => {
-                row.style.display = row.style.display === 'none' ? '' : 'none';
-            });
-            if (chevron) {
-                chevron.className = rows[0]?.style.display === 'none' ? 'bi bi-chevron-right me-1' : 'bi bi-chevron-down me-1';
-            }
         }
 
         function updateDeptTable(deptData) {
@@ -776,124 +789,149 @@
             });
         }
 
-        // Filters
-        function getFilters() {
-            const filters = {};
-            const sbu = Array.from(document.getElementById('sbu-filter').selectedOptions).map(o => o.value);
-            const dept = Array.from(document.getElementById('dept-filter').selectedOptions).map(o => o.value).filter(v => v);
-            const catg = Array.from(document.getElementById('catg-filter').selectedOptions).map(o => o.value).filter(v => v);
-            const replen = document.getElementById('replen-filter').value;
-            const item = document.getElementById('item-search').value.trim();
-            if (sbu.length) filters.sbu = sbu;
-            if (dept.length) filters.department = dept;
-            if (catg.length) filters.category = catg;
-            if (replen) filters.replen_type = replen;
-            if (item) filters.item_id = item;
-            return filters;
-        }
-
+        // ========== FILTER FUNCTIONS (API Mode - Live Data) ==========
         async function onSBUChange() {
-            const sbu = Array.from(document.getElementById('sbu-filter').selectedOptions).map(o => o.value);
+            const sbuFilter = Array.from(document.getElementById('sbu-filter').selectedOptions).map(o => o.value);
             const deptSelect = document.getElementById('dept-filter');
             const catgSelect = document.getElementById('catg-filter');
-            deptSelect.innerHTML = '<option value="">Loading...</option>';
-            catgSelect.innerHTML = '<option value="">Select Department first</option>';
-            const departments = await fetchDepartments(sbu);
-            deptSelect.innerHTML = departments.map(d => `<option value="${d}">${d}</option>`).join('');
+
+            // Reset category whenever SBU changes
+            catgSelect.innerHTML = '<option value="">Select Dept first</option>';
+
+            try {
+                const params = new URLSearchParams();
+                sbuFilter.forEach(s => params.append('sbu', s));
+                const qs = params.toString();
+                const url = `${API_BASE}/api/filters/departments${qs ? '?' + qs : ''}`;
+                const response = await fetch(url);
+                if (!response.ok) throw new Error('departments lookup failed: ' + response.status);
+                const departments = await response.json();
+                deptSelect.innerHTML = departments
+                    .filter(d => d)
+                    .map(d => `<option value="${d}">${d}</option>`)
+                    .join('');
+            } catch (err) {
+                console.error('onSBUChange error:', err);
+                deptSelect.innerHTML = '<option value="">Error loading</option>';
+            }
         }
 
         async function onDeptChange() {
-            const sbu = Array.from(document.getElementById('sbu-filter').selectedOptions).map(o => o.value);
-            const dept = Array.from(document.getElementById('dept-filter').selectedOptions).map(o => o.value).filter(v => v);
+            const sbuFilter = Array.from(document.getElementById('sbu-filter').selectedOptions).map(o => o.value);
+            const deptFilter = Array.from(document.getElementById('dept-filter').selectedOptions).map(o => o.value).filter(v => v);
             const catgSelect = document.getElementById('catg-filter');
-            if (dept.length === 0) {
-                catgSelect.innerHTML = '<option value="">Select Department first</option>';
+
+            if (!deptFilter.length) {
+                catgSelect.innerHTML = '<option value="">Select Dept first</option>';
                 return;
             }
-            catgSelect.innerHTML = '<option value="">Loading categories...</option>';
+
             try {
-                const categories = await fetchCategories(sbu, dept);
-                if (categories.length === 0) {
-                    catgSelect.innerHTML = '<option value="">No categories found</option>';
-                } else {
-                    catgSelect.innerHTML = categories.map(c => `<option value="${c.category}">${c.category}</option>`).join('');
-                }
-            } catch (e) {
-                console.error('Error loading categories:', e);
+                const params = new URLSearchParams();
+                sbuFilter.forEach(s => params.append('sbu', s));
+                deptFilter.forEach(d => params.append('department', d));
+                const url = `${API_BASE}/api/filters/categories?${params.toString()}`;
+                const response = await fetch(url);
+                if (!response.ok) throw new Error('categories lookup failed: ' + response.status);
+                const categories = await response.json();
+                catgSelect.innerHTML = categories
+                    .filter(c => c && c.category)
+                    .map(c => `<option value="${c.category}">${c.category}</option>`)
+                    .join('') || '<option value="">No categories</option>';
+            } catch (err) {
+                console.error('onDeptChange error:', err);
                 catgSelect.innerHTML = '<option value="">Error loading</option>';
             }
         }
 
         async function applyFilters() {
-            const filters = getFilters();
+            const filters = getCurrentFilters();
+
+            // Update filter badge with actual values
             const parts = [];
-            if (filters.sbu) parts.push(`SBU: ${filters.sbu.length}`);
-            if (filters.department) parts.push(`Dept: ${filters.department.length}`);
-            if (filters.category) parts.push(`Catg: ${filters.category.length}`);
-            if (filters.replen_type) parts.push(filters.replen_type);
+            if (filters.sbu.length) {
+                const sbuText = filters.sbu.length <= 2 ? filters.sbu.join(', ') : `${filters.sbu.slice(0, 2).join(', ')} +${filters.sbu.length - 2}`;
+                parts.push(`SBU: ${sbuText}`);
+            }
+            if (filters.department.length) {
+                const deptText = filters.department.length <= 1 ? filters.department.join(', ') : `${filters.department[0]} +${filters.department.length - 1}`;
+                parts.push(`Dept: ${deptText}`);
+            }
+            if (filters.category.length) {
+                const catText = filters.category.length <= 1 ? filters.category.join(', ') : `${filters.category[0]} +${filters.category.length - 1}`;
+                parts.push(`Cat: ${catText}`);
+            }
+            if (filters.dc_type.length) {
+                const dcText = filters.dc_type.length <= 2 ? filters.dc_type.join(', ') : `${filters.dc_type.slice(0, 2).join(', ')} +${filters.dc_type.length - 2}`;
+                parts.push(`DC: ${dcText}`);
+            }
+            if (filters.replen_type) parts.push(`Replen: ${filters.replen_type}`);
             if (filters.item_id) parts.push(`Item: ${filters.item_id}`);
+
             if (parts.length) {
                 document.getElementById('filter-text').textContent = parts.join(' | ');
                 document.getElementById('filter-badge').classList.remove('d-none');
             } else {
                 document.getElementById('filter-badge').classList.add('d-none');
             }
-            await refreshData(filters);
+
+            await refreshData();
         }
 
-        function clearFilters() {
+        async function clearFilters() {
             document.getElementById('sbu-filter').selectedIndex = -1;
             document.getElementById('dept-filter').selectedIndex = -1;
-            document.getElementById('catg-filter').selectedIndex = -1;
-            document.getElementById('catg-filter').innerHTML = '<option value="">Select Department first</option>';
+            document.getElementById('catg-filter').innerHTML = '<option value="">Select Dept first</option>';
+            document.getElementById('dc-type-filter').selectedIndex = -1;
             document.getElementById('replen-filter').selectedIndex = 0;
             document.getElementById('item-search').value = '';
             document.getElementById('filter-badge').classList.add('d-none');
             document.getElementById('dept-breakdown-section').classList.remove('show');
-            onSBUChange();
-            refreshData({});
+            await onSBUChange();
+            await refreshData();
         }
 
-        async function refreshData(filters = {}) {
+        async function refreshData() {
             showLoading(true);
+            setStatus('live', 'Loading...');
             try {
-                const [summary, sbuData, sbuDeptData, dcTypeData, dcTypeSbuData, deptData] = await Promise.all([
-                    fetchSummary(filters),
-                    fetchBySBU(filters),
-                    fetchBySBUDept(filters),
-                    fetchByDCType(filters),
-                    fetchByDCTypeSBU(filters),
-                    fetchByDepartment(filters)
-                ]);
+                const filters = getCurrentFilters();
+                const data = await fetchAllData(filters);
+                CACHED_DATA = data;
 
-                updateKPIs(summary);
-                updateChannelChart(summary);
-                updateSBUChart(sbuData);
-                updateSBUTable(sbuData, sbuDeptData);
-                updateDCTypeTable(dcTypeData, dcTypeSbuData);
-                updateDeptStackedChart(deptData);
+                updateKPIs(data.summary);
+                updateChannelChart(data.summary);
+                updateSBUChart(data.sbu);
+                updateSBUTable(data.sbu, data.sbu_dept);
+                updateDCTypeTable(data.dc_type, data.dc_type_sbu);
+                updateDCTypeOverviewChart(data.dc_type);
+                updateDeptStackedChart(data.dept);
+
+                document.getElementById('bus-date').textContent = data.bus_date;
 
                 // Show dept breakdown if SBU is selected
-                if (filters.sbu && filters.sbu.length > 0) {
-                    updateDeptTable(deptData);
+                if (filters.sbu.length > 0) {
+                    updateDeptTable(data.sbu_dept);
                     document.getElementById('dept-breakdown-section').classList.add('show');
                 } else {
                     document.getElementById('dept-breakdown-section').classList.remove('show');
                 }
 
-                document.getElementById('api-status').className = 'status-badge status-live';
-                document.getElementById('api-status').innerHTML = '<i class="bi bi-circle-fill me-1"></i>Live';
-            } catch (error) {
-                console.error(error);
-                document.getElementById('api-status').className = 'status-badge';
-                document.getElementById('api-status').style.background = '#f8d7da';
-                document.getElementById('api-status').innerHTML = '<i class="bi bi-exclamation-circle me-1"></i>Error';
+                setStatus('live', 'Live');
+            } catch (err) {
+                console.error('refreshData error:', err);
+                setStatus('error', 'Error');
+                alert('Failed to load data from API: ' + err.message + '\n\nMake sure FastAPI is running:\n  cd api && uvicorn server:app --reload --port 8000');
             } finally {
                 showLoading(false);
             }
         }
 
-        document.addEventListener('DOMContentLoaded', () => { onSBUChange(); refreshData(); });
+        // ========== INITIALIZATION ==========
+        document.addEventListener('DOMContentLoaded', async () => {
+            await onSBUChange();
+            await refreshData();
+        });
         document.getElementById('item-search').addEventListener('keypress', e => { if (e.key === 'Enter') applyFilters(); });
     </script>
 </body>

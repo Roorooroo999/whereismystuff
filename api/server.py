@@ -9,11 +9,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from google.cloud import bigquery
+from google.oauth2 import service_account
 import pandas as pd
 import os
+import json
 import logging
 import asyncio
 import time
+import tempfile
 from datetime import datetime, timezone
 from typing import Optional, List
 from pydantic import BaseModel
@@ -78,6 +81,12 @@ class DataCache:
         return self.df is not None and not self.df.empty
 
     def _get_client(self):
+        # Priority: GOOGLE_CREDENTIALS env var (JSON string) → GOOGLE_APPLICATION_CREDENTIALS file → ADC
+        creds_json = os.environ.get("GOOGLE_CREDENTIALS", "")
+        if creds_json:
+            info = json.loads(creds_json)
+            credentials = service_account.Credentials.from_service_account_info(info)
+            return bigquery.Client(project=PROJECT_ID, credentials=credentials)
         return bigquery.Client(project=PROJECT_ID)
 
     def load(self):

@@ -9,7 +9,7 @@
     "content_category": "api"
   },
   "python": {
-    "version": "3.11",
+    "version": "3.9",
     "package_manager": {
       "name": "pip",
       "package_file": "requirements.txt"

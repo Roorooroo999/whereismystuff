@@ -878,11 +878,15 @@
             await refreshData();
         }
 
+        function deselectAll(selectEl) {
+            Array.from(selectEl.options).forEach(opt => opt.selected = false);
+        }
+
         async function clearFilters() {
-            document.getElementById('sbu-filter').selectedIndex = -1;
-            document.getElementById('dept-filter').selectedIndex = -1;
+            deselectAll(document.getElementById('sbu-filter'));
+            deselectAll(document.getElementById('dept-filter'));
+            deselectAll(document.getElementById('dc-type-filter'));
             document.getElementById('catg-filter').innerHTML = '<option value="">Select Dept first</option>';
-            document.getElementById('dc-type-filter').selectedIndex = -1;
             document.getElementById('replen-filter').selectedIndex = 0;
             document.getElementById('item-search').value = '';
             document.getElementById('filter-badge').classList.add('d-none');

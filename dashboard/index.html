@@ -383,13 +383,13 @@
     <!-- Item Search Results Modal -->
     <div class="modal fade" id="itemModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-centered">
-            <div class="modal-content" style="background: var(--bg-card); color: var(--text-light); border: 1px solid #2a2a4a;">
-                <div class="modal-header" style="border-bottom: 1px solid #2a2a4a;">
-                    <h5 class="modal-title"><i class="bi bi-search me-2"></i>Item Search Results</h5>
+            <div class="modal-content" style="background: #0f0f1a; color: var(--text-light); border: 1px solid #3a3a5a; box-shadow: 0 8px 32px rgba(0,0,0,0.6);">
+                <div class="modal-header" style="background: linear-gradient(135deg, #0071ce, #004f91); border-bottom: none; padding: 12px 16px;">
+                    <h5 class="modal-title" style="color:#fff; font-size:1rem;"><i class="bi bi-search me-2"></i>Item Search Results</h5>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
-                <div class="modal-body" id="item-results-body">
-                    <div class="text-center text-muted py-4">Searching...</div>
+                <div class="modal-body" id="item-results-body" style="background:#0f0f1a; padding:16px;">
+                    <div class="text-center py-4" style="color:#8a8aaa;">Searching...</div>
                 </div>
             </div>
         </div>
@@ -1083,38 +1083,63 @@
                 items.forEach((item, i) => {
                     const totalUnits = item.total_units || (item.store_oh_units + item.dc_oh_units + item.dc_reserved_units + item.transit_units + (item.dc_labeled_units || 0) + (item.dc_unlabeled_units || 0));
                     html += `
-                    <div class="card mb-3" style="background:#1a1a2e; border:1px solid #2a2a4a;">
-                        <div class="card-header d-flex justify-content-between align-items-center" style="background:#0f0f1a; border-bottom:1px solid #2a2a4a; padding:8px 12px;">
-                            <span><i class="bi bi-box-seam me-2" style="color:var(--walmart-yellow);"></i><strong>MDS: ${item.mds_fam_id}</strong>${item.item_nbr ? ' &nbsp;|&nbsp; Item#: ' + item.item_nbr : ''}</span>
-                            <span class="badge" style="background:var(--walmart-blue);">${item.omni_division}</span>
+                    <div class="card mb-3" style="background:#1a1a2e; border:1px solid #3a3a5a;">
+                        <div class="card-header d-flex justify-content-between align-items-center" style="background:linear-gradient(135deg, #0f0f1a, #1a1a3e); border-bottom:1px solid #3a3a5a; padding:10px 14px;">
+                            <span style="color:#fff; font-size:0.95rem;">
+                                <i class="bi bi-box-seam me-2" style="color:var(--walmart-yellow);"></i>
+                                <strong style="color:var(--walmart-yellow);">MDS: ${item.mds_fam_id}</strong>
+                                ${item.item_nbr ? '<span style="color:#8ab4f8; margin-left:10px;">Item#: <strong>' + item.item_nbr + '</strong></span>' : ''}
+                            </span>
+                            <span class="badge" style="background:var(--walmart-blue); font-size:0.8rem; padding:5px 10px;">${item.omni_division}</span>
                         </div>
-                        <div class="card-body" style="padding:12px;">
-                            <div class="row mb-2" style="font-size:0.85rem;">
-                                <div class="col-6"><span class="text-muted">Department:</span> ${item.omni_dept_desc}</div>
-                                <div class="col-6"><span class="text-muted">Replen Type:</span> ${item.replen_type || 'N/A'}</div>
+                        <div class="card-body" style="padding:14px;">
+                            <div class="row mb-2" style="font-size:0.88rem;">
+                                <div class="col-6"><span style="color:#8a8aaa;">Department:</span> <strong style="color:#e8e8e8;">${item.omni_dept_desc}</strong></div>
+                                <div class="col-6"><span style="color:#8a8aaa;">Replen Type:</span> <strong style="color:#e8e8e8;">${item.replen_type || 'N/A'}</strong></div>
                             </div>
-                            <div class="row mb-2" style="font-size:0.85rem;">
-                                <div class="col-6"><span class="text-muted">Segment:</span> ${item.omni_seg_desc || 'N/A'}</div>
-                                <div class="col-6"><span class="text-muted">Unit Cost:</span> ${item.unit_cost ? '$' + item.unit_cost.toFixed(2) : 'N/A'}</div>
+                            <div class="row mb-2" style="font-size:0.88rem;">
+                                <div class="col-6"><span style="color:#8a8aaa;">Segment:</span> <strong style="color:#e8e8e8;">${item.omni_seg_desc || 'N/A'}</strong></div>
+                                <div class="col-6"><span style="color:#8a8aaa;">Unit Cost:</span> <strong style="color:var(--walmart-yellow);">${item.unit_cost ? '$' + item.unit_cost.toFixed(2) : 'N/A'}</strong></div>
                             </div>
-                            <hr style="border-color:#2a2a4a; margin:8px 0;">
-                            <div class="row text-center" style="font-size:0.8rem;">
-                                <div class="col"><div class="text-muted">Store OH</div><div class="fw-bold" style="color:#28a745;">${formatNumber(item.store_oh_units)}</div></div>
-                                <div class="col"><div class="text-muted">DC OH</div><div class="fw-bold" style="color:#007bff;">${formatNumber(item.dc_oh_units)}</div></div>
-                                <div class="col"><div class="text-muted">Transit</div><div class="fw-bold" style="color:#e67300;">${formatNumber(item.transit_units)}</div></div>
-                                <div class="col"><div class="text-muted">Reserved</div><div class="fw-bold" style="color:#7c3aed;">${formatNumber(item.dc_reserved_units)}</div></div>
-                                <div class="col"><div class="text-muted">Labeled</div><div class="fw-bold" style="color:#e91e8c;">${formatNumber(item.dc_labeled_units || 0)}</div></div>
-                                <div class="col"><div class="text-muted">Unlabeled</div><div class="fw-bold" style="color:#8e44ad;">${formatNumber(item.dc_unlabeled_units || 0)}</div></div>
+                            <hr style="border-color:#3a3a5a; margin:10px 0;">
+                            <div class="row text-center" style="font-size:0.82rem;">
+                                <div class="col" style="padding:6px;">
+                                    <div style="color:#8a8aaa; margin-bottom:3px;">Store OH</div>
+                                    <div class="fw-bold" style="color:#4cdf6b; font-size:1rem;">${formatNumber(item.store_oh_units)}</div>
+                                </div>
+                                <div class="col" style="padding:6px;">
+                                    <div style="color:#8a8aaa; margin-bottom:3px;">DC OH</div>
+                                    <div class="fw-bold" style="color:#5aafff; font-size:1rem;">${formatNumber(item.dc_oh_units)}</div>
+                                </div>
+                                <div class="col" style="padding:6px;">
+                                    <div style="color:#8a8aaa; margin-bottom:3px;">Transit</div>
+                                    <div class="fw-bold" style="color:#ffa64d; font-size:1rem;">${formatNumber(item.transit_units)}</div>
+                                </div>
+                                <div class="col" style="padding:6px;">
+                                    <div style="color:#8a8aaa; margin-bottom:3px;">Reserved</div>
+                                    <div class="fw-bold" style="color:#a78bfa; font-size:1rem;">${formatNumber(item.dc_reserved_units)}</div>
+                                </div>
+                                <div class="col" style="padding:6px;">
+                                    <div style="color:#8a8aaa; margin-bottom:3px;">Labeled</div>
+                                    <div class="fw-bold" style="color:#f472b6; font-size:1rem;">${formatNumber(item.dc_labeled_units || 0)}</div>
+                                </div>
+                                <div class="col" style="padding:6px;">
+                                    <div style="color:#8a8aaa; margin-bottom:3px;">Unlabeled</div>
+                                    <div class="fw-bold" style="color:#c084fc; font-size:1rem;">${formatNumber(item.dc_unlabeled_units || 0)}</div>
+                                </div>
                             </div>
-                            <div class="mt-2 text-center" style="font-size:0.9rem;">
-                                <strong>Total: ${formatNumber(totalUnits)} units</strong>
-                                ${item.total_cost ? ' &nbsp;|&nbsp; <strong>' + formatCurrency(item.total_cost) + '</strong>' : ''}
+                            <div class="mt-3 text-center" style="background:#0f0f1a; border-radius:8px; padding:10px; border:1px solid #3a3a5a;">
+                                <span style="color:#e8e8e8; font-size:0.95rem;">
+                                    <i class="bi bi-bar-chart-fill me-1" style="color:var(--walmart-blue);"></i>
+                                    <strong style="color:#fff;">Total: ${formatNumber(totalUnits)} units</strong>
+                                </span>
+                                ${item.total_cost ? '<span style="margin-left:15px; color:var(--walmart-yellow); font-size:0.95rem;"><i class="bi bi-currency-dollar"></i><strong>' + formatCurrency(item.total_cost) + '</strong></span>' : ''}
                             </div>
                         </div>
                     </div>`;
                 });
 
-                body.innerHTML = `<div class="mb-2" style="font-size:0.85rem; color:var(--text-muted);">${items.length} result${items.length > 1 ? 's' : ''} for "<strong>${itemId}</strong>"</div>` + html;
+                body.innerHTML = `<div class="mb-3" style="font-size:0.88rem; color:#c0c0d0;">${items.length} result${items.length > 1 ? 's' : ''} for "<strong style="color:#fff;">${itemId}</strong>"</div>` + html;
             } catch (err) {
                 console.error('Item search error:', err);
                 body.innerHTML = `<div class="text-center py-4">

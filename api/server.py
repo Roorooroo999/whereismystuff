@@ -841,11 +841,11 @@ async def health_check():
 
 
 # ============================================================
-# Local:     uvicorn server:app --reload --port 8000
+# Local:     uvicorn server:app --reload --port 8001
 # Cloud Run: Automatically uses PORT env variable
 # ============================================================
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("PORT", 8000))
+    port = int(os.environ.get("PORT", 8001))
     uvicorn.run(app, host="0.0.0.0", port=port)

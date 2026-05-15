@@ -384,9 +384,9 @@
     <script>
         // ========== API CONFIG (Live BigQuery via FastAPI) ==========
         // When served from FastAPI (same origin), API_BASE = '' so paths are relative.
-        // When opened as file://, fall back to localhost:8000.
+        // When opened as file://, fall back to localhost:8001.
         const API_BASE = (window.location.protocol === 'file:' || window.location.hostname === '')
-            ? 'http://localhost:8000'
+            ? 'http://localhost:8001'
             : '';
 
         let CACHED_DATA = null;
@@ -1078,7 +1078,7 @@
             } catch (err) {
                 console.error('refreshData error:', err);
                 setStatus('error', 'Error');
-                alert('Failed to load data from API: ' + err.message + '\n\nMake sure FastAPI is running:\n  cd api && uvicorn server:app --reload --port 8000');
+                alert('Failed to load data from API: ' + err.message + '\n\nMake sure FastAPI is running:\n  cd api && uvicorn server:app --reload --port 8001');
             } finally {
                 showLoading(false);
             }

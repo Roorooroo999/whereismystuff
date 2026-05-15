@@ -99,7 +99,7 @@
 
                 <div class="filter-section">
                     <label class="filter-label">SBU (Division)</label>
-                    <select class="form-select form-select-sm" id="sbu-filter" multiple size="8" onchange="onSBUChange(); applyFilters();">
+                    <select class="form-select form-select-sm" id="sbu-filter" multiple size="8" onchange="onSBUChange();">
                         <option>PANTRY</option>
                         <option>CONSUMABLES</option>
                         <option>CAC</option>
@@ -113,21 +113,21 @@
 
                 <div class="filter-section">
                     <label class="filter-label">Department</label>
-                    <select class="form-select form-select-sm" id="dept-filter" multiple size="5" onchange="onDeptChange(); applyFilters();">
+                    <select class="form-select form-select-sm" id="dept-filter" multiple size="5" onchange="onDeptChange();">
                         <option value="">Loading...</option>
                     </select>
                 </div>
 
                 <div class="filter-section">
                     <label class="filter-label">Category</label>
-                    <select class="form-select form-select-sm" id="catg-filter" multiple size="4" onchange="applyFilters();">
+                    <select class="form-select form-select-sm" id="catg-filter" multiple size="4">
                         <option value="">Select Dept first</option>
                     </select>
                 </div>
 
                 <div class="filter-section">
                     <label class="filter-label">DC Type</label>
-                    <select class="form-select form-select-sm" id="dc-type-filter" multiple size="4" onchange="applyFilters();">
+                    <select class="form-select form-select-sm" id="dc-type-filter" multiple size="4">
                         <option>Grocery</option>
                         <option>Regional</option>
                         <option>Imports</option>
@@ -142,7 +142,7 @@
 
                 <div class="filter-section">
                     <label class="filter-label">Replen Type</label>
-                    <select class="form-select form-select-sm" id="replen-filter" onchange="applyFilters();">
+                    <select class="form-select form-select-sm" id="replen-filter">
                         <option value="">All</option>
                         <option>REPLEN</option>
                         <option>NON-REPLEN</option>
@@ -285,8 +285,8 @@
                         <div class="row mt-3">
                             <div class="col-12">
                                 <div class="chart-container" id="panel-dept-chart">
-                                    <div class="chart-title"><i class="bi bi-bar-chart-steps me-1"></i>Department Inventory Breakdown (Top 15) <span class="filter-bar" id="fb-dept-chart"></span></div>
-                                    <div style="position:relative; height:420px;">
+                                    <div class="chart-title"><i class="bi bi-bar-chart-steps me-1"></i>Department Inventory Breakdown <span class="filter-bar" id="fb-dept-chart"></span></div>
+                                    <div id="deptChartContainer" style="position:relative; height:420px;">
                                         <canvas id="deptStackedChart"></canvas>
                                     </div>
                                 </div>
@@ -380,6 +380,21 @@
         </div>
     </div>
 
+    <!-- Item Search Results Modal -->
+    <div class="modal fade" id="itemModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content" style="background: var(--bg-card); color: var(--text-light); border: 1px solid #2a2a4a;">
+                <div class="modal-header" style="border-bottom: 1px solid #2a2a4a;">
+                    <h5 class="modal-title"><i class="bi bi-search me-2"></i>Item Search Results</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="item-results-body">
+                    <div class="text-center text-muted py-4">Searching...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         // ========== API CONFIG (Live BigQuery via FastAPI) ==========
@@ -455,7 +470,8 @@
                 'by-sbu-dept',
                 'by-dc-type',
                 'by-dc-type-sbu',
-                'by-department'
+                'by-department',
+                'dept-categories'
             ];
 
             const requests = endpoints.map(name => {
@@ -469,15 +485,15 @@
                         console.log(`[API] ${name}: ${Array.isArray(data) ? data.length + ' rows' : 'object'}`);
                         return data;
                     })
-            );
+            });
 
-            const [summary, sbu, sbu_dept, dc_type, dc_type_sbu, dept] =
+            const [summary, sbu, sbu_dept, dc_type, dc_type_sbu, dept, dept_catg] =
                 await Promise.all(requests);
 
             const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
             const bus_date = yesterday.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
-            return { summary, sbu, sbu_dept, dc_type, dc_type_sbu, dept, bus_date };
+            return { summary, sbu, sbu_dept, dc_type, dc_type_sbu, dept, dept_catg, bus_date };
         }
 
         // ========== UI UPDATE FUNCTIONS ==========
@@ -764,21 +780,25 @@
             const ctx = document.getElementById('deptStackedChart').getContext('2d');
             if (deptStackedChart) deptStackedChart.destroy();
 
-            // Take top 15 departments by total_units
-            const top15 = deptData.slice(0, 15);
-            const labels = top15.map(d => d.department);
+            // Show all departments, hide negligible ones (< 1,000 total units)
+            const allDepts = deptData.filter(d => d.total_units >= 1000);
+            const labels = allDepts.map(d => d.department);
+
+            // Dynamic height: 28px per department, minimum 420px
+            const chartHeight = Math.max(420, allDepts.length * 28);
+            document.getElementById('deptChartContainer').style.height = chartHeight + 'px';
 
             deptStackedChart = new Chart(ctx, {
                 type: 'bar',
                 data: {
                     labels: labels,
                     datasets: [
-                        { label: 'Store OH', data: top15.map(d => d.store_units / 1e6), backgroundColor: '#1e7e34', stack: 'stack1' },
-                        { label: 'DC OH', data: top15.map(d => d.dc_oh_units / 1e6), backgroundColor: '#0069d9', stack: 'stack1' },
-                        { label: 'In-Transit', data: top15.map(d => d.transit_units / 1e6), backgroundColor: '#c45c00', stack: 'stack1' },
-                        { label: 'DC Reserved', data: top15.map(d => d.dc_reserved_units / 1e6), backgroundColor: '#5a23c8', stack: 'stack1' },
-                        { label: 'DC Labeled', data: top15.map(d => d.dc_labeled_units / 1e6), backgroundColor: '#c21a6d', stack: 'stack1' },
-                        { label: 'DC Unlabeled', data: top15.map(d => d.dc_unlabeled_units / 1e6), backgroundColor: '#6c3483', stack: 'stack1' }
+                        { label: 'Store OH', data: allDepts.map(d => d.store_units / 1e6), backgroundColor: '#1e7e34', stack: 'stack1' },
+                        { label: 'DC OH', data: allDepts.map(d => d.dc_oh_units / 1e6), backgroundColor: '#0069d9', stack: 'stack1' },
+                        { label: 'In-Transit', data: allDepts.map(d => d.transit_units / 1e6), backgroundColor: '#c45c00', stack: 'stack1' },
+                        { label: 'DC Reserved', data: allDepts.map(d => d.dc_reserved_units / 1e6), backgroundColor: '#5a23c8', stack: 'stack1' },
+                        { label: 'DC Labeled', data: allDepts.map(d => d.dc_labeled_units / 1e6), backgroundColor: '#c21a6d', stack: 'stack1' },
+                        { label: 'DC Unlabeled', data: allDepts.map(d => d.dc_unlabeled_units / 1e6), backgroundColor: '#6c3483', stack: 'stack1' }
                     ]
                 },
                 options: {
@@ -802,7 +822,7 @@
                         },
                         y: {
                             stacked: true,
-                            ticks: { font: { size: 12, weight: '500' } }
+                            ticks: { font: { size: 11, weight: '500' } }
                         }
                     }
                 }
@@ -942,62 +962,68 @@
         }
 
         // ========== FILTER FUNCTIONS (API Mode - Live Data) ==========
-        async function onSBUChange() {
-            const sbuFilter = Array.from(document.getElementById('sbu-filter').selectedOptions).map(o => o.value);
+        function populateDeptDropdown() {
+            // Populate department dropdown from already-loaded sbu_dept data (instant, no extra API call)
             const deptSelect = document.getElementById('dept-filter');
-            const catgSelect = document.getElementById('catg-filter');
-
-            // Reset category whenever SBU changes
-            catgSelect.innerHTML = '<option value="">Select Dept first</option>';
-
-            try {
-                const params = new URLSearchParams();
-                sbuFilter.forEach(s => params.append('sbu', s));
-                const qs = params.toString();
-                const url = `${API_BASE}/api/filters/departments${qs ? '?' + qs : ''}`;
-                const response = await fetch(url);
-                if (!response.ok) throw new Error('departments lookup failed: ' + response.status);
-                const departments = await response.json();
-                deptSelect.innerHTML = departments
-                    .filter(d => d)
-                    .map(d => `<option value="${d}">${d}</option>`)
-                    .join('');
-            } catch (err) {
-                console.error('onSBUChange error:', err);
-                deptSelect.innerHTML = '<option value="">Error loading</option>';
+            if (!CACHED_DATA || !CACHED_DATA.sbu_dept) {
+                deptSelect.innerHTML = '<option value="">Loading...</option>';
+                return;
             }
+            const sbuFilter = Array.from(document.getElementById('sbu-filter').selectedOptions).map(o => o.value);
+            let departments;
+            if (sbuFilter.length) {
+                departments = [...new Set(CACHED_DATA.sbu_dept.filter(d => sbuFilter.includes(d.sbu)).map(d => d.department))];
+            } else {
+                departments = [...new Set(CACHED_DATA.sbu_dept.map(d => d.department))];
+            }
+            departments.sort();
+            deptSelect.innerHTML = departments
+                .filter(d => d)
+                .map(d => `<option value="${d}">${d}</option>`)
+                .join('') || '<option value="">No departments</option>';
         }
 
-        async function onDeptChange() {
-            const sbuFilter = Array.from(document.getElementById('sbu-filter').selectedOptions).map(o => o.value);
-            const deptFilter = Array.from(document.getElementById('dept-filter').selectedOptions).map(o => o.value).filter(v => v);
+        function onSBUChange() {
+            document.getElementById('catg-filter').innerHTML = '<option value="">Select Dept first</option>';
+            populateDeptDropdown();
+        }
+
+        function onDeptChange() {
+            // Populate category dropdown from already-loaded dept_catg data (instant, no API call)
             const catgSelect = document.getElementById('catg-filter');
+            const deptFilter = Array.from(document.getElementById('dept-filter').selectedOptions).map(o => o.value).filter(v => v);
 
             if (!deptFilter.length) {
                 catgSelect.innerHTML = '<option value="">Select Dept first</option>';
                 return;
             }
 
-            try {
-                const params = new URLSearchParams();
-                sbuFilter.forEach(s => params.append('sbu', s));
-                deptFilter.forEach(d => params.append('department', d));
-                const url = `${API_BASE}/api/filters/categories?${params.toString()}`;
-                const response = await fetch(url);
-                if (!response.ok) throw new Error('categories lookup failed: ' + response.status);
-                const categories = await response.json();
-                catgSelect.innerHTML = categories
-                    .filter(c => c && c.category)
-                    .map(c => `<option value="${c.category}">${c.category}</option>`)
-                    .join('') || '<option value="">No categories</option>';
-            } catch (err) {
-                console.error('onDeptChange error:', err);
-                catgSelect.innerHTML = '<option value="">Error loading</option>';
+            if (!CACHED_DATA || !CACHED_DATA.dept_catg) {
+                catgSelect.innerHTML = '<option value="">Loading...</option>';
+                return;
             }
+
+            const sbuFilter = Array.from(document.getElementById('sbu-filter').selectedOptions).map(o => o.value);
+            let filtered = CACHED_DATA.dept_catg.filter(d => deptFilter.includes(d.department));
+            if (sbuFilter.length) {
+                filtered = filtered.filter(d => sbuFilter.includes(d.sbu));
+            }
+
+            const categories = [...new Set(filtered.map(d => d.category))].sort();
+            catgSelect.innerHTML = categories
+                .filter(c => c)
+                .map(c => `<option value="${c}">${c}</option>`)
+                .join('') || '<option value="">No categories</option>';
         }
 
         async function applyFilters() {
             const filters = getCurrentFilters();
+
+            // If item search has a value, do a dedicated item lookup instead
+            if (filters.item_id) {
+                await searchItem(filters.item_id);
+                return;
+            }
 
             // Update filter badge with actual values
             const parts = [];
@@ -1018,7 +1044,6 @@
                 parts.push(`DC: ${dcText}`);
             }
             if (filters.replen_type) parts.push(`Replen: ${filters.replen_type}`);
-            if (filters.item_id) parts.push(`Item: ${filters.item_id}`);
 
             if (parts.length) {
                 document.getElementById('filter-text').textContent = parts.join(' | ');
@@ -1028,6 +1053,75 @@
             }
 
             await refreshData();
+        }
+
+        async function searchItem(itemId) {
+            const modal = new bootstrap.Modal(document.getElementById('itemModal'));
+            const body = document.getElementById('item-results-body');
+            body.innerHTML = '<div class="text-center text-muted py-4"><div class="spinner-border spinner-border-sm me-2"></div>Searching for item ' + itemId + '...</div>';
+            modal.show();
+
+            try {
+                const resp = await fetch(`${API_BASE}/api/item/${encodeURIComponent(itemId)}`, { cache: 'no-store' });
+                if (resp.status === 404) {
+                    body.innerHTML = `<div class="text-center py-4">
+                        <i class="bi bi-exclamation-circle text-warning" style="font-size:2rem;"></i>
+                        <p class="mt-2 mb-0">No item found for <strong>${itemId}</strong></p>
+                        <p class="text-muted" style="font-size:0.85rem;">Try a different MDS_FAM_ID or Item Number</p>
+                    </div>`;
+                    return;
+                }
+                if (!resp.ok) throw new Error(`Server error: ${resp.status}`);
+
+                const items = await resp.json();
+                if (!items.length) {
+                    body.innerHTML = `<div class="text-center py-4 text-muted">No results found for <strong>${itemId}</strong></div>`;
+                    return;
+                }
+
+                let html = '';
+                items.forEach((item, i) => {
+                    const totalUnits = item.total_units || (item.store_oh_units + item.dc_oh_units + item.dc_reserved_units + item.transit_units + (item.dc_labeled_units || 0) + (item.dc_unlabeled_units || 0));
+                    html += `
+                    <div class="card mb-3" style="background:#1a1a2e; border:1px solid #2a2a4a;">
+                        <div class="card-header d-flex justify-content-between align-items-center" style="background:#0f0f1a; border-bottom:1px solid #2a2a4a; padding:8px 12px;">
+                            <span><i class="bi bi-box-seam me-2" style="color:var(--walmart-yellow);"></i><strong>MDS: ${item.mds_fam_id}</strong>${item.item_nbr ? ' &nbsp;|&nbsp; Item#: ' + item.item_nbr : ''}</span>
+                            <span class="badge" style="background:var(--walmart-blue);">${item.omni_division}</span>
+                        </div>
+                        <div class="card-body" style="padding:12px;">
+                            <div class="row mb-2" style="font-size:0.85rem;">
+                                <div class="col-6"><span class="text-muted">Department:</span> ${item.omni_dept_desc}</div>
+                                <div class="col-6"><span class="text-muted">Replen Type:</span> ${item.replen_type || 'N/A'}</div>
+                            </div>
+                            <div class="row mb-2" style="font-size:0.85rem;">
+                                <div class="col-6"><span class="text-muted">Segment:</span> ${item.omni_seg_desc || 'N/A'}</div>
+                                <div class="col-6"><span class="text-muted">Unit Cost:</span> ${item.unit_cost ? '$' + item.unit_cost.toFixed(2) : 'N/A'}</div>
+                            </div>
+                            <hr style="border-color:#2a2a4a; margin:8px 0;">
+                            <div class="row text-center" style="font-size:0.8rem;">
+                                <div class="col"><div class="text-muted">Store OH</div><div class="fw-bold" style="color:#28a745;">${formatNumber(item.store_oh_units)}</div></div>
+                                <div class="col"><div class="text-muted">DC OH</div><div class="fw-bold" style="color:#007bff;">${formatNumber(item.dc_oh_units)}</div></div>
+                                <div class="col"><div class="text-muted">Transit</div><div class="fw-bold" style="color:#e67300;">${formatNumber(item.transit_units)}</div></div>
+                                <div class="col"><div class="text-muted">Reserved</div><div class="fw-bold" style="color:#7c3aed;">${formatNumber(item.dc_reserved_units)}</div></div>
+                                <div class="col"><div class="text-muted">Labeled</div><div class="fw-bold" style="color:#e91e8c;">${formatNumber(item.dc_labeled_units || 0)}</div></div>
+                                <div class="col"><div class="text-muted">Unlabeled</div><div class="fw-bold" style="color:#8e44ad;">${formatNumber(item.dc_unlabeled_units || 0)}</div></div>
+                            </div>
+                            <div class="mt-2 text-center" style="font-size:0.9rem;">
+                                <strong>Total: ${formatNumber(totalUnits)} units</strong>
+                                ${item.total_cost ? ' &nbsp;|&nbsp; <strong>' + formatCurrency(item.total_cost) + '</strong>' : ''}
+                            </div>
+                        </div>
+                    </div>`;
+                });
+
+                body.innerHTML = `<div class="mb-2" style="font-size:0.85rem; color:var(--text-muted);">${items.length} result${items.length > 1 ? 's' : ''} for "<strong>${itemId}</strong>"</div>` + html;
+            } catch (err) {
+                console.error('Item search error:', err);
+                body.innerHTML = `<div class="text-center py-4">
+                    <i class="bi bi-x-circle text-danger" style="font-size:2rem;"></i>
+                    <p class="mt-2 mb-0">Search failed: ${err.message}</p>
+                </div>`;
+            }
         }
 
         function deselectAll(selectEl) {
@@ -1054,6 +1148,7 @@
                 const filters = getCurrentFilters();
                 const data = await fetchAllData(filters);
                 CACHED_DATA = data;
+                populateDeptDropdown();
 
                 updateFilterIndicators(filters);
                 updateKPIs(data.summary);
@@ -1086,7 +1181,6 @@
 
         // ========== INITIALIZATION ==========
         document.addEventListener('DOMContentLoaded', async () => {
-            await onSBUChange();
             await refreshData();
         });
         document.getElementById('item-search').addEventListener('keypress', e => { if (e.key === 'Enter') applyFilters(); });

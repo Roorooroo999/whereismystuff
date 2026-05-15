@@ -34,3 +34,7 @@ service-account.json
 # Data files (exclude from repo)
 bigquery_results/
 *.csv
+
+# Standalone export artifacts
+embedded_data.json
+Wheres_My_Stuff_Dashboard.html

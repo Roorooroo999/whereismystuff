@@ -457,7 +457,9 @@ def require_cache():
 
 @app.get("/")
 async def root():
-    return {"status": "ok", "service": "Where's My Stuff API", "cache_ready": cache.is_ready}
+    """Redirect root to dashboard."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="./dashboard")
 
 
 @app.get("/api/summary")

@@ -49,11 +49,9 @@ class NoCacheMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(NoCacheMiddleware)
 
-# BigQuery config
-# DATA_PROJECT = where the table lives; CLIENT_PROJECT = where the job runs (must have bigquery.jobs.create)
-DATA_PROJECT = os.environ.get("DATA_PROJECT", "wmt-instockinventory-datamart")
-CLIENT_PROJECT = os.environ.get("CLIENT_PROJECT", "wmt-execution-intel-prod")
-PROJECT_ID = DATA_PROJECT  # for backward compat in table references
+# BigQuery config — all in one project now
+PROJECT_ID = os.environ.get("PROJECT_ID", "wmt-execution-intel-prod")
+CLIENT_PROJECT = PROJECT_ID  # jobs run in the same project as the data
 DATASET = os.environ.get("DATASET", "WM_AD_HOC")
 TABLE = os.environ.get("TABLE", "WHERES_MY_STUFF_ROLLUP")
 REFRESH_INTERVAL = int(os.environ.get("CACHE_REFRESH_SECONDS", "3600"))  # 1 hour default

@@ -30,7 +30,7 @@
     }
   },
   "environment": {
-    "PROJECT_ID": "wmt-instockinventory-datamart",
+    "PROJECT_ID": "wmt-execution-intel-prod",
     "DATASET": "WM_AD_HOC",
     "TABLE": "WHERES_MY_STUFF_ROLLUP"
   }

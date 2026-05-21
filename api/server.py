@@ -11,23 +11,48 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from google.cloud import bigquery
 from google.oauth2 import service_account
 import pandas as pd
+import numpy as np
 import os
 import json
 import logging
 import asyncio
 import time
 import tempfile
-from datetime import datetime, timezone
+from decimal import Decimal
+from datetime import datetime, date, timezone
 from typing import Optional, List
 from pydantic import BaseModel
 from pathlib import Path
 
 logger = logging.getLogger("uvicorn.error")
 
+
+# Custom JSON encoder to handle BigQuery Decimal/numpy types
+class SafeJSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return float(obj)
+        if isinstance(obj, (np.integer,)):
+            return int(obj)
+        if isinstance(obj, (np.floating,)):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, (date, datetime)):
+            return obj.isoformat()
+        return super().default(obj)
+
+
+class SafeJSONResponse(JSONResponse):
+    def render(self, content) -> bytes:
+        return json.dumps(content, cls=SafeJSONEncoder, ensure_ascii=False).encode("utf-8")
+
+
 app = FastAPI(
     title="Where's My Stuff API",
     description="Inventory Rollup Dashboard API - Walmart Total Inventory Team",
-    version="3.0.0"
+    version="3.0.0",
+    default_response_class=SafeJSONResponse
 )
 
 # Enable CORS for dashboard
@@ -931,7 +956,7 @@ async def get_historical_data():
     """Serve pre-aggregated historical inventory data from in-memory cache."""
     if not hist_cache.is_ready:
         raise HTTPException(status_code=503, detail="Historical data is loading, please retry in a few seconds")
-    return JSONResponse(content=hist_cache.to_response())
+    return SafeJSONResponse(content=hist_cache.to_response())
 
 
 @app.get("/dashboard/historical.html")

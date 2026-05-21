@@ -43,8 +43,10 @@ app.add_middleware(
 class NoCacheMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
-        if request.url.path.startswith("/api/"):
+        path = request.url.path
+        if path.startswith("/api/") or path.startswith("/dashboard") or path == "/":
             response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
         return response
 
 app.add_middleware(NoCacheMiddleware)

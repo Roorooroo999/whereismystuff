@@ -25,13 +25,23 @@
     "api/__init__.py": {
       "checksum": "auto"
     },
+    "api/fetch_historical.py": {
+      "checksum": "auto"
+    },
     "dashboard/index.html": {
+      "checksum": "auto"
+    },
+    "dashboard/historical.html": {
+      "checksum": "auto"
+    },
+    "dashboard/historical_data.json": {
       "checksum": "auto"
     }
   },
   "environment": {
     "PROJECT_ID": "wmt-execution-intel-prod",
     "DATASET": "WM_AD_HOC",
-    "TABLE": "WHERES_MY_STUFF_ROLLUP"
+    "TABLE": "WHERES_MY_STUFF_ROLLUP",
+    "HIST_TABLE": "R0C0JUG_WMUS_HIST_COMBINED"
   }
 }

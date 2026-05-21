@@ -127,6 +127,8 @@ class DataCache:
 
         # Main fact query: pre-aggregated at SBU × Dept × DC_Type × Replen_Type grain
         # This is enough to serve all 7 dashboard endpoints via Python groupby
+        # Uses MAX(BUS_DT) to always get the latest available data
+        fqn = f"`{PROJECT_ID}.{DATASET}.{TABLE}`"
         query = f"""
         SELECT
             OMNI_DIVISION AS sbu,
@@ -147,8 +149,8 @@ class DataCache:
             ROUND(SUM(IN_TRANSIT_UNITS * COALESCE(UNIT_COST, 0)), 2) AS transit_cost,
             ROUND(SUM(DC_LABELED_UNITS * COALESCE(UNIT_COST, 0)), 2) AS dc_labeled_cost,
             ROUND(SUM(DC_UNLABELED_UNITS * COALESCE(UNIT_COST, 0)), 2) AS dc_unlabeled_cost
-        FROM `{PROJECT_ID}.{DATASET}.{TABLE}`
-        WHERE BUS_DT = DATE_SUB(CURRENT_DATE('America/Chicago'), INTERVAL 1 DAY)
+        FROM {fqn}
+        WHERE BUS_DT = (SELECT MAX(BUS_DT) FROM {fqn})
           AND OMNI_DEPT_DESC IS NOT NULL
         GROUP BY sbu, dept_nbr, department, dc_type, replen_type
         """
@@ -172,23 +174,28 @@ class DataCache:
             OMNI_DIVISION AS sbu,
             OMNI_DEPT_DESC AS department,
             OMNI_CATG_DESC AS category
-        FROM `{PROJECT_ID}.{DATASET}.{TABLE}`
-        WHERE BUS_DT = DATE_SUB(CURRENT_DATE('America/Chicago'), INTERVAL 1 DAY)
+        FROM {fqn}
+        WHERE BUS_DT = (SELECT MAX(BUS_DT) FROM {fqn})
           AND OMNI_CATG_DESC IS NOT NULL
         ORDER BY department, category
         """
         logger.info("[CACHE] Loading category mappings...")
         catg_df = client.query(catg_query).to_dataframe()
 
+        # Get the actual BUS_DT from the data
+        bus_dt_query = f"SELECT MAX(BUS_DT) AS max_dt FROM {fqn}"
+        bus_dt_result = client.query(bus_dt_query).to_dataframe()
+        actual_bus_dt = str(bus_dt_result["max_dt"].iloc[0]) if not bus_dt_result.empty else datetime.now().strftime("%Y-%m-%d")
+
         self.df = df
         self.catg_df = catg_df
         self.loaded_at = time.time()
-        self.loaded_date = datetime.now().strftime("%Y-%m-%d")
+        self.loaded_date = actual_bus_dt
         self.load_time_sec = round(time.time() - t0, 1)
         self.row_count = len(df)
         self.is_loading = False
 
-        logger.info(f"[CACHE] Loaded {len(df):,} rows + {len(catg_df):,} category mappings in {self.load_time_sec}s")
+        logger.info(f"[CACHE] Loaded {len(df):,} rows + {len(catg_df):,} category mappings in {self.load_time_sec}s (BUS_DT={actual_bus_dt})")
 
     def _apply_filters(self, df: pd.DataFrame, sbu=None, department=None, category=None,
                         dc_type=None, replen_type=None, **kwargs) -> pd.DataFrame:

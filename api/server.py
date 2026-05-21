@@ -54,6 +54,7 @@ PROJECT_ID = os.environ.get("PROJECT_ID", "wmt-execution-intel-prod")
 CLIENT_PROJECT = PROJECT_ID  # jobs run in the same project as the data
 DATASET = os.environ.get("DATASET", "WM_AD_HOC")
 TABLE = os.environ.get("TABLE", "WHERES_MY_STUFF_ROLLUP")
+HIST_TABLE = os.environ.get("HIST_TABLE", "R0C0JUG_WMUS_HIST_COMBINED")
 REFRESH_INTERVAL = int(os.environ.get("CACHE_REFRESH_SECONDS", "3600"))  # 1 hour default
 
 
@@ -342,31 +343,179 @@ cache = DataCache()
 
 
 # ============================================================
+# Historical Inventory Cache
+# ============================================================
+
+class HistoricalCache:
+    """
+    Pre-aggregated historical inventory data from R0C0JUG_WMUS_HIST_COMBINED.
+    Three grain levels cached as DataFrames — served instantly via pandas.
+    Source table refreshed daily by BigQuery scheduled query.
+    """
+
+    # Columns to SUM at each aggregation level
+    METRIC_COLS = [
+        "store_oh", "backroom", "on_floor", "dc_reserved", "in_transit",
+        "dc_oh", "dc_labeled", "dc_unlabeled", "sto_to_dc", "total_network",
+        "dc_oh_regional", "dc_oh_grocery", "dc_oh_fashion", "dc_oh_imports",
+        "dc_oh_gidc", "dc_oh_msc", "dc_oh_support", "dc_oh_other",
+        "sto_to_regional", "sto_to_grocery", "sto_to_fashion", "sto_to_imports",
+        "sto_to_gidc", "sto_to_msc", "sto_to_support", "sto_to_other",
+    ]
+
+    def __init__(self):
+        self.enterprise_df: Optional[pd.DataFrame] = None
+        self.sbu_df: Optional[pd.DataFrame] = None
+        self.dept_df: Optional[pd.DataFrame] = None
+        self.loaded_at: Optional[float] = None
+        self.loaded_date: Optional[str] = None
+        self.load_time_sec: float = 0
+        self.is_loading: bool = False
+
+    @property
+    def is_ready(self) -> bool:
+        return self.enterprise_df is not None and not self.enterprise_df.empty
+
+    def _get_client(self):
+        creds_json = os.environ.get("GOOGLE_CREDENTIALS", "")
+        if creds_json:
+            info = json.loads(creds_json)
+            credentials = service_account.Credentials.from_service_account_info(info)
+            return bigquery.Client(project=CLIENT_PROJECT, credentials=credentials)
+        return bigquery.Client(project=CLIENT_PROJECT)
+
+    def load(self):
+        """Load 3 aggregation levels from BigQuery in parallel-ish queries."""
+        self.is_loading = True
+        t0 = time.time()
+        client = self._get_client()
+
+        metric_sql = """
+            SUM(STORE_OH_UNITS) AS store_oh,
+            SUM(BACKROOM_UNITS) AS backroom,
+            SUM(ON_FLOOR_UNITS) AS on_floor,
+            SUM(DC_RESERVED_UNITS) AS dc_reserved,
+            SUM(IN_TRANSIT_UNITS) AS in_transit,
+            SUM(DC_OH_UNITS) AS dc_oh,
+            SUM(DC_LABELED_UNITS) AS dc_labeled,
+            SUM(DC_UNLABELED_UNITS) AS dc_unlabeled,
+            SUM(STO_IN_TRANSIT_TO_DC_UNITS) AS sto_to_dc,
+            SUM(TOTAL_NETWORK_UNITS) AS total_network,
+            SUM(DC_OH_REGIONAL_UNITS) AS dc_oh_regional,
+            SUM(DC_OH_GROCERY_UNITS) AS dc_oh_grocery,
+            SUM(DC_OH_FASHION_UNITS) AS dc_oh_fashion,
+            SUM(DC_OH_IMPORTS_UNITS) AS dc_oh_imports,
+            SUM(DC_OH_GIDC_UNITS) AS dc_oh_gidc,
+            SUM(DC_OH_MSC_UNITS) AS dc_oh_msc,
+            SUM(DC_OH_SUPPORT_UNITS) AS dc_oh_support,
+            SUM(DC_OH_OTHER_UNITS) AS dc_oh_other,
+            SUM(STO_TO_REGIONAL_UNITS) AS sto_to_regional,
+            SUM(STO_TO_GROCERY_UNITS) AS sto_to_grocery,
+            SUM(STO_TO_FASHION_UNITS) AS sto_to_fashion,
+            SUM(STO_TO_IMPORTS_UNITS) AS sto_to_imports,
+            SUM(STO_TO_GIDC_UNITS) AS sto_to_gidc,
+            SUM(STO_TO_MSC_UNITS) AS sto_to_msc,
+            SUM(STO_TO_SUPPORT_UNITS) AS sto_to_support,
+            SUM(STO_TO_OTHER_UNITS) AS sto_to_other
+        """
+
+        fqn = f"`{PROJECT_ID}.{DATASET}.{HIST_TABLE}`"
+
+        # Enterprise level
+        q1 = f"""SELECT BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, {metric_sql}
+                 FROM {fqn} GROUP BY BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR ORDER BY BUS_DT"""
+
+        # SBU level
+        q2 = f"""SELECT BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU, {metric_sql}
+                 FROM {fqn} GROUP BY BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU ORDER BY BUS_DT, SBU"""
+
+        # Dept level
+        q3 = f"""SELECT BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU,
+                        OMNI_DEPT_NBR AS dept_nbr, OMNI_DEPT_DESC AS department, {metric_sql}
+                 FROM {fqn} GROUP BY BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU, dept_nbr, department
+                 ORDER BY BUS_DT, SBU, dept_nbr"""
+
+        logger.info("[HIST] Loading enterprise-level historical data...")
+        self.enterprise_df = client.query(q1).to_dataframe()
+        logger.info(f"[HIST] Enterprise: {len(self.enterprise_df):,} rows")
+
+        logger.info("[HIST] Loading SBU-level historical data...")
+        self.sbu_df = client.query(q2).to_dataframe()
+        logger.info(f"[HIST] SBU: {len(self.sbu_df):,} rows")
+
+        logger.info("[HIST] Loading Dept-level historical data...")
+        self.dept_df = client.query(q3).to_dataframe()
+        logger.info(f"[HIST] Dept: {len(self.dept_df):,} rows")
+
+        # Convert date columns to strings for JSON serialization
+        for df in [self.enterprise_df, self.sbu_df, self.dept_df]:
+            if "BUS_DT" in df.columns:
+                df["BUS_DT"] = df["BUS_DT"].astype(str)
+
+        self.loaded_at = time.time()
+        self.loaded_date = datetime.now().strftime("%Y-%m-%d")
+        self.load_time_sec = round(time.time() - t0, 1)
+        self.is_loading = False
+
+        total_rows = len(self.enterprise_df) + len(self.sbu_df) + len(self.dept_df)
+        logger.info(f"[HIST] Loaded {total_rows:,} total rows in {self.load_time_sec}s")
+
+    def to_response(self) -> dict:
+        """Build the same JSON structure as historical_data.json."""
+        ent = self.enterprise_df
+        dates = sorted(ent["BUS_DT"].unique())
+        sbu_list = sorted(self.sbu_df["SBU"].unique()) if "SBU" in self.sbu_df.columns else []
+
+        return {
+            "generated_at": datetime.now().isoformat(),
+            "date_range": {
+                "min": dates[0] if dates else None,
+                "max": dates[-1] if dates else None,
+                "weeks": len(dates)
+            },
+            "sbu_list": list(sbu_list),
+            "enterprise": self.enterprise_df.to_dict(orient="records"),
+            "by_sbu": self.sbu_df.to_dict(orient="records"),
+            "by_dept": self.dept_df.to_dict(orient="records"),
+        }
+
+
+hist_cache = HistoricalCache()
+
+
+# ============================================================
 # Background auto-refresh
 # ============================================================
 
 async def cache_refresh_loop():
-    """Background task: refresh cache every REFRESH_INTERVAL seconds or when date changes."""
+    """Background task: refresh both caches every REFRESH_INTERVAL seconds or when date changes."""
     while True:
         try:
             await asyncio.sleep(REFRESH_INTERVAL)
             current_date = datetime.now().strftime("%Y-%m-%d")
+            loop = asyncio.get_event_loop()
             if cache.loaded_date != current_date or not cache.is_ready:
                 logger.info(f"[CACHE] Auto-refresh triggered (date={current_date}, last={cache.loaded_date})")
-                loop = asyncio.get_event_loop()
                 await loop.run_in_executor(None, cache.load)
+            if hist_cache.loaded_date != current_date or not hist_cache.is_ready:
+                logger.info(f"[HIST] Auto-refresh triggered (date={current_date}, last={hist_cache.loaded_date})")
+                await loop.run_in_executor(None, hist_cache.load)
         except Exception as e:
             logger.error(f"[CACHE] Auto-refresh failed: {e}")
 
 
 @app.on_event("startup")
 async def startup_event():
-    """Load cache on server startup, then start background refresh loop."""
+    """Load both caches on server startup, then start background refresh loop."""
+    loop = asyncio.get_event_loop()
     try:
-        loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, cache.load)
     except Exception as e:
         logger.error(f"[CACHE] Initial load failed: {e}")
+    try:
+        await loop.run_in_executor(None, hist_cache.load)
+    except Exception as e:
+        logger.error(f"[HIST] Initial load failed: {e}")
     asyncio.create_task(cache_refresh_loop())
 
 
@@ -695,6 +844,9 @@ async def search_items(
 
 @app.get("/api/health")
 async def health_check():
+    hist_rows = 0
+    if hist_cache.is_ready:
+        hist_rows = len(hist_cache.enterprise_df) + len(hist_cache.sbu_df) + len(hist_cache.dept_df)
     return {
         "status": "healthy",
         "service": "Where's My Stuff API",
@@ -705,6 +857,13 @@ async def health_check():
             "loaded_at": cache.loaded_date,
             "load_time_sec": cache.load_time_sec,
             "loading": cache.is_loading,
+        },
+        "historical_cache": {
+            "ready": hist_cache.is_ready,
+            "rows": hist_rows,
+            "loaded_at": hist_cache.loaded_date,
+            "load_time_sec": hist_cache.load_time_sec,
+            "loading": hist_cache.is_loading,
         }
     }
 
@@ -716,6 +875,18 @@ async def refresh_cache():
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, cache.load)
         return {"status": "refreshed", "rows": cache.row_count, "load_time_sec": cache.load_time_sec}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/cache/refresh-historical")
+async def refresh_historical_cache():
+    """Manual historical cache refresh."""
+    try:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, hist_cache.load)
+        hist_rows = len(hist_cache.enterprise_df) + len(hist_cache.sbu_df) + len(hist_cache.dept_df)
+        return {"status": "refreshed", "rows": hist_rows, "load_time_sec": hist_cache.load_time_sec}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -743,6 +914,34 @@ async def serve_dashboard():
     if dashboard_file.exists():
         return FileResponse(dashboard_file, media_type="text/html")
     raise HTTPException(status_code=404, detail="Dashboard not found")
+
+
+@app.get("/api/historical")
+async def get_historical_data():
+    """Serve pre-aggregated historical inventory data from in-memory cache."""
+    if not hist_cache.is_ready:
+        raise HTTPException(status_code=503, detail="Historical data is loading, please retry in a few seconds")
+    return JSONResponse(content=hist_cache.to_response())
+
+
+@app.get("/dashboard/historical.html")
+async def serve_historical():
+    """Serve the historical trends dashboard (loaded via iframe toggle)."""
+    dashboard_dir = get_dashboard_path().parent
+    hist_file = dashboard_dir / "historical.html"
+    if hist_file.exists():
+        return FileResponse(hist_file, media_type="text/html")
+    raise HTTPException(status_code=404, detail="Historical dashboard not found")
+
+
+@app.get("/dashboard/historical_data.json")
+async def serve_historical_data():
+    """Serve the pre-computed historical inventory JSON."""
+    dashboard_dir = get_dashboard_path().parent
+    data_file = dashboard_dir / "historical_data.json"
+    if data_file.exists():
+        return FileResponse(data_file, media_type="application/json")
+    raise HTTPException(status_code=404, detail="Historical data not found")
 
 
 # ============================================================

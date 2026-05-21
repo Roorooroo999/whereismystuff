@@ -1,0 +1,1556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Where's My Stuff - Historical Trends</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+    <style>
+        :root { --walmart-blue: #0071ce; --walmart-yellow: #ffc220; --bg-dark: #1a1a2e; --bg-card: #16213e; --bg-sidebar: #0f0f1a; --text-light: #e8e8e8; --text-muted: #a0a0a0; }
+        body { background-color: var(--bg-dark); font-family: 'Segoe UI', system-ui, sans-serif; color: var(--text-light); }
+        .sidebar { background: var(--bg-sidebar); min-height: calc(100vh - 56px); border-right: 1px solid #2a2a4a; padding: 15px; overflow-y: auto; }
+        .kpi-card { border-radius: 10px; padding: 15px; color: white; margin-bottom: 10px; box-shadow: 0 3px 6px rgba(0,0,0,0.3); }
+        .kpi-card .value { font-size: 1.4rem; font-weight: 700; text-shadow: 1px 1px 2px rgba(0,0,0,0.3); }
+        .kpi-card .label { font-size: 0.8rem; font-weight: 600; }
+        .kpi-card .sub-value { font-size: 0.72rem; font-weight: 500; opacity: 0.85; }
+        .bg-store { background: linear-gradient(135deg, #1e7e34, #28a745); }
+        .bg-backroom { background: linear-gradient(135deg, #856404, #c49a09); }
+        .bg-dc-oh { background: linear-gradient(135deg, #0069d9, #007bff); }
+        .bg-transit { background: linear-gradient(135deg, #c45c00, #e67300); }
+        .bg-dc-reserved { background: linear-gradient(135deg, #5a23c8, #7c3aed); }
+        .bg-dc-labeled { background: linear-gradient(135deg, #c21a6d, #e91e8c); }
+        .bg-dc-unlabeled { background: linear-gradient(135deg, #6c3483, #8e44ad); }
+        .bg-sto { background: linear-gradient(135deg, #0e6655, #17a589); }
+        .bg-total { background: linear-gradient(135deg, #1e3a5f, #2c5282); }
+        .bg-floor { background: linear-gradient(135deg, #2d6a4f, #40916c); }
+        .chart-container { background: var(--bg-card); border-radius: 10px; padding: 15px; margin-bottom: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+        .chart-title { font-weight: 600; margin-bottom: 10px; color: var(--text-light); font-size: 0.95rem; }
+        .nav-tabs { border-bottom: 1px solid #2a2a4a; }
+        .nav-tabs .nav-link.active { background-color: var(--walmart-blue); color: white; border-color: var(--walmart-blue); }
+        .nav-tabs .nav-link { color: #6cb2eb; font-weight: 500; border: 1px solid transparent; }
+        .nav-tabs .nav-link:hover { border-color: #2a2a4a; }
+        .filter-section { margin-bottom: 12px; }
+        .filter-label { font-weight: 600; font-size: 0.8rem; margin-bottom: 3px; color: var(--text-muted); }
+        .form-select, .form-control { background-color: #1a1a2e; border-color: #2a2a4a; color: var(--text-light); }
+        .form-select:focus, .form-control:focus { background-color: #1a1a2e; border-color: var(--walmart-blue); color: var(--text-light); box-shadow: 0 0 0 0.2rem rgba(0,113,206,0.25); }
+        .form-select option { background-color: #1a1a2e; color: var(--text-light); }
+        .btn-primary { background-color: var(--walmart-blue); border-color: var(--walmart-blue); }
+        .btn-outline-secondary { color: var(--text-muted); border-color: #2a2a4a; }
+        .btn-outline-secondary:hover { background-color: #2a2a4a; color: var(--text-light); }
+        .table-container { background: var(--bg-card); border-radius: 10px; padding: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+        .table { color: var(--text-light); font-size: 0.82rem; }
+        .table-dark { background-color: #0f0f1a; }
+        .table-striped > tbody > tr:nth-of-type(odd) { background-color: rgba(255,255,255,0.03); }
+        .table-hover > tbody > tr:hover { background-color: rgba(0,113,206,0.1); color: var(--text-light); }
+        .sbu-row { background-color: #1e4976 !important; border-left: 4px solid #0071ce !important; }
+        .sbu-row td { color: #fff !important; font-weight: 600 !important; background-color: #1e4976 !important; }
+        .text-muted { color: var(--text-muted) !important; }
+        h5, h6 { color: var(--text-light); }
+        .loading-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(26,26,46,0.9); display: flex; justify-content: center; align-items: center; z-index: 9999; }
+        .loading-overlay.hide { display: none; }
+        .status-badge { font-size: 0.7rem; padding: 2px 6px; border-radius: 10px; }
+        .status-live { background: #1e4620; color: #4ade80; }
+        .status-file { background: #1e3a5f; color: #6cb2eb; }
+        .wow-positive { color: #4ade80; }
+        .wow-negative { color: #f87171; }
+        .wow-neutral { color: var(--text-muted); }
+        .filter-tag { display: inline-block; font-size: 0.65rem; padding: 1px 6px; border-radius: 8px; background: rgba(0,113,206,0.25); color: #6cb2eb; margin-right: 4px; margin-top: 4px; }
+        .trend-arrow { font-size: 0.7rem; margin-left: 4px; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark" style="background: var(--walmart-blue);">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#"><i class="bi bi-graph-up me-2"></i>Where's My Stuff — Historical Trends</a>
+            <div class="d-flex align-items-center text-white">
+                <span class="status-badge status-file me-2" id="data-status"><i class="bi bi-file-earmark-bar-graph me-1"></i>Loading...</span>
+                <span class="me-2" style="font-size:0.85rem;">Range: <strong id="date-range">-</strong></span>
+                <a href="index.html" class="btn btn-outline-light btn-sm ms-2"><i class="bi bi-speedometer2 me-1"></i>Live Dashboard</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="loading-overlay" id="loading">
+        <div class="text-center">
+            <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;"></div>
+            <p class="mt-3 text-muted">Loading historical data...</p>
+        </div>
+    </div>
+
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar Filters -->
+            <div class="col-lg-2 sidebar">
+                <h6 class="text-uppercase text-muted mb-2" style="font-size:0.75rem;"><i class="bi bi-funnel me-1"></i>Filters</h6>
+
+                <div class="filter-section">
+                    <label class="filter-label">SBU (Division)</label>
+                    <select class="form-select form-select-sm" id="sbu-filter" multiple size="8" onchange="applyFilters();">
+                    </select>
+                    <small class="text-muted" style="font-size:0.65rem;">Ctrl+click to multi-select</small>
+                </div>
+
+                <div class="filter-section">
+                    <label class="filter-label">Department</label>
+                    <select class="form-select form-select-sm" id="dept-filter" onchange="applyFilters();">
+                        <option value="">All Departments</option>
+                    </select>
+                </div>
+
+                <div class="filter-section">
+                    <label class="filter-label">Date Range</label>
+                    <select class="form-select form-select-sm" id="range-filter" onchange="applyFilters();">
+                        <option value="all">All (FY25 WK01+)</option>
+                        <option value="13">Last 13 Weeks</option>
+                        <option value="8">Last 8 Weeks</option>
+                        <option value="4">Last 4 Weeks</option>
+                    </select>
+                </div>
+
+                <button class="btn btn-outline-secondary btn-sm w-100 mt-2" onclick="resetFilters()"><i class="bi bi-x-circle me-1"></i>Reset Filters</button>
+
+                <hr style="border-color:#2a2a4a;">
+                <h6 class="text-uppercase text-muted mb-2" style="font-size:0.75rem;"><i class="bi bi-bar-chart me-1"></i>Latest Week KPIs</h6>
+
+                <div class="kpi-card bg-total">
+                    <div class="label">Total Network (Excl. Backroom)</div>
+                    <div class="value" id="kpi-total">-</div>
+                    <div class="sub-value" id="kpi-total-wow"></div>
+                    <div class="sub-value" id="kpi-total-yoy"></div>
+                </div>
+                <div class="kpi-card bg-store">
+                    <div class="label">Store OH</div>
+                    <div class="value" id="kpi-store">-</div>
+                    <div class="sub-value" id="kpi-store-wow"></div>
+                    <div class="sub-value" id="kpi-store-yoy"></div>
+                </div>
+                <div class="kpi-card bg-floor">
+                    <div class="label">On Floor</div>
+                    <div class="value" id="kpi-floor">-</div>
+                    <div class="sub-value" id="kpi-floor-wow"></div>
+                    <div class="sub-value" id="kpi-floor-yoy"></div>
+                </div>
+                <div class="kpi-card bg-backroom">
+                    <div class="label">Backroom</div>
+                    <div class="value" id="kpi-backroom">-</div>
+                    <div class="sub-value" id="kpi-backroom-wow"></div>
+                    <div class="sub-value" id="kpi-backroom-yoy"></div>
+                </div>
+                <div class="kpi-card bg-dc-oh">
+                    <div class="label">DC OH</div>
+                    <div class="value" id="kpi-dcoh">-</div>
+                    <div class="sub-value" id="kpi-dcoh-wow"></div>
+                    <div class="sub-value" id="kpi-dcoh-yoy"></div>
+                </div>
+                <div class="kpi-card bg-transit">
+                    <div class="label">In-Transit</div>
+                    <div class="value" id="kpi-transit">-</div>
+                    <div class="sub-value" id="kpi-transit-wow"></div>
+                    <div class="sub-value" id="kpi-transit-yoy"></div>
+                </div>
+                <div class="kpi-card bg-dc-reserved">
+                    <div class="label">DC Reserved</div>
+                    <div class="value" id="kpi-reserved">-</div>
+                    <div class="sub-value" id="kpi-reserved-wow"></div>
+                    <div class="sub-value" id="kpi-reserved-yoy"></div>
+                </div>
+                <div class="kpi-card bg-sto">
+                    <div class="label">STO to DC</div>
+                    <div class="value" id="kpi-sto">-</div>
+                    <div class="sub-value" id="kpi-sto-wow"></div>
+                    <div class="sub-value" id="kpi-sto-yoy"></div>
+                </div>
+            </div>
+
+            <!-- Main Content -->
+            <div class="col-lg-10 p-3">
+                <!-- Tabs -->
+                <ul class="nav nav-tabs mb-3" id="mainTabs">
+                    <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tab-trend">Total Trend</a></li>
+                    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-sbu">SBU Comparison</a></li>
+                    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-dctype">DC Type Trend</a></li>
+                    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-sto">STO to DC</a></li>
+                    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-table">Data Table</a></li>
+                </ul>
+
+                <div class="tab-content">
+                    <!-- Tab 1: Total Network Trend -->
+                    <div class="tab-pane fade show active" id="tab-trend">
+                        <div class="chart-container">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div class="chart-title"><i class="bi bi-graph-up me-1"></i>Total Network Inventory Trend — YoY (Excl. Backroom)</div>
+                                <div class="text-muted" style="font-size:0.7rem;">Total = On Floor + DC Reserved + In-Transit + DC OH + Labeled + Unlabeled + STO</div>
+                            </div>
+                            <canvas id="trendChart" height="120"></canvas>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="chart-container">
+                                    <div class="chart-title"><i class="bi bi-shop me-1"></i>Store OH — YoY</div>
+                                    <canvas id="yoyStoreOHChart" height="85"></canvas>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="chart-container">
+                                    <div class="chart-title"><i class="bi bi-building me-1"></i>DC OH — YoY</div>
+                                    <canvas id="yoyDCOHChart" height="85"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="chart-container">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <div class="chart-title"><i class="bi bi-boxes me-1"></i>DC OH by Type — YoY</div>
+                                        <div class="text-muted" style="font-size:0.65rem;">Solid = FY26 &nbsp;|&nbsp; Dashed = FY25</div>
+                                    </div>
+                                    <canvas id="yoyDCTypeChart" height="85"></canvas>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="chart-container">
+                                    <div class="chart-title"><i class="bi bi-box-seam me-1"></i>Backroom — YoY</div>
+                                    <canvas id="yoyBackroomChart" height="85"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab 2: SBU YoY Comparison -->
+                    <div class="tab-pane fade" id="tab-sbu">
+                        <div class="chart-container">
+                            <div class="chart-title"><i class="bi bi-diagram-3 me-1"></i>Total Network by SBU — Weekly Trend</div>
+                            <canvas id="sbuTrendChart" height="110"></canvas>
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center mb-2 px-1">
+                            <div class="chart-title mb-0"><i class="bi bi-bar-chart me-1"></i>SBU YoY Comparison (by Week)</div>
+                            <div class="text-muted" style="font-size:0.7rem;"><span style="color:#6cb2eb;">●</span> FY25 &nbsp;&nbsp;<span style="color:#ffc220;">●</span> FY26</div>
+                        </div>
+                        <div class="row" id="sbu-yoy-grid"></div>
+                    </div>
+
+                    <!-- Tab 3: DC Type Trend -->
+                    <div class="tab-pane fade" id="tab-dctype">
+                        <div class="chart-container">
+                            <div class="chart-title"><i class="bi bi-boxes me-1"></i>DC On-Hand by Type — Line Trend</div>
+                            <canvas id="dcTypeOHChart" height="120"></canvas>
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center mb-2 px-1">
+                            <div class="chart-title mb-0"><i class="bi bi-bar-chart me-1"></i>DC Type YoY Comparison (by Week)</div>
+                            <div class="text-muted" style="font-size:0.7rem;"><span style="color:#6cb2eb;">●</span> FY25 &nbsp;&nbsp;<span style="color:#ffc220;">●</span> FY26</div>
+                        </div>
+                        <div class="row" id="dctype-yoy-grid"></div>
+                    </div>
+
+                    <!-- Tab: STO to DC -->
+                    <div class="tab-pane fade" id="tab-sto">
+                        <div class="chart-container">
+                            <div class="chart-title"><i class="bi bi-arrow-left-right me-1"></i>STO to DC — Total YoY Trend</div>
+                            <canvas id="stoTotalChart" height="110"></canvas>
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center mb-2 px-1">
+                            <div class="chart-title mb-0"><i class="bi bi-bar-chart me-1"></i>STO to DC by SBU — YoY Comparison</div>
+                            <div class="text-muted" style="font-size:0.7rem;"><span style="color:#6cb2eb;">●</span> FY25 &nbsp;&nbsp;<span style="color:#ffc220;">●</span> FY26</div>
+                        </div>
+                        <div class="row" id="sto-sbu-yoy-grid"></div>
+
+                        <div class="d-flex justify-content-between align-items-center mb-2 mt-3 px-1">
+                            <div class="chart-title mb-0"><i class="bi bi-building me-1"></i>STO to DC by DC Type — YoY Comparison</div>
+                            <div class="text-muted" style="font-size:0.7rem;"><span style="color:#6cb2eb;">●</span> FY25 &nbsp;&nbsp;<span style="color:#ffc220;">●</span> FY26</div>
+                        </div>
+                        <div class="row" id="sto-dctype-yoy-grid"></div>
+                    </div>
+
+                    <!-- Data Table -->
+                    <div class="tab-pane fade" id="tab-table">
+                        <div class="table-container">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div class="chart-title mb-0"><i class="bi bi-table me-1"></i>Weekly Inventory Data</div>
+                                <button class="btn btn-outline-secondary btn-sm" onclick="exportTableCSV()"><i class="bi bi-download me-1"></i>Export CSV</button>
+                            </div>
+                            <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+                                <table class="table table-dark table-striped table-hover table-sm" id="data-table">
+                                    <thead style="position: sticky; top: 0; z-index: 1; background: #0f0f1a;">
+                                        <tr>
+                                            <th>Week</th>
+                                            <th>Date</th>
+                                            <th>SBU</th>
+                                            <th class="text-end">Store OH</th>
+                                            <th class="text-end">Backroom</th>
+                                            <th class="text-end">On Floor</th>
+                                            <th class="text-end">DC Reserved</th>
+                                            <th class="text-end">In-Transit</th>
+                                            <th class="text-end">DC OH</th>
+                                            <th class="text-end">DC Labeled</th>
+                                            <th class="text-end">DC Unlabeled</th>
+                                            <th class="text-end">STO to DC</th>
+                                            <th class="text-end" style="color: var(--walmart-yellow);">Total Network</th>
+                                            <th class="text-end" style="color: #3b82f6;">DC OH Reg</th>
+                                            <th class="text-end" style="color: #22c55e;">DC OH Groc</th>
+                                            <th class="text-end" style="color: #ec4899;">DC OH Fash</th>
+                                            <th class="text-end" style="color: #f97316;">DC OH Imp</th>
+                                            <th class="text-end" style="color: #a855f7;">DC OH GIDC</th>
+                                            <th class="text-end" style="color: #06b6d4;">DC OH MSC</th>
+                                            <th class="text-end" style="color: #eab308;">DC OH Spt</th>
+                                            <th class="text-end" style="color: #6b7280;">DC OH Oth</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="data-table-body"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+    // ============================================================
+    // Global state
+    // ============================================================
+    let RAW_DATA = null;       // Full JSON from fetch_historical.py
+    let FILTERED = null;       // Currently filtered/aggregated data
+    let CHARTS = {};           // Chart.js instances
+
+    const COLORS = {
+        store_oh:     '#28a745',
+        backroom:     '#c49a09',
+        on_floor:     '#40916c',
+        dc_reserved:  '#7c3aed',
+        in_transit:   '#e67300',
+        dc_oh:        '#007bff',
+        dc_labeled:   '#e91e8c',
+        dc_unlabeled: '#8e44ad',
+        sto_to_dc:    '#17a589',
+        total:        '#ffc220'
+    };
+
+    const SBU_COLORS = {
+        'CONSUMABLES': '#28a745',
+        'FRESH':       '#17a589',
+        'PANTRY':      '#c49a09',
+        'CAC':         '#007bff',
+        'ETS':         '#e67300',
+        'FASHION':     '#e91e8c',
+        'HARDLINES':   '#8e44ad',
+        'HOME':        '#7c3aed',
+        'OTHER':       '#6c757d'
+    };
+
+    const DC_TYPE_COLORS = {
+        dc_oh_regional: '#3b82f6',
+        dc_oh_grocery:  '#22c55e',
+        dc_oh_fashion:  '#ec4899',
+        dc_oh_imports:  '#f97316',
+        dc_oh_gidc:     '#a855f7',
+        dc_oh_msc:      '#06b6d4',
+        dc_oh_support:  '#eab308',
+        dc_oh_other:    '#6b7280',
+        sto_to_dc:      '#17a589'
+    };
+    const DC_LBL_COLORS = {
+        dc_lbl_regional: '#60a5fa',
+        dc_lbl_grocery:  '#4ade80',
+        dc_lbl_fashion:  '#f472b6',
+        dc_lbl_imports:  '#fb923c',
+        dc_lbl_gidc:     '#c084fc'
+    };
+    const DC_OH_KEYS = ['dc_oh_regional','dc_oh_grocery','dc_oh_fashion','dc_oh_imports','dc_oh_gidc','dc_oh_msc','dc_oh_support','dc_oh_other'];
+    const DC_OH_CHART_KEYS = ['dc_oh_regional','dc_oh_grocery','dc_oh_fashion','dc_oh_imports','dc_oh_gidc']; // visible in charts (excl. MSC, Support, Other)
+    const DC_LBL_KEYS = ['dc_lbl_regional','dc_lbl_grocery','dc_lbl_fashion','dc_lbl_imports','dc_lbl_gidc'];
+    const STO_DC_KEYS = ['sto_to_regional','sto_to_grocery','sto_to_fashion','sto_to_imports','sto_to_gidc','sto_to_msc','sto_to_support','sto_to_other'];
+    const STO_DC_CHART_KEYS = ['sto_to_regional','sto_to_grocery','sto_to_fashion','sto_to_imports']; // visible in charts (excl. GIDC — no volume)
+    const STO_DC_COLORS = {
+        sto_to_regional: '#3b82f6',
+        sto_to_grocery:  '#22c55e',
+        sto_to_fashion:  '#ec4899',
+        sto_to_imports:  '#f97316',
+        sto_to_gidc:     '#a855f7'
+    };
+    const DC_TYPE_LABELS = {
+        dc_oh_regional: 'Regional', dc_oh_grocery: 'Grocery', dc_oh_fashion: 'Fashion',
+        dc_oh_imports: 'Imports', dc_oh_gidc: 'GIDC', dc_oh_msc: 'MSC',
+        dc_oh_support: 'Support', dc_oh_other: 'Other', sto_to_dc: 'STO to DC',
+        dc_lbl_regional: 'Regional', dc_lbl_grocery: 'Grocery', dc_lbl_fashion: 'Fashion',
+        dc_lbl_imports: 'Imports', dc_lbl_gidc: 'GIDC',
+        sto_to_regional: 'Regional', sto_to_grocery: 'Grocery', sto_to_fashion: 'Fashion',
+        sto_to_imports: 'Imports', sto_to_gidc: 'GIDC', sto_to_msc: 'MSC',
+        sto_to_support: 'Support', sto_to_other: 'Other'
+    };
+
+    const CHANNEL_KEYS = ['store_oh','backroom','on_floor','dc_reserved','in_transit','dc_oh','dc_labeled','dc_unlabeled','sto_to_dc','total_network'];
+    const CHANNEL_LABELS = {
+        store_oh: 'Store OH', backroom: 'Backroom', on_floor: 'On Floor',
+        dc_reserved: 'DC Reserved', in_transit: 'In-Transit',
+        dc_oh: 'DC OH', dc_labeled: 'DC Labeled', dc_unlabeled: 'DC Unlabeled',
+        sto_to_dc: 'STO to DC', total_network: 'Total Network'
+    };
+
+    // ============================================================
+    // Data Loading
+    // ============================================================
+    async function loadData() {
+        let source = 'api';
+        try {
+            // Try API endpoint first (Posit / FastAPI server)
+            let resp;
+            try {
+                const apiUrl = window.location.pathname.replace(/\/dashboard\/.*$/, '') + '/api/historical';
+                resp = await fetch(apiUrl);
+                if (!resp.ok) throw new Error(`API ${resp.status}`);
+            } catch (_apiErr) {
+                // Fallback to static JSON file (local dev)
+                source = 'file';
+                resp = await fetch('historical_data.json');
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+            }
+            RAW_DATA = await resp.json();
+
+            // Populate filters
+            populateFilters();
+            applyFilters();
+
+            const badge = source === 'api' ? '🟢 Live' : '📁 Static';
+            document.getElementById('data-status').innerHTML = '<i class="bi bi-check-circle me-1"></i>' + RAW_DATA.date_range.weeks + ' weeks loaded (' + badge + ')';
+            document.getElementById('date-range').textContent = RAW_DATA.date_range.min + ' → ' + RAW_DATA.date_range.max;
+            document.getElementById('loading').classList.add('hide');
+        } catch (err) {
+            document.getElementById('loading').innerHTML = `
+                <div class="text-center">
+                    <i class="bi bi-exclamation-triangle" style="font-size:3rem; color:#f87171;"></i>
+                    <p class="mt-3 text-muted">Could not load historical data</p>
+                    <p class="text-muted" style="font-size:0.85rem;">Tried API endpoint and <code>historical_data.json</code></p>
+                    <p class="text-muted" style="font-size:0.75rem;">${err.message}</p>
+                </div>`;
+        }
+    }
+
+    const HIDDEN_SBUS = ['OTHER'];
+
+    function populateFilters() {
+        const sbuSelect = document.getElementById('sbu-filter');
+        sbuSelect.innerHTML = '';
+        RAW_DATA.sbu_list.filter(s => !HIDDEN_SBUS.includes(s)).forEach(s => {
+            const opt = document.createElement('option');
+            opt.value = s; opt.textContent = s;
+            sbuSelect.appendChild(opt);
+        });
+
+        // Populate dept filter from by_dept data
+        const depts = new Map();
+        RAW_DATA.by_dept.forEach(r => {
+            if (r.dept_nbr && r.department) depts.set(r.dept_nbr, r.department);
+        });
+        const deptSelect = document.getElementById('dept-filter');
+        deptSelect.innerHTML = '<option value="">All Departments</option>';
+        [...depts.entries()].sort((a,b) => a[0]-b[0]).forEach(([nbr, desc]) => {
+            const opt = document.createElement('option');
+            opt.value = nbr; opt.textContent = `${nbr} - ${desc}`;
+            deptSelect.appendChild(opt);
+        });
+    }
+
+    // ============================================================
+    // Filtering & Aggregation
+    // ============================================================
+    function getSelectedSBUs() {
+        const sel = document.getElementById('sbu-filter');
+        return [...sel.selectedOptions].map(o => o.value);
+    }
+
+    function applyFilters() {
+        if (!RAW_DATA) return;
+        const selectedSBUs = getSelectedSBUs();
+        const deptFilter = document.getElementById('dept-filter').value;
+        const rangeFilter = document.getElementById('range-filter').value;
+
+        // Choose source: dept-level if dept filter is set, SBU level otherwise
+        let source = deptFilter ? RAW_DATA.by_dept : RAW_DATA.by_sbu;
+
+        // Exclude hidden SBUs globally
+        source = source.filter(r => !HIDDEN_SBUS.includes(r.SBU));
+
+        // Apply SBU filter
+        if (selectedSBUs.length > 0) {
+            source = source.filter(r => selectedSBUs.includes(r.SBU));
+        }
+
+        // Apply dept filter
+        if (deptFilter) {
+            source = source.filter(r => String(r.dept_nbr) === deptFilter);
+        }
+
+        // Aggregate to weekly totals (since source may have multiple SBUs/depts)
+        const weekMap = {};
+        source.forEach(r => {
+            const key = r.BUS_DT;
+            if (!weekMap[key]) {
+                weekMap[key] = {
+                    BUS_DT: r.BUS_DT, WM_YEAR: r.WM_YEAR, WM_WEEK: r.WM_WEEK,
+                    WM_YR_WK_NBR: r.WM_YR_WK_NBR,
+                    store_oh: 0, backroom: 0, on_floor: 0, dc_reserved: 0,
+                    in_transit: 0, dc_oh: 0, dc_labeled: 0, dc_unlabeled: 0,
+                    sto_to_dc: 0, total_network: 0,
+                    dc_oh_regional: 0, dc_oh_grocery: 0, dc_oh_fashion: 0,
+                    dc_oh_imports: 0, dc_oh_gidc: 0, dc_oh_msc: 0,
+                    dc_oh_support: 0, dc_oh_other: 0,
+                    sto_to_regional: 0, sto_to_grocery: 0, sto_to_fashion: 0,
+                    sto_to_imports: 0, sto_to_gidc: 0, sto_to_msc: 0,
+                    sto_to_support: 0, sto_to_other: 0
+                };
+            }
+            const w = weekMap[key];
+            w.store_oh += r.store_oh || 0;
+            w.backroom += r.backroom || 0;
+            w.on_floor += r.on_floor || 0;
+            w.dc_reserved += r.dc_reserved || 0;
+            w.in_transit += r.in_transit || 0;
+            w.dc_oh += r.dc_oh || 0;
+            w.dc_labeled += r.dc_labeled || 0;
+            w.dc_unlabeled += r.dc_unlabeled || 0;
+            w.sto_to_dc += r.sto_to_dc || 0;
+            w.total_network += r.total_network || 0;
+            // DC type breakdowns
+            DC_OH_KEYS.forEach(k => { w[k] += r[k] || 0; });
+            STO_DC_KEYS.forEach(k => { w[k] += r[k] || 0; });
+        });
+
+        let weeks = Object.values(weekMap).sort((a,b) => a.BUS_DT.localeCompare(b.BUS_DT));
+
+        // Apply date range filter
+        if (rangeFilter !== 'all' && weeks.length > parseInt(rangeFilter)) {
+            weeks = weeks.slice(-parseInt(rangeFilter));
+        }
+
+        FILTERED = weeks;
+
+        // Also compute SBU-level series for the SBU tab
+        let sbuSource = RAW_DATA.by_sbu.filter(r => !HIDDEN_SBUS.includes(r.SBU));
+        if (deptFilter) {
+            // If dept filter, we don't show SBU comparison (use dept data grouped by SBU)
+            sbuSource = RAW_DATA.by_dept.filter(r => String(r.dept_nbr) === deptFilter);
+        }
+        if (selectedSBUs.length > 0) {
+            sbuSource = sbuSource.filter(r => selectedSBUs.includes(r.SBU));
+        }
+
+        // Group by SBU × week
+        const sbuWeekMap = {};
+        sbuSource.forEach(r => {
+            const key = r.SBU + '|' + r.BUS_DT;
+            if (!sbuWeekMap[key]) {
+                sbuWeekMap[key] = { SBU: r.SBU, BUS_DT: r.BUS_DT, WM_YEAR: r.WM_YEAR, WM_WEEK: r.WM_WEEK, total_network: 0, sto_to_dc: 0 };
+            }
+            sbuWeekMap[key].total_network += r.total_network || 0;
+            sbuWeekMap[key].sto_to_dc += r.sto_to_dc || 0;
+        });
+        let sbuWeeks = Object.values(sbuWeekMap).sort((a,b) => a.BUS_DT.localeCompare(b.BUS_DT) || a.SBU.localeCompare(b.SBU));
+        if (rangeFilter !== 'all') {
+            const allDates = [...new Set(sbuWeeks.map(r => r.BUS_DT))].sort();
+            const cutDates = allDates.slice(-parseInt(rangeFilter));
+            sbuWeeks = sbuWeeks.filter(r => cutDates.includes(r.BUS_DT));
+        }
+
+        // Build SBU table data (for the Data Table tab with SBU column)
+        let tableSource = RAW_DATA.by_sbu.filter(r => !HIDDEN_SBUS.includes(r.SBU));
+        if (selectedSBUs.length > 0) tableSource = tableSource.filter(r => selectedSBUs.includes(r.SBU));
+        if (rangeFilter !== 'all') {
+            const allDates = [...new Set(tableSource.map(r => r.BUS_DT))].sort();
+            const cutDates = allDates.slice(-parseInt(rangeFilter));
+            tableSource = tableSource.filter(r => cutDates.includes(r.BUS_DT));
+        }
+
+        updateKPIs(weeks);
+        updateTrendChart(weeks);
+        updateMetricYoYCharts(weeks);
+        updateSBUChart(sbuWeeks);
+        updateDCTypeCharts(weeks);
+        updateSTOCharts(weeks, sbuWeeks);
+        updateTable(tableSource);
+    }
+
+    function resetFilters() {
+        document.getElementById('sbu-filter').selectedIndex = -1;
+        document.getElementById('dept-filter').value = '';
+        document.getElementById('range-filter').value = 'all';
+        applyFilters();
+    }
+
+    // ============================================================
+    // KPIs (latest week + WoW change + YoY comparison)
+    // ============================================================
+    function findYoYWeek(weeks, latest) {
+        // Find the same WM_WEEK from the prior year
+        if (!latest) return null;
+        const targetYear = latest.WM_YEAR - 1;
+        const targetWeek = latest.WM_WEEK;
+        // Search all raw enterprise data for the matching week last year
+        if (!RAW_DATA) return null;
+        const match = RAW_DATA.enterprise.find(r => r.WM_YEAR === targetYear && r.WM_WEEK === targetWeek);
+        return match || null;
+    }
+
+    function updateKPIs(weeks) {
+        if (weeks.length === 0) return;
+        const latest = weeks[weeks.length - 1];
+        const prev = weeks.length > 1 ? weeks[weeks.length - 2] : null;
+        const lyWeek = findYoYWeek(weeks, latest);
+
+        setKPI('kpi-total', adjTotal(latest), prev ? adjTotal(prev) : null, 'kpi-total-wow',
+               lyWeek ? adjTotal(lyWeek) : null, 'kpi-total-yoy');
+        setKPI('kpi-store', latest.store_oh, prev?.store_oh, 'kpi-store-wow',
+               lyWeek?.store_oh, 'kpi-store-yoy');
+        setKPI('kpi-floor', latest.on_floor, prev?.on_floor, 'kpi-floor-wow',
+               lyWeek?.on_floor, 'kpi-floor-yoy');
+        setKPI('kpi-backroom', latest.backroom, prev?.backroom, 'kpi-backroom-wow',
+               lyWeek?.backroom, 'kpi-backroom-yoy');
+        setKPI('kpi-dcoh', latest.dc_oh, prev?.dc_oh, 'kpi-dcoh-wow',
+               lyWeek?.dc_oh, 'kpi-dcoh-yoy');
+        setKPI('kpi-transit', latest.in_transit, prev?.in_transit, 'kpi-transit-wow',
+               lyWeek?.in_transit, 'kpi-transit-yoy');
+        setKPI('kpi-reserved', latest.dc_reserved, prev?.dc_reserved, 'kpi-reserved-wow',
+               lyWeek?.dc_reserved, 'kpi-reserved-yoy');
+        setKPI('kpi-sto', latest.sto_to_dc, prev?.sto_to_dc, 'kpi-sto-wow',
+               lyWeek?.sto_to_dc, 'kpi-sto-yoy');
+    }
+
+    function setKPI(id, value, prevValue, wowId, lyValue, yoyId) {
+        document.getElementById(id).textContent = fmtB(value);
+        // WoW
+        if (wowId && prevValue != null && prevValue > 0) {
+            const pct = ((value - prevValue) / prevValue * 100).toFixed(1);
+            const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '—';
+            const cls = pct > 0 ? 'wow-positive' : pct < 0 ? 'wow-negative' : 'wow-neutral';
+            document.getElementById(wowId).innerHTML = `<span class="${cls}">WoW: ${arrow} ${Math.abs(pct)}%</span>`;
+        } else if (wowId) {
+            document.getElementById(wowId).textContent = '';
+        }
+        // YoY
+        if (yoyId && lyValue != null && lyValue > 0) {
+            const pct = ((value - lyValue) / lyValue * 100).toFixed(1);
+            const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '—';
+            const cls = pct > 0 ? 'wow-positive' : pct < 0 ? 'wow-negative' : 'wow-neutral';
+            document.getElementById(yoyId).innerHTML = `<span class="${cls}">YoY: ${arrow} ${Math.abs(pct)}% <span style="opacity:0.7">(LY: ${fmtB(lyValue)})</span></span>`;
+        } else if (yoyId) {
+            document.getElementById(yoyId).textContent = '';
+        }
+    }
+
+    // ============================================================
+    // Chart: Total Network Trend — YoY (Excl. Backroom)
+    // Adjusted Total = total_network - backroom
+    //   = On Floor + DC Reserved + In-Transit + DC OH + Labeled + Unlabeled + STO
+    // ============================================================
+    function adjTotal(w) {
+        return (w.total_network || 0) - (w.backroom || 0);
+    }
+
+    function updateTrendChart(weeks) {
+        // Group by WM_YEAR → { year: [ {WM_WEEK, value} ] }
+        const byYear = {};
+        weeks.forEach(w => {
+            const yr = w.WM_YEAR;
+            if (!byYear[yr]) byYear[yr] = {};
+            // If same week appears twice (shouldn't), sum them
+            if (!byYear[yr][w.WM_WEEK]) byYear[yr][w.WM_WEEK] = 0;
+            byYear[yr][w.WM_WEEK] += adjTotal(w);
+        });
+
+        const years = Object.keys(byYear).sort();
+        // Build unified WM_WEEK labels (1..52+)
+        const allWeeks = new Set();
+        years.forEach(yr => Object.keys(byYear[yr]).forEach(wk => allWeeks.add(parseInt(wk))));
+        const weekLabels = [...allWeeks].sort((a,b) => a - b);
+        const labels = weekLabels.map(wk => `WK${wk}`);
+
+        const yearColors = {
+            '2025': { border: '#6cb2eb', bg: '#6cb2eb30', label: 'FY25' },
+            '2026': { border: '#ffc220', bg: '#ffc22030', label: 'FY26' }
+        };
+        // Fallback colors for other years
+        const fallbackColors = [
+            { border: '#4ade80', bg: '#4ade8030' },
+            { border: '#f87171', bg: '#f8717130' },
+            { border: '#c084fc', bg: '#c084fc30' }
+        ];
+
+        const datasets = years.map((yr, i) => {
+            const style = yearColors[yr] || fallbackColors[i % fallbackColors.length];
+            const label = yearColors[yr]?.label || `FY${yr.slice(-2)}`;
+            return {
+                label,
+                data: weekLabels.map(wk => byYear[yr][wk] ?? null),
+                borderColor: style.border,
+                backgroundColor: style.bg,
+                fill: false,
+                tension: 0.3,
+                pointRadius: 4,
+                pointHoverRadius: 6,
+                borderWidth: yr === years[years.length - 1] ? 3 : 2, // current year thicker
+                spanGaps: true
+            };
+        });
+
+        const data = { labels, datasets };
+
+        renderChart('trendChart', 'line', data, {
+            scales: {
+                y: { ticks: { callback: v => fmtB(v), color: '#a0a0a0' }, grid: { color: '#2a2a4a' } },
+                x: { ticks: { color: '#a0a0a0', maxRotation: 45 }, grid: { color: '#2a2a4a22' } }
+            },
+            plugins: {
+                tooltip: {
+                    mode: 'index',
+                    callbacks: {
+                        label: ctx => {
+                            if (ctx.raw == null) return null;
+                            return ctx.dataset.label + ': ' + fmtM(ctx.raw);
+                        },
+                        afterBody: (items) => {
+                            // Show YoY change if both years have data at this point
+                            if (items.length === 2 && items[0].raw != null && items[1].raw != null) {
+                                const older = items[0].raw;
+                                const newer = items[1].raw;
+                                if (older > 0) {
+                                    const pct = ((newer - older) / older * 100).toFixed(1);
+                                    const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '—';
+                                    return `\nYoY: ${arrow} ${Math.abs(pct)}%`;
+                                }
+                            }
+                            return '';
+                        }
+                    }
+                },
+                datalabels: {
+                    display: function(ctx) {
+                        return ctx.dataset.data[ctx.dataIndex] != null;
+                    },
+                    color: function(ctx) {
+                        return ctx.dataset.borderColor;
+                    },
+                    anchor: 'end',
+                    align: function(ctx) {
+                        // Alternate top/bottom to avoid overlap between years
+                        return ctx.datasetIndex === 0 ? 'bottom' : 'top';
+                    },
+                    offset: 4,
+                    font: { size: 9, weight: '600' },
+                    formatter: function(value) {
+                        if (value == null) return '';
+                        return fmtB(value);
+                    }
+                }
+            }
+        });
+    }
+
+    // ============================================================
+    // Charts: Metric YoY (Store OH, DC OH, DC Labeled, Backroom)
+    // Each chart shows FY25 vs FY26 lines aligned by WM_WEEK
+    // ============================================================
+    function buildYoYChart(canvasId, weeks, metricKey) {
+        const byYear = {};
+        weeks.forEach(w => {
+            const yr = w.WM_YEAR;
+            if (!byYear[yr]) byYear[yr] = {};
+            if (!byYear[yr][w.WM_WEEK]) byYear[yr][w.WM_WEEK] = 0;
+            byYear[yr][w.WM_WEEK] += (w[metricKey] || 0);
+        });
+
+        const years = Object.keys(byYear).sort();
+        const allWeeks = new Set();
+        years.forEach(yr => Object.keys(byYear[yr]).forEach(wk => allWeeks.add(parseInt(wk))));
+        const weekLabels = [...allWeeks].sort((a,b) => a - b);
+        const labels = weekLabels.map(wk => `WK${wk}`);
+
+        const yearColors = {
+            '2025': { border: '#6cb2eb', bg: '#6cb2eb30', label: 'FY25' },
+            '2026': { border: '#ffc220', bg: '#ffc22030', label: 'FY26' }
+        };
+        const fallbackColors = [
+            { border: '#4ade80', bg: '#4ade8030' },
+            { border: '#f87171', bg: '#f8717130' }
+        ];
+
+        const datasets = years.map((yr, i) => {
+            const style = yearColors[yr] || fallbackColors[i % fallbackColors.length];
+            const label = yearColors[yr]?.label || `FY${yr.slice(-2)}`;
+            return {
+                label,
+                data: weekLabels.map(wk => byYear[yr][wk] ?? null),
+                borderColor: style.border,
+                backgroundColor: style.bg,
+                fill: false,
+                tension: 0.3,
+                pointRadius: 3,
+                pointHoverRadius: 5,
+                borderWidth: yr === years[years.length - 1] ? 2.5 : 1.5,
+                spanGaps: true
+            };
+        });
+
+        renderChart(canvasId, 'line', { labels, datasets }, {
+            scales: {
+                y: { ticks: { callback: v => fmtB(v), color: '#e0e0e0' }, grid: { color: '#2a2a4a' } },
+                x: { ticks: { color: '#e0e0e0', maxRotation: 45, maxTicksLimit: 20 }, grid: { color: '#2a2a4a22' } }
+            },
+            plugins: {
+                tooltip: {
+                    mode: 'index',
+                    callbacks: {
+                        label: ctx => ctx.raw == null ? null : ctx.dataset.label + ': ' + fmtM(ctx.raw),
+                        afterBody: (items) => {
+                            if (items.length === 2 && items[0].raw != null && items[1].raw != null && items[0].raw > 0) {
+                                const pct = ((items[1].raw - items[0].raw) / items[0].raw * 100).toFixed(1);
+                                const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '—';
+                                return `\nYoY: ${arrow} ${Math.abs(pct)}%`;
+                            }
+                            return '';
+                        }
+                    }
+                },
+                datalabels: { display: false }
+            }
+        });
+    }
+
+    // ============================================================
+    // Chart: DC OH by Type — YoY (solid = FY26, dashed = FY25)
+    // ============================================================
+    function buildDCTypeYoYChart(canvasId, weeks) {
+        // Group by year → week → dc type
+        const byYear = {};
+        weeks.forEach(w => {
+            const yr = w.WM_YEAR;
+            if (!byYear[yr]) byYear[yr] = {};
+            if (!byYear[yr][w.WM_WEEK]) {
+                byYear[yr][w.WM_WEEK] = {};
+                DC_OH_KEYS.forEach(k => { byYear[yr][w.WM_WEEK][k] = 0; });
+            }
+            DC_OH_KEYS.forEach(k => { byYear[yr][w.WM_WEEK][k] += (w[k] || 0); });
+        });
+
+        const years = Object.keys(byYear).sort();
+        const allWeeks = new Set();
+        years.forEach(yr => Object.keys(byYear[yr]).forEach(wk => allWeeks.add(parseInt(wk))));
+        const weekLabels = [...allWeeks].sort((a,b) => a - b);
+        const labels = weekLabels.map(wk => `WK${wk}`);
+
+        const datasets = [];
+        DC_OH_KEYS.forEach(k => {
+            const color = DC_TYPE_COLORS[k];
+            const typeName = DC_TYPE_LABELS[k];
+            years.forEach(yr => {
+                const isCurrent = yr === years[years.length - 1];
+                const fyLabel = yr === '2025' ? 'FY25' : yr === '2026' ? 'FY26' : `FY${yr.slice(-2)}`;
+                datasets.push({
+                    label: `${typeName} ${fyLabel}`,
+                    data: weekLabels.map(wk => byYear[yr][wk]?.[k] ?? null),
+                    borderColor: isCurrent ? color : color + '80',
+                    backgroundColor: color + '10',
+                    borderWidth: isCurrent ? 2 : 1.5,
+                    borderDash: isCurrent ? [] : [4, 3],
+                    fill: false,
+                    tension: 0.3,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    spanGaps: true
+                });
+            });
+        });
+
+        renderChart(canvasId, 'line', { labels, datasets }, {
+            scales: {
+                y: { ticks: { callback: v => fmtB(v), color: '#e0e0e0' }, grid: { color: '#2a2a4a' } },
+                x: { ticks: { color: '#e0e0e0', maxRotation: 45, maxTicksLimit: 20 }, grid: { display: false } }
+            },
+            plugins: {
+                legend: {
+                    labels: {
+                        // Only show FY26 (solid) entries — dashed convention shown in title
+                        filter: (item) => !item.text.includes('FY25'),
+                        color: '#e8e8e8',
+                        font: { size: 11, weight: '500' },
+                        padding: 10,
+                        usePointStyle: true,
+                        pointStyleWidth: 12,
+                        boxWidth: 12,
+                        boxHeight: 12
+                    }
+                },
+                tooltip: {
+                    mode: 'nearest',
+                    intersect: false,
+                    callbacks: {
+                        label: ctx => ctx.raw == null ? null : ctx.dataset.label + ': ' + fmtM(ctx.raw)
+                    }
+                },
+                datalabels: { display: false }
+            }
+        });
+    }
+
+    function updateMetricYoYCharts(weeks) {
+        buildYoYChart('yoyStoreOHChart', weeks, 'store_oh');
+        buildYoYChart('yoyDCOHChart', weeks, 'dc_oh');
+        buildDCTypeYoYChart('yoyDCTypeChart', weeks);
+        buildYoYChart('yoyBackroomChart', weeks, 'backroom');
+    }
+
+    // ============================================================
+    // Chart: SBU Multi-line Trend + YoY grid per SBU
+    // ============================================================
+    function updateSBUChart(sbuWeeks) {
+        const sbus = [...new Set(sbuWeeks.map(r => r.SBU))].sort();
+
+        // ── Big multi-line SBU trend chart on top ──
+        {
+            // Use chronological BUS_DT (not WM_WEEK) to avoid summing FY25+FY26
+            const allDates = [...new Set(sbuWeeks.map(r => r.BUS_DT))].sort();
+
+            // WK-only labels, consistent with all other charts
+            const dateToWk = {};
+            sbuWeeks.forEach(r => { dateToWk[r.BUS_DT] = `WK${r.WM_WEEK}`; });
+            const labels = allDates.map(d => dateToWk[d] || d);
+
+            // Build lookup: SBU → BUS_DT → total_network
+            const lookup = {};
+            sbuWeeks.forEach(r => {
+                if (!lookup[r.SBU]) lookup[r.SBU] = {};
+                if (!lookup[r.SBU][r.BUS_DT]) lookup[r.SBU][r.BUS_DT] = 0;
+                lookup[r.SBU][r.BUS_DT] += r.total_network || 0;
+            });
+
+            const trendDatasets = sbus.map(sbu => ({
+                label: sbu,
+                data: allDates.map(d => lookup[sbu]?.[d] ?? null),
+                borderColor: SBU_COLORS[sbu] || '#6c757d',
+                backgroundColor: (SBU_COLORS[sbu] || '#6c757d') + '20',
+                fill: false,
+                tension: 0.3,
+                borderWidth: 2,
+                pointRadius: 2,
+                pointHoverRadius: 5,
+                spanGaps: true
+            }));
+
+            renderChart('sbuTrendChart', 'line', { labels, datasets: trendDatasets }, {
+                scales: {
+                    y: { ticks: { callback: v => fmtB(v), color: '#e0e0e0' }, grid: { color: '#2a2a4a' } },
+                    x: { ticks: { color: '#e0e0e0', maxRotation: 45, maxTicksLimit: 26 }, grid: { display: false } }
+                },
+                plugins: {
+                    tooltip: { mode: 'index', callbacks: { label: ctx => ctx.raw == null ? null : ctx.dataset.label + ': ' + fmtM(ctx.raw) } },
+                    datalabels: { display: false }
+                }
+            });
+        }
+
+        // ── Individual SBU YoY grid below ──
+        const grid = document.getElementById('sbu-yoy-grid');
+
+        // Destroy any existing SBU charts
+        sbus.forEach(sbu => {
+            const cid = 'sbuYoY_' + sbu;
+            if (CHARTS[cid]) { CHARTS[cid].destroy(); delete CHARTS[cid]; }
+        });
+        // Also clean up any old canvases from a previous render with different SBU set
+        Object.keys(CHARTS).forEach(k => {
+            if (k.startsWith('sbuYoY_')) { CHARTS[k].destroy(); delete CHARTS[k]; }
+        });
+
+        // Build the grid of canvases dynamically
+        grid.innerHTML = '';
+        sbus.forEach(sbu => {
+            const colDiv = document.createElement('div');
+            colDiv.className = 'col-md-4 col-sm-6 mb-2';
+            const cardDiv = document.createElement('div');
+            cardDiv.className = 'chart-container';
+            cardDiv.style.padding = '10px';
+            const titleDiv = document.createElement('div');
+            titleDiv.className = 'chart-title';
+            titleDiv.style.fontSize = '0.85rem';
+            const dot = document.createElement('span');
+            dot.style.cssText = `display:inline-block;width:10px;height:10px;border-radius:50%;background:${SBU_COLORS[sbu]||'#6c757d'};margin-right:6px;`;
+            titleDiv.appendChild(dot);
+            titleDiv.appendChild(document.createTextNode(sbu));
+            const canvas = document.createElement('canvas');
+            canvas.id = 'sbuYoY_' + sbu;
+            canvas.height = 75;
+            cardDiv.appendChild(titleDiv);
+            cardDiv.appendChild(canvas);
+            colDiv.appendChild(cardDiv);
+            grid.appendChild(colDiv);
+        });
+
+        // Build YoY chart for each SBU
+        sbus.forEach(sbu => {
+            const sbuData = sbuWeeks.filter(r => r.SBU === sbu);
+            const byYear = {};
+            sbuData.forEach(r => {
+                const yr = r.WM_YEAR;
+                if (!byYear[yr]) byYear[yr] = {};
+                if (!byYear[yr][r.WM_WEEK]) byYear[yr][r.WM_WEEK] = 0;
+                byYear[yr][r.WM_WEEK] += r.total_network || 0;
+            });
+
+            const years = Object.keys(byYear).sort();
+            const allWeeks = new Set();
+            years.forEach(yr => Object.keys(byYear[yr]).forEach(wk => allWeeks.add(parseInt(wk))));
+            const weekLabels = [...allWeeks].sort((a,b) => a - b);
+            const labels = weekLabels.map(wk => `WK${wk}`);
+
+            const yearColors = {
+                '2025': { border: '#6cb2eb', bg: '#6cb2eb20', label: 'FY25' },
+                '2026': { border: '#ffc220', bg: '#ffc22020', label: 'FY26' }
+            };
+
+            const datasets = years.map((yr, i) => {
+                const style = yearColors[yr] || { border: '#4ade80', bg: '#4ade8020', label: `FY${yr.slice(-2)}` };
+                return {
+                    label: style.label,
+                    data: weekLabels.map(wk => byYear[yr][wk] ?? null),
+                    borderColor: style.border,
+                    backgroundColor: style.bg,
+                    fill: false,
+                    tension: 0.3,
+                    pointRadius: 2,
+                    pointHoverRadius: 4,
+                    borderWidth: yr === years[years.length - 1] ? 2.5 : 1.5,
+                    spanGaps: true
+                };
+            });
+
+            const canvasId = 'sbuYoY_' + sbu;
+            renderChart(canvasId, 'line', { labels, datasets }, {
+                scales: {
+                    y: { ticks: { callback: v => fmtB(v), color: '#e0e0e0', maxTicksLimit: 5 }, grid: { color: '#2a2a4a' } },
+                    x: { ticks: { color: '#e0e0e0', maxRotation: 45, maxTicksLimit: 12 }, grid: { display: false } }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        mode: 'index',
+                        callbacks: {
+                            label: ctx => ctx.raw == null ? null : ctx.dataset.label + ': ' + fmtM(ctx.raw),
+                            afterBody: (items) => {
+                                if (items.length === 2 && items[0].raw != null && items[1].raw != null && items[0].raw > 0) {
+                                    const pct = ((items[1].raw - items[0].raw) / items[0].raw * 100).toFixed(1);
+                                    const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '—';
+                                    return `\nYoY: ${arrow} ${Math.abs(pct)}%`;
+                                }
+                                return '';
+                            }
+                        }
+                    },
+                    datalabels: { display: false }
+                }
+            });
+        });
+    }
+
+    // ============================================================
+    // Charts: DC Type Trend (line chart + individual YoY grid)
+    // ============================================================
+    function updateDCTypeCharts(weeks) {
+        // ── Top chart: DC OH by Type as individual lines (chronological) ──
+        // Use BUS_DT for continuous timeline, WK labels
+        const allDates = [...new Set(weeks.map(w => w.BUS_DT))].sort();
+        const dateToWk = {};
+        weeks.forEach(w => { dateToWk[w.BUS_DT] = `WK${w.WM_WEEK}`; });
+        const lineLabels = allDates.map(d => dateToWk[d] || d);
+
+        // Aggregate DC type by BUS_DT (in case multiple rows per date from filters)
+        const dateLookup = {};
+        weeks.forEach(w => {
+            if (!dateLookup[w.BUS_DT]) {
+                dateLookup[w.BUS_DT] = {};
+                DC_OH_KEYS.forEach(k => { dateLookup[w.BUS_DT][k] = 0; });
+            }
+            DC_OH_KEYS.forEach(k => { dateLookup[w.BUS_DT][k] += w[k] || 0; });
+        });
+
+        const ohData = {
+            labels: lineLabels,
+            datasets: DC_OH_CHART_KEYS.map(k => ({
+                label: DC_TYPE_LABELS[k],
+                data: allDates.map(d => dateLookup[d]?.[k] ?? 0),
+                borderColor: DC_TYPE_COLORS[k],
+                backgroundColor: DC_TYPE_COLORS[k] + '20',
+                borderWidth: 2,
+                fill: false,
+                tension: 0.3,
+                pointRadius: 2,
+                pointHoverRadius: 5
+            }))
+        };
+
+        renderChart('dcTypeOHChart', 'line', ohData, {
+            scales: {
+                y: { ticks: { callback: v => fmtB(v), color: '#e0e0e0' }, grid: { color: '#2a2a4a' } },
+                x: { ticks: { color: '#e0e0e0', maxRotation: 45, maxTicksLimit: 26 }, grid: { display: false } }
+            },
+            plugins: {
+                tooltip: { mode: 'index', callbacks: { label: ctx => ctx.raw == null ? null : ctx.dataset.label + ': ' + fmtM(ctx.raw) } },
+                datalabels: { display: false }
+            }
+        });
+
+        // ── Bottom: Individual DC Type YoY grid ──
+        const grid = document.getElementById('dctype-yoy-grid');
+
+        // Clean up old charts
+        Object.keys(CHARTS).forEach(k => {
+            if (k.startsWith('dcTypeYoY_')) { CHARTS[k].destroy(); delete CHARTS[k]; }
+        });
+
+        grid.innerHTML = '';
+        DC_OH_CHART_KEYS.forEach(k => {
+            const typeName = DC_TYPE_LABELS[k];
+            const color = DC_TYPE_COLORS[k];
+
+            // Create card
+            const colDiv = document.createElement('div');
+            colDiv.className = 'col-md-4 col-sm-6 mb-2';
+            const cardDiv = document.createElement('div');
+            cardDiv.className = 'chart-container';
+            cardDiv.style.padding = '10px';
+            const titleDiv = document.createElement('div');
+            titleDiv.className = 'chart-title';
+            titleDiv.style.fontSize = '0.85rem';
+            const dot = document.createElement('span');
+            dot.style.cssText = `display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};margin-right:6px;`;
+            titleDiv.appendChild(dot);
+            titleDiv.appendChild(document.createTextNode(typeName));
+            const canvas = document.createElement('canvas');
+            canvas.id = 'dcTypeYoY_' + k;
+            canvas.height = 70;
+            cardDiv.appendChild(titleDiv);
+            cardDiv.appendChild(canvas);
+            colDiv.appendChild(cardDiv);
+            grid.appendChild(colDiv);
+        });
+
+        // Build YoY chart for each DC type
+        DC_OH_CHART_KEYS.forEach(k => {
+            const byYear = {};
+            weeks.forEach(w => {
+                const yr = w.WM_YEAR;
+                if (!byYear[yr]) byYear[yr] = {};
+                if (!byYear[yr][w.WM_WEEK]) byYear[yr][w.WM_WEEK] = 0;
+                byYear[yr][w.WM_WEEK] += (w[k] || 0);
+            });
+
+            const years = Object.keys(byYear).sort();
+            const allWeeks = new Set();
+            years.forEach(yr => Object.keys(byYear[yr]).forEach(wk => allWeeks.add(parseInt(wk))));
+            const weekLabels = [...allWeeks].sort((a,b) => a - b);
+            const labels = weekLabels.map(wk => `WK${wk}`);
+
+            const yearColors = {
+                '2025': { border: '#6cb2eb', bg: '#6cb2eb20', label: 'FY25' },
+                '2026': { border: '#ffc220', bg: '#ffc22020', label: 'FY26' }
+            };
+
+            const datasets = years.map(yr => {
+                const style = yearColors[yr] || { border: '#4ade80', bg: '#4ade8020', label: `FY${yr.slice(-2)}` };
+                return {
+                    label: style.label,
+                    data: weekLabels.map(wk => byYear[yr][wk] ?? null),
+                    borderColor: style.border,
+                    backgroundColor: style.bg,
+                    fill: false,
+                    tension: 0.3,
+                    pointRadius: 2,
+                    pointHoverRadius: 4,
+                    borderWidth: yr === years[years.length - 1] ? 2.5 : 1.5,
+                    spanGaps: true
+                };
+            });
+
+            renderChart('dcTypeYoY_' + k, 'line', { labels, datasets }, {
+                scales: {
+                    y: { ticks: { callback: v => fmtB(v), color: '#e0e0e0', maxTicksLimit: 5 }, grid: { color: '#2a2a4a' } },
+                    x: { ticks: { color: '#e0e0e0', maxRotation: 45, maxTicksLimit: 10 }, grid: { display: false } }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        mode: 'index',
+                        callbacks: {
+                            label: ctx => ctx.raw == null ? null : ctx.dataset.label + ': ' + fmtM(ctx.raw),
+                            afterBody: (items) => {
+                                if (items.length === 2 && items[0].raw != null && items[1].raw != null && items[0].raw > 0) {
+                                    const pct = ((items[1].raw - items[0].raw) / items[0].raw * 100).toFixed(1);
+                                    const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '—';
+                                    return `\nYoY: ${arrow} ${Math.abs(pct)}%`;
+                                }
+                                return '';
+                            }
+                        }
+                    },
+                    datalabels: { display: false }
+                }
+            });
+        });
+    }
+
+    // ============================================================
+    // Charts: STO to DC (Total YoY + by SBU YoY grid)
+    // ============================================================
+    function updateSTOCharts(weeks, sbuWeeks) {
+        // ── Top: Total STO to DC — YoY ──
+        buildYoYChart('stoTotalChart', weeks, 'sto_to_dc');
+
+        // ── Bottom: STO by SBU — individual YoY grid ──
+        const sbus = [...new Set(sbuWeeks.map(r => r.SBU))].sort();
+        const grid = document.getElementById('sto-sbu-yoy-grid');
+
+        // Clean up old charts
+        Object.keys(CHARTS).forEach(k => {
+            if (k.startsWith('stoSbuYoY_')) { CHARTS[k].destroy(); delete CHARTS[k]; }
+        });
+
+        grid.innerHTML = '';
+        sbus.forEach(sbu => {
+            const colDiv = document.createElement('div');
+            colDiv.className = 'col-md-4 col-sm-6 mb-2';
+            const cardDiv = document.createElement('div');
+            cardDiv.className = 'chart-container';
+            cardDiv.style.padding = '10px';
+            const titleDiv = document.createElement('div');
+            titleDiv.className = 'chart-title';
+            titleDiv.style.fontSize = '0.85rem';
+            const dot = document.createElement('span');
+            dot.style.cssText = `display:inline-block;width:10px;height:10px;border-radius:50%;background:${SBU_COLORS[sbu]||'#6c757d'};margin-right:6px;`;
+            titleDiv.appendChild(dot);
+            titleDiv.appendChild(document.createTextNode(sbu));
+            const canvas = document.createElement('canvas');
+            canvas.id = 'stoSbuYoY_' + sbu;
+            canvas.height = 75;
+            cardDiv.appendChild(titleDiv);
+            cardDiv.appendChild(canvas);
+            colDiv.appendChild(cardDiv);
+            grid.appendChild(colDiv);
+        });
+
+        // Build YoY chart for each SBU's STO
+        sbus.forEach(sbu => {
+            const sbuData = sbuWeeks.filter(r => r.SBU === sbu);
+            const byYear = {};
+            sbuData.forEach(r => {
+                const yr = r.WM_YEAR;
+                if (!byYear[yr]) byYear[yr] = {};
+                if (!byYear[yr][r.WM_WEEK]) byYear[yr][r.WM_WEEK] = 0;
+                byYear[yr][r.WM_WEEK] += r.sto_to_dc || 0;
+            });
+
+            const years = Object.keys(byYear).sort();
+            const allWeeks = new Set();
+            years.forEach(yr => Object.keys(byYear[yr]).forEach(wk => allWeeks.add(parseInt(wk))));
+            const weekLabels = [...allWeeks].sort((a,b) => a - b);
+            const labels = weekLabels.map(wk => `WK${wk}`);
+
+            const yearColors = {
+                '2025': { border: '#6cb2eb', bg: '#6cb2eb20', label: 'FY25' },
+                '2026': { border: '#ffc220', bg: '#ffc22020', label: 'FY26' }
+            };
+
+            const datasets = years.map(yr => {
+                const style = yearColors[yr] || { border: '#4ade80', bg: '#4ade8020', label: `FY${yr.slice(-2)}` };
+                return {
+                    label: style.label,
+                    data: weekLabels.map(wk => byYear[yr][wk] ?? null),
+                    borderColor: style.border,
+                    backgroundColor: style.bg,
+                    fill: false,
+                    tension: 0.3,
+                    pointRadius: 2,
+                    pointHoverRadius: 4,
+                    borderWidth: yr === years[years.length - 1] ? 2.5 : 1.5,
+                    spanGaps: true
+                };
+            });
+
+            renderChart('stoSbuYoY_' + sbu, 'line', { labels, datasets }, {
+                scales: {
+                    y: { ticks: { callback: v => fmtB(v), color: '#e0e0e0', maxTicksLimit: 5 }, grid: { color: '#2a2a4a' } },
+                    x: { ticks: { color: '#e0e0e0', maxRotation: 45, maxTicksLimit: 12 }, grid: { display: false } }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        mode: 'index',
+                        callbacks: {
+                            label: ctx => ctx.raw == null ? null : ctx.dataset.label + ': ' + fmtM(ctx.raw),
+                            afterBody: (items) => {
+                                if (items.length === 2 && items[0].raw != null && items[1].raw != null && items[0].raw > 0) {
+                                    const pct = ((items[1].raw - items[0].raw) / items[0].raw * 100).toFixed(1);
+                                    const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '—';
+                                    return `\nYoY: ${arrow} ${Math.abs(pct)}%`;
+                                }
+                                return '';
+                            }
+                        }
+                    },
+                    datalabels: { display: false }
+                }
+            });
+        });
+
+        // ── STO by DC Type — individual YoY grid ──
+        const dcGrid = document.getElementById('sto-dctype-yoy-grid');
+
+        // Clean up old charts
+        Object.keys(CHARTS).forEach(k => {
+            if (k.startsWith('stoDcYoY_')) { CHARTS[k].destroy(); delete CHARTS[k]; }
+        });
+
+        dcGrid.innerHTML = '';
+        STO_DC_CHART_KEYS.forEach(key => {
+            const label = DC_TYPE_LABELS[key] || key;
+            const color = STO_DC_COLORS[key] || '#6c757d';
+            const colDiv = document.createElement('div');
+            colDiv.className = 'col-md-6 col-sm-6 mb-2';
+            const cardDiv = document.createElement('div');
+            cardDiv.className = 'chart-container';
+            cardDiv.style.padding = '10px';
+            const titleDiv = document.createElement('div');
+            titleDiv.className = 'chart-title';
+            titleDiv.style.fontSize = '0.85rem';
+            const dot = document.createElement('span');
+            dot.style.cssText = `display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};margin-right:6px;`;
+            titleDiv.appendChild(dot);
+            titleDiv.appendChild(document.createTextNode(label));
+            const canvas = document.createElement('canvas');
+            canvas.id = 'stoDcYoY_' + key;
+            canvas.height = 75;
+            cardDiv.appendChild(titleDiv);
+            cardDiv.appendChild(canvas);
+            colDiv.appendChild(cardDiv);
+            dcGrid.appendChild(colDiv);
+        });
+
+        // Build YoY chart for each DC type's STO (same style as SBU: no legend, small dots)
+        STO_DC_CHART_KEYS.forEach(key => {
+            const byYear = {};
+            weeks.forEach(w => {
+                const yr = w.WM_YEAR;
+                if (!byYear[yr]) byYear[yr] = {};
+                if (!byYear[yr][w.WM_WEEK]) byYear[yr][w.WM_WEEK] = 0;
+                byYear[yr][w.WM_WEEK] += w[key] || 0;
+            });
+
+            const years = Object.keys(byYear).sort();
+            const allWeeks = new Set();
+            years.forEach(yr => Object.keys(byYear[yr]).forEach(wk => allWeeks.add(parseInt(wk))));
+            const weekLabels = [...allWeeks].sort((a,b) => a - b);
+            const labels = weekLabels.map(wk => `WK${wk}`);
+
+            const yearColors = {
+                '2025': { border: '#6cb2eb', bg: '#6cb2eb20', label: 'FY25' },
+                '2026': { border: '#ffc220', bg: '#ffc22020', label: 'FY26' }
+            };
+
+            const datasets = years.map(yr => {
+                const style = yearColors[yr] || { border: '#4ade80', bg: '#4ade8020', label: `FY${yr.slice(-2)}` };
+                return {
+                    label: style.label,
+                    data: weekLabels.map(wk => byYear[yr][wk] ?? null),
+                    borderColor: style.border,
+                    backgroundColor: style.bg,
+                    fill: false,
+                    tension: 0.3,
+                    pointRadius: 2,
+                    pointHoverRadius: 4,
+                    borderWidth: yr === years[years.length - 1] ? 2.5 : 1.5,
+                    spanGaps: true
+                };
+            });
+
+            renderChart('stoDcYoY_' + key, 'line', { labels, datasets }, {
+                scales: {
+                    y: { ticks: { callback: v => fmtB(v), color: '#e0e0e0', maxTicksLimit: 5 }, grid: { color: '#2a2a4a' } },
+                    x: { ticks: { color: '#e0e0e0', maxRotation: 45, maxTicksLimit: 12 }, grid: { display: false } }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        mode: 'index',
+                        callbacks: {
+                            label: ctx => ctx.raw == null ? null : ctx.dataset.label + ': ' + fmtM(ctx.raw),
+                            afterBody: (items) => {
+                                if (items.length === 2 && items[0].raw != null && items[1].raw != null && items[0].raw > 0) {
+                                    const pct = ((items[1].raw - items[0].raw) / items[0].raw * 100).toFixed(1);
+                                    const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '—';
+                                    return `\nYoY: ${arrow} ${Math.abs(pct)}%`;
+                                }
+                                return '';
+                            }
+                        }
+                    },
+                    datalabels: { display: false }
+                }
+            });
+        });
+    }
+
+    // ============================================================
+    // Data Table
+    // ============================================================
+    function updateTable(rows) {
+        const tbody = document.getElementById('data-table-body');
+        // Sort by date desc, then SBU
+        const sorted = [...rows].sort((a,b) => b.BUS_DT.localeCompare(a.BUS_DT) || a.SBU.localeCompare(b.SBU));
+
+        let html = '';
+        let lastDate = '';
+        sorted.forEach(r => {
+            const isNewDate = r.BUS_DT !== lastDate;
+            if (isNewDate) {
+                // Enterprise total row for this date
+                const weekTotal = sorted.filter(x => x.BUS_DT === r.BUS_DT);
+                const totals = {};
+                ['store_oh','backroom','on_floor','dc_reserved','in_transit','dc_oh','dc_labeled','dc_unlabeled','sto_to_dc','total_network',
+                 ...DC_OH_KEYS].forEach(k => {
+                    totals[k] = weekTotal.reduce((s, x) => s + (x[k] || 0), 0);
+                });
+                html += `<tr class="sbu-row">
+                    <td>WK${r.WM_WEEK}</td><td>${r.BUS_DT}</td><td><strong>ENTERPRISE</strong></td>
+                    <td class="text-end">${fmtM(totals.store_oh)}</td>
+                    <td class="text-end">${fmtM(totals.backroom)}</td>
+                    <td class="text-end">${fmtM(totals.on_floor)}</td>
+                    <td class="text-end">${fmtM(totals.dc_reserved)}</td>
+                    <td class="text-end">${fmtM(totals.in_transit)}</td>
+                    <td class="text-end">${fmtM(totals.dc_oh)}</td>
+                    <td class="text-end">${fmtM(totals.dc_labeled)}</td>
+                    <td class="text-end">${fmtM(totals.dc_unlabeled)}</td>
+                    <td class="text-end">${fmtM(totals.sto_to_dc)}</td>
+                    <td class="text-end" style="color: var(--walmart-yellow); font-weight:700;">${fmtM(totals.total_network)}</td>
+                    ${DC_OH_KEYS.map(k => `<td class="text-end">${fmtM(totals[k])}</td>`).join('')}
+                </tr>`;
+                lastDate = r.BUS_DT;
+            }
+            html += `<tr>
+                <td></td><td></td><td>${r.SBU}</td>
+                <td class="text-end">${fmtM(r.store_oh)}</td>
+                <td class="text-end">${fmtM(r.backroom)}</td>
+                <td class="text-end">${fmtM(r.on_floor)}</td>
+                <td class="text-end">${fmtM(r.dc_reserved)}</td>
+                <td class="text-end">${fmtM(r.in_transit)}</td>
+                <td class="text-end">${fmtM(r.dc_oh)}</td>
+                <td class="text-end">${fmtM(r.dc_labeled)}</td>
+                <td class="text-end">${fmtM(r.dc_unlabeled)}</td>
+                <td class="text-end">${fmtM(r.sto_to_dc)}</td>
+                <td class="text-end" style="color: var(--walmart-yellow);">${fmtM(r.total_network)}</td>
+                ${DC_OH_KEYS.map(k => `<td class="text-end">${fmtM(r[k])}</td>`).join('')}
+            </tr>`;
+        });
+        tbody.innerHTML = html;
+    }
+
+    // ============================================================
+    // CSV Export
+    // ============================================================
+    function exportTableCSV() {
+        if (!RAW_DATA) return;
+        const selectedSBUs = getSelectedSBUs();
+        let source = RAW_DATA.by_sbu;
+        if (selectedSBUs.length > 0) source = source.filter(r => selectedSBUs.includes(r.SBU));
+
+        const rangeFilter = document.getElementById('range-filter').value;
+        if (rangeFilter !== 'all') {
+            const allDates = [...new Set(source.map(r => r.BUS_DT))].sort();
+            const cutDates = allDates.slice(-parseInt(rangeFilter));
+            source = source.filter(r => cutDates.includes(r.BUS_DT));
+        }
+
+        const headers = ['BUS_DT','WM_YEAR','WM_WEEK','WM_YR_WK_NBR','SBU','Store OH','Backroom','On Floor','DC Reserved','In-Transit','DC OH','DC Labeled','DC Unlabeled','STO to DC','Total Network',
+                        'DC OH Regional','DC OH Grocery','DC OH Fashion','DC OH Imports','DC OH GIDC','DC OH MSC','DC OH Support','DC OH Other',
+                        'STO to Regional','STO to Grocery','STO to Fashion','STO to Imports','STO to GIDC','STO to MSC','STO to Support','STO to Other'];
+        const keys = ['BUS_DT','WM_YEAR','WM_WEEK','WM_YR_WK_NBR','SBU','store_oh','backroom','on_floor','dc_reserved','in_transit','dc_oh','dc_labeled','dc_unlabeled','sto_to_dc','total_network',
+                      ...DC_OH_KEYS, ...STO_DC_KEYS];
+        const sorted = [...source].sort((a,b) => a.BUS_DT.localeCompare(b.BUS_DT) || a.SBU.localeCompare(b.SBU));
+
+        let csv = headers.join(',') + '\n';
+        sorted.forEach(r => {
+            csv += keys.map(k => r[k] ?? '').join(',') + '\n';
+        });
+
+        const blob = new Blob([csv], {type: 'text/csv'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'historical_inventory_trends.csv';
+        a.click(); URL.revokeObjectURL(url);
+    }
+
+    // ============================================================
+    // Chart helper
+    // ============================================================
+    function renderChart(canvasId, type, data, options) {
+        if (CHARTS[canvasId]) CHARTS[canvasId].destroy();
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        // Merge legend defaults for readability on dark background
+        const legendDefaults = {
+            display: true,
+            labels: {
+                color: '#e8e8e8',
+                font: { size: 12, weight: '500' },
+                padding: 14,
+                usePointStyle: true,
+                pointStyleWidth: 14,
+                boxWidth: 14,
+                boxHeight: 14
+            }
+        };
+        if (!options.plugins) options.plugins = {};
+        options.plugins.legend = Object.assign({}, legendDefaults, options.plugins.legend || {});
+        // Deep merge labels if caller supplied partial
+        if (options.plugins.legend.labels && options.plugins.legend.labels !== legendDefaults.labels) {
+            options.plugins.legend.labels = Object.assign({}, legendDefaults.labels, options.plugins.legend.labels);
+        }
+
+        CHARTS[canvasId] = new Chart(ctx, {
+            type,
+            data,
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                interaction: { mode: 'index', intersect: false },
+                ...options
+            },
+            plugins: [ChartDataLabels]
+        });
+    }
+
+    // ============================================================
+    // Formatting helpers
+    // ============================================================
+    function fmtB(n) {
+        if (n == null) return '-';
+        if (Math.abs(n) >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+        if (Math.abs(n) >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+        if (Math.abs(n) >= 1e3) return (n / 1e3).toFixed(0) + 'K';
+        return n.toLocaleString();
+    }
+
+    function fmtM(n) {
+        if (n == null) return '-';
+        if (Math.abs(n) >= 1e9) return (n / 1e9).toFixed(3) + 'B';
+        if (Math.abs(n) >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+        if (Math.abs(n) >= 1e3) return (n / 1e3).toFixed(0) + 'K';
+        return n.toLocaleString();
+    }
+
+    // ============================================================
+    // Init
+    // ============================================================
+    window.addEventListener('DOMContentLoaded', loadData);
+    </script>
+</body>
+</html>

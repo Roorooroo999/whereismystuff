@@ -70,12 +70,38 @@
         .filter-bar { margin-top: 4px; min-height: 0; }
         .chart-container.filtered { border-left: 3px solid var(--walmart-blue); }
         .table-container.filtered { border-left: 3px solid var(--walmart-blue); }
+        /* View toggle buttons */
+        .view-toggle { display: inline-flex; gap: 4px; margin-left: 16px; }
+        .view-toggle .btn-view {
+            padding: 4px 14px; border-radius: 20px; font-size: 0.8rem; font-weight: 600;
+            border: 2px solid rgba(255,255,255,0.3); background: transparent; color: rgba(255,255,255,0.7);
+            cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; gap: 5px;
+        }
+        .view-toggle .btn-view:hover { border-color: rgba(255,255,255,0.6); color: #fff; }
+        .view-toggle .btn-view.active {
+            background: rgba(255,255,255,0.2); border-color: #fff; color: #fff;
+        }
+        .view-toggle .btn-view .view-badge {
+            font-size: 0.55rem; padding: 1px 5px; border-radius: 8px; font-weight: 700; text-transform: uppercase;
+        }
+        .view-badge-live { background: #22c55e; color: #000; }
+        .view-badge-weekly { background: #a855f7; color: #fff; }
+        #historical-view { display: none; }
+        #historical-view iframe { width: 100%; height: calc(100vh - 56px); border: none; background: var(--bg-dark); }
     </style>
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark" style="background: var(--walmart-blue);">
         <div class="container-fluid">
             <a class="navbar-brand" href="#"><i class="bi bi-box-seam me-2"></i>Where's My Stuff</a>
+            <div class="view-toggle">
+                <button class="btn-view active" id="btn-current" onclick="switchView('current')">
+                    <i class="bi bi-speedometer2"></i> Current Snapshot <span class="view-badge view-badge-live">LIVE</span>
+                </button>
+                <button class="btn-view" id="btn-historical" onclick="switchView('historical')">
+                    <i class="bi bi-graph-up"></i> Historical Trends <span class="view-badge view-badge-weekly">WEEKLY</span>
+                </button>
+            </div>
             <div class="d-flex align-items-center text-white">
                 <span class="status-badge status-live me-2" id="api-status"><i class="bi bi-circle-fill me-1"></i>Instant</span>
                 <span class="me-2" style="font-size:0.85rem;">BUS_DT: <strong id="bus-date">-</strong></span>
@@ -84,6 +110,7 @@
         </div>
     </nav>
 
+    <div id="current-view">
     <div class="loading-overlay" id="loading">
         <div class="text-center">
             <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;"></div>
@@ -380,6 +407,12 @@
         </div>
     </div>
 
+    </div><!-- /current-view -->
+
+    <div id="historical-view">
+        <iframe id="historical-iframe" src="" title="Historical Trends"></iframe>
+    </div>
+
     <!-- Item Search Results Modal -->
     <div class="modal fade" id="itemModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-centered">
@@ -397,6 +430,41 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        // ========== VIEW TOGGLE (Current Snapshot ↔ Historical Trends) ==========
+        let historicalLoaded = false;
+        function switchView(view) {
+            const currentView = document.getElementById('current-view');
+            const historicalView = document.getElementById('historical-view');
+            const btnCurrent = document.getElementById('btn-current');
+            const btnHistorical = document.getElementById('btn-historical');
+
+            if (view === 'historical') {
+                currentView.style.display = 'none';
+                historicalView.style.display = 'block';
+                btnCurrent.classList.remove('active');
+                btnHistorical.classList.add('active');
+                // Lazy-load iframe on first click
+                if (!historicalLoaded) {
+                    const iframe = document.getElementById('historical-iframe');
+                    // Resolve path: works on both local dev and Posit Connect
+                    const path = window.location.pathname;
+                    if (path.endsWith('.html') || path.endsWith('.htm')) {
+                        // Local dev (http.server): replace filename
+                        iframe.src = path.replace(/[^\/]+$/, 'historical.html');
+                    } else {
+                        // Posit Connect: /content/UUID/dashboard → append
+                        iframe.src = path + '/historical.html';
+                    }
+                    historicalLoaded = true;
+                }
+            } else {
+                currentView.style.display = '';
+                historicalView.style.display = 'none';
+                btnCurrent.classList.add('active');
+                btnHistorical.classList.remove('active');
+            }
+        }
+
         // ========== API CONFIG (Live BigQuery via FastAPI) ==========
         // Detect base path: on Posit Connect the app runs under /content/UUID/
         // so API calls must go to /content/UUID/api/... not just /api/...

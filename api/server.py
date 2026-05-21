@@ -506,18 +506,26 @@ async def cache_refresh_loop():
             logger.error(f"[CACHE] Auto-refresh failed: {e}")
 
 
+async def _load_hist_cache_background():
+    """Load historical cache in background so it doesn't block server startup."""
+    loop = asyncio.get_event_loop()
+    try:
+        await loop.run_in_executor(None, hist_cache.load)
+        logger.info("[HIST] Background load complete")
+    except Exception as e:
+        logger.error(f"[HIST] Background load failed: {e}")
+
+
 @app.on_event("startup")
 async def startup_event():
-    """Load both caches on server startup, then start background refresh loop."""
+    """Load main cache on startup, historical cache in background."""
     loop = asyncio.get_event_loop()
     try:
         await loop.run_in_executor(None, cache.load)
     except Exception as e:
         logger.error(f"[CACHE] Initial load failed: {e}")
-    try:
-        await loop.run_in_executor(None, hist_cache.load)
-    except Exception as e:
-        logger.error(f"[HIST] Initial load failed: {e}")
+    # Load historical cache in background — don't block server startup
+    asyncio.create_task(_load_hist_cache_background())
     asyncio.create_task(cache_refresh_loop())
 
 

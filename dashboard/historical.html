@@ -94,13 +94,6 @@
                 </div>
 
                 <div class="filter-section">
-                    <label class="filter-label">Department</label>
-                    <select class="form-select form-select-sm" id="dept-filter" onchange="applyFilters();">
-                        <option value="">All Departments</option>
-                    </select>
-                </div>
-
-                <div class="filter-section">
                     <label class="filter-label">Date Range</label>
                     <select class="form-select form-select-sm" id="range-filter" onchange="applyFilters();">
                         <option value="all">All (FY25 WK01+)</option>
@@ -441,18 +434,6 @@
             sbuSelect.appendChild(opt);
         });
 
-        // Populate dept filter from by_dept data
-        const depts = new Map();
-        RAW_DATA.by_dept.forEach(r => {
-            if (r.dept_nbr && r.department) depts.set(r.dept_nbr, r.department);
-        });
-        const deptSelect = document.getElementById('dept-filter');
-        deptSelect.innerHTML = '<option value="">All Departments</option>';
-        [...depts.entries()].sort((a,b) => a[0]-b[0]).forEach(([nbr, desc]) => {
-            const opt = document.createElement('option');
-            opt.value = nbr; opt.textContent = `${nbr} - ${desc}`;
-            deptSelect.appendChild(opt);
-        });
     }
 
     // ============================================================
@@ -466,11 +447,9 @@
     function applyFilters() {
         if (!RAW_DATA) return;
         const selectedSBUs = getSelectedSBUs();
-        const deptFilter = document.getElementById('dept-filter').value;
         const rangeFilter = document.getElementById('range-filter').value;
 
-        // Choose source: dept-level if dept filter is set, SBU level otherwise
-        let source = deptFilter ? RAW_DATA.by_dept : RAW_DATA.by_sbu;
+        let source = RAW_DATA.by_sbu;
 
         // Exclude hidden SBUs globally
         source = source.filter(r => !HIDDEN_SBUS.includes(r.SBU));
@@ -480,12 +459,7 @@
             source = source.filter(r => selectedSBUs.includes(r.SBU));
         }
 
-        // Apply dept filter
-        if (deptFilter) {
-            source = source.filter(r => String(r.dept_nbr) === deptFilter);
-        }
-
-        // Aggregate to weekly totals (since source may have multiple SBUs/depts)
+        // Aggregate to weekly totals (since source may have multiple SBUs)
         const weekMap = {};
         source.forEach(r => {
             const key = r.BUS_DT;
@@ -531,10 +505,6 @@
 
         // Also compute SBU-level series for the SBU tab
         let sbuSource = RAW_DATA.by_sbu.filter(r => !HIDDEN_SBUS.includes(r.SBU));
-        if (deptFilter) {
-            // If dept filter, we don't show SBU comparison (use dept data grouped by SBU)
-            sbuSource = RAW_DATA.by_dept.filter(r => String(r.dept_nbr) === deptFilter);
-        }
         if (selectedSBUs.length > 0) {
             sbuSource = sbuSource.filter(r => selectedSBUs.includes(r.SBU));
         }
@@ -576,7 +546,6 @@
 
     function resetFilters() {
         document.getElementById('sbu-filter').selectedIndex = -1;
-        document.getElementById('dept-filter').value = '';
         document.getElementById('range-filter').value = 'all';
         applyFilters();
     }

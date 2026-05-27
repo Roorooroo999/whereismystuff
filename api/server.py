@@ -77,10 +77,9 @@ class NoCacheMiddleware(BaseHTTPMiddleware):
 app.add_middleware(NoCacheMiddleware)
 
 # BigQuery config
-# Main ROLLUP table is in wmt-instockinventory-datamart (with new columns)
-# Historical table is in wmt-execution-intel-prod (legacy location)
+# All tables are now in wmt-execution-intel-prod.WM_AD_HOC
 CLIENT_PROJECT = os.environ.get("CLIENT_PROJECT", "wmt-execution-intel-prod")
-PROJECT_ID = os.environ.get("PROJECT_ID", "wmt-instockinventory-datamart")
+PROJECT_ID = os.environ.get("PROJECT_ID", "wmt-execution-intel-prod")
 HIST_PROJECT_ID = os.environ.get("HIST_PROJECT_ID", "wmt-execution-intel-prod")
 DATASET = os.environ.get("DATASET", "WM_AD_HOC")
 TABLE = os.environ.get("TABLE", "WHERES_MY_STUFF_ROLLUP")

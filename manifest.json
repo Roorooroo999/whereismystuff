@@ -34,7 +34,10 @@
     "dashboard/historical.html": {
       "checksum": "auto"
     },
-    "dashboard/historical_data.json": {
+    "dashboard/wheres_my_stuff_dashboard.qmd": {
+      "checksum": "auto"
+    },
+    "dashboard/custom.scss": {
       "checksum": "auto"
     }
   },

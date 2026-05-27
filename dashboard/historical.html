@@ -12,10 +12,10 @@
         :root { --walmart-blue: #0071ce; --walmart-yellow: #ffc220; --bg-dark: #1a1a2e; --bg-card: #16213e; --bg-sidebar: #0f0f1a; --text-light: #e8e8e8; --text-muted: #a0a0a0; }
         body { background-color: var(--bg-dark); font-family: 'Segoe UI', system-ui, sans-serif; color: var(--text-light); }
         .sidebar { background: var(--bg-sidebar); min-height: calc(100vh - 56px); border-right: 1px solid #2a2a4a; padding: 15px; overflow-y: auto; }
-        .kpi-card { border-radius: 10px; padding: 15px; color: white; margin-bottom: 10px; box-shadow: 0 3px 6px rgba(0,0,0,0.3); }
-        .kpi-card .value { font-size: 1.4rem; font-weight: 700; text-shadow: 1px 1px 2px rgba(0,0,0,0.3); }
-        .kpi-card .label { font-size: 0.8rem; font-weight: 600; }
-        .kpi-card .sub-value { font-size: 0.72rem; font-weight: 500; opacity: 0.85; }
+        .kpi-card { border-radius: 10px; padding: 10px 12px; color: white; margin-bottom: 0; box-shadow: 0 3px 6px rgba(0,0,0,0.3); min-width: 0; }
+        .kpi-card .value { font-size: 1.2rem; font-weight: 700; text-shadow: 1px 1px 2px rgba(0,0,0,0.3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .kpi-card .label { font-size: 0.75rem; font-weight: 600; }
+        .kpi-card .sub-value { font-size: 0.65rem; font-weight: 500; opacity: 0.85; }
         .bg-store { background: linear-gradient(135deg, #1e7e34, #28a745); }
         .bg-backroom { background: linear-gradient(135deg, #856404, #c49a09); }
         .bg-dc-oh { background: linear-gradient(135deg, #0069d9, #007bff); }
@@ -26,6 +26,13 @@
         .bg-sto { background: linear-gradient(135deg, #0e6655, #17a589); }
         .bg-total { background: linear-gradient(135deg, #1e3a5f, #2c5282); }
         .bg-floor { background: linear-gradient(135deg, #2d6a4f, #40916c); }
+        .bg-fc { background: linear-gradient(135deg, #4338ca, #6d28d9); }
+        .bg-ecomm { background: linear-gradient(135deg, #1d4ed8, #4f46e5); }
+        .bg-onyard { background: linear-gradient(135deg, #991b1b, #dc2626); }
+        .search-input { background-color: #1a1a2e; border: 1px solid #2a2a4a; color: var(--text-light); border-radius: 6px; padding: 5px 10px; font-size: 0.82rem; width: 100%; }
+        .search-input:focus { outline: none; border-color: var(--walmart-blue); box-shadow: 0 0 0 0.15rem rgba(0,113,206,0.25); }
+        .dc-lookup-result { background: var(--bg-card); border-radius: 8px; padding: 14px; margin-top: 10px; }
+        .dc-result-badge { display:inline-block; padding:3px 10px; border-radius:12px; font-size:0.75rem; font-weight:600; margin-right:6px; }
         .chart-container { background: var(--bg-card); border-radius: 10px; padding: 15px; margin-bottom: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
         .chart-title { font-weight: 600; margin-bottom: 10px; color: var(--text-light); font-size: 0.95rem; }
         .nav-tabs { border-bottom: 1px solid #2a2a4a; }
@@ -81,16 +88,132 @@
     </div>
 
     <div class="container-fluid">
-        <div class="row">
-            <!-- Sidebar Filters -->
-            <div class="col-lg-2 sidebar">
+        <!-- Top KPI Cards (like current view) -->
+        <div class="row g-2 mt-2 px-2">
+            <div class="col-6 col-md-4 col-lg-2">
+                <div class="kpi-card bg-floor">
+                    <div class="value" id="kpi-floor">-</div>
+                    <div class="label">On Floor</div>
+                    <div class="sub-value" id="kpi-floor-wow"></div>
+                    <div class="sub-value" id="kpi-floor-yoy"></div>
+                </div>
+            </div>
+            <div class="col-6 col-md-4 col-lg-2">
+                <div class="kpi-card bg-backroom">
+                    <div class="value" id="kpi-backroom">-</div>
+                    <div class="label">Backroom</div>
+                    <div class="sub-value" id="kpi-backroom-wow"></div>
+                    <div class="sub-value" id="kpi-backroom-yoy"></div>
+                </div>
+            </div>
+            <div class="col-6 col-md-4 col-lg-2">
+                <div class="kpi-card bg-store">
+                    <div class="value" id="kpi-store">-</div>
+                    <div class="label">Store OH (Total)</div>
+                    <div class="sub-value" id="kpi-store-wow"></div>
+                    <div class="sub-value" id="kpi-store-yoy"></div>
+                </div>
+            </div>
+            <div class="col-6 col-md-4 col-lg-2">
+                <div class="kpi-card bg-dc-oh">
+                    <div class="value" id="kpi-dcoh">-</div>
+                    <div class="label">DC On-Hand</div>
+                    <div class="sub-value" id="kpi-dcoh-wow"></div>
+                    <div class="sub-value" id="kpi-dcoh-yoy"></div>
+                </div>
+            </div>
+            <div class="col-6 col-md-4 col-lg-2">
+                <div class="kpi-card bg-transit">
+                    <div class="value" id="kpi-transit">-</div>
+                    <div class="label">In-Transit</div>
+                    <div class="sub-value" id="kpi-transit-wow"></div>
+                    <div class="sub-value" id="kpi-transit-yoy"></div>
+                </div>
+            </div>
+            <div class="col-6 col-md-4 col-lg-2">
+                <div class="kpi-card bg-dc-reserved">
+                    <div class="value" id="kpi-reserved">-</div>
+                    <div class="label">DC Reserved</div>
+                    <div class="sub-value" id="kpi-reserved-wow"></div>
+                    <div class="sub-value" id="kpi-reserved-yoy"></div>
+                </div>
+            </div>
+        </div>
+        <div class="row g-2 mt-1 px-2">
+            <div class="col-6 col-md-4 col-lg-2">
+                <div class="kpi-card bg-dc-labeled">
+                    <div class="value" id="kpi-labeled">-</div>
+                    <div class="label">DC Labeled</div>
+                    <div class="sub-value" id="kpi-labeled-wow"></div>
+                    <div class="sub-value" id="kpi-labeled-yoy"></div>
+                </div>
+            </div>
+            <div class="col-6 col-md-4 col-lg-2">
+                <div class="kpi-card bg-dc-unlabeled">
+                    <div class="value" id="kpi-unlabeled">-</div>
+                    <div class="label">DC Unlabeled</div>
+                    <div class="sub-value" id="kpi-unlabeled-wow"></div>
+                    <div class="sub-value" id="kpi-unlabeled-yoy"></div>
+                </div>
+            </div>
+            <div class="col-6 col-md-4 col-lg-2">
+                <div class="kpi-card bg-sto">
+                    <div class="value" id="kpi-sto">-</div>
+                    <div class="label">STO to DC</div>
+                    <div class="sub-value" id="kpi-sto-wow"></div>
+                    <div class="sub-value" id="kpi-sto-yoy"></div>
+                </div>
+            </div>
+            <div class="col-6 col-md-4 col-lg-2">
+                <div class="kpi-card bg-fc">
+                    <div class="value" id="kpi-fc">-</div>
+                    <div class="label">FC (eComm)</div>
+                    <div class="sub-value" id="kpi-fc-wow"></div>
+                    <div class="sub-value" id="kpi-fc-yoy"></div>
+                </div>
+            </div>
+            <div class="col-6 col-md-4 col-lg-2">
+                <div class="kpi-card bg-onyard">
+                    <div class="value" id="kpi-onyard">-</div>
+                    <div class="label">On Yard</div>
+                    <div class="sub-value" id="kpi-onyard-wow"></div>
+                    <div class="sub-value" id="kpi-onyard-yoy"></div>
+                </div>
+            </div>
+            <div class="col-6 col-md-4 col-lg-2">
+                <div class="kpi-card bg-total">
+                    <div class="value" id="kpi-total">-</div>
+                    <div class="label">Total Network</div>
+                    <div class="sub-value" id="kpi-total-wow"></div>
+                    <div class="sub-value" id="kpi-total-yoy"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-2">
+            <!-- Sidebar Filters (narrower) -->
+            <div class="col-lg-2 sidebar" style="min-height: auto; padding-top: 10px;">
                 <h6 class="text-uppercase text-muted mb-2" style="font-size:0.75rem;"><i class="bi bi-funnel me-1"></i>Filters</h6>
 
                 <div class="filter-section">
                     <label class="filter-label">SBU (Division)</label>
-                    <select class="form-select form-select-sm" id="sbu-filter" multiple size="8" onchange="applyFilters();">
+                    <select class="form-select form-select-sm" id="sbu-filter" multiple size="8" onchange="onSidebarSBUChange();">
                     </select>
                     <small class="text-muted" style="font-size:0.65rem;">Ctrl+click to multi-select</small>
+                </div>
+
+                <div class="filter-section">
+                    <label class="filter-label">Department</label>
+                    <select class="form-select form-select-sm" id="dept-filter" multiple size="5" onchange="onDeptChange();">
+                    </select>
+                    <small class="text-muted" style="font-size:0.55rem;">Filtered by SBU selection</small>
+                </div>
+
+                <div class="filter-section">
+                    <label class="filter-label">Category</label>
+                    <select class="form-select form-select-sm" id="catg-filter" multiple size="4" onchange="applyFilters();">
+                        <option value="">Select Dept first</option>
+                    </select>
                 </div>
 
                 <div class="filter-section">
@@ -104,58 +227,6 @@
                 </div>
 
                 <button class="btn btn-outline-secondary btn-sm w-100 mt-2" onclick="resetFilters()"><i class="bi bi-x-circle me-1"></i>Reset Filters</button>
-
-                <hr style="border-color:#2a2a4a;">
-                <h6 class="text-uppercase text-muted mb-2" style="font-size:0.75rem;"><i class="bi bi-bar-chart me-1"></i>Latest Week KPIs</h6>
-
-                <div class="kpi-card bg-total">
-                    <div class="label">Total Network (Excl. Backroom)</div>
-                    <div class="value" id="kpi-total">-</div>
-                    <div class="sub-value" id="kpi-total-wow"></div>
-                    <div class="sub-value" id="kpi-total-yoy"></div>
-                </div>
-                <div class="kpi-card bg-store">
-                    <div class="label">Store OH</div>
-                    <div class="value" id="kpi-store">-</div>
-                    <div class="sub-value" id="kpi-store-wow"></div>
-                    <div class="sub-value" id="kpi-store-yoy"></div>
-                </div>
-                <div class="kpi-card bg-floor">
-                    <div class="label">On Floor</div>
-                    <div class="value" id="kpi-floor">-</div>
-                    <div class="sub-value" id="kpi-floor-wow"></div>
-                    <div class="sub-value" id="kpi-floor-yoy"></div>
-                </div>
-                <div class="kpi-card bg-backroom">
-                    <div class="label">Backroom</div>
-                    <div class="value" id="kpi-backroom">-</div>
-                    <div class="sub-value" id="kpi-backroom-wow"></div>
-                    <div class="sub-value" id="kpi-backroom-yoy"></div>
-                </div>
-                <div class="kpi-card bg-dc-oh">
-                    <div class="label">DC OH</div>
-                    <div class="value" id="kpi-dcoh">-</div>
-                    <div class="sub-value" id="kpi-dcoh-wow"></div>
-                    <div class="sub-value" id="kpi-dcoh-yoy"></div>
-                </div>
-                <div class="kpi-card bg-transit">
-                    <div class="label">In-Transit</div>
-                    <div class="value" id="kpi-transit">-</div>
-                    <div class="sub-value" id="kpi-transit-wow"></div>
-                    <div class="sub-value" id="kpi-transit-yoy"></div>
-                </div>
-                <div class="kpi-card bg-dc-reserved">
-                    <div class="label">DC Reserved</div>
-                    <div class="value" id="kpi-reserved">-</div>
-                    <div class="sub-value" id="kpi-reserved-wow"></div>
-                    <div class="sub-value" id="kpi-reserved-yoy"></div>
-                </div>
-                <div class="kpi-card bg-sto">
-                    <div class="label">STO to DC</div>
-                    <div class="value" id="kpi-sto">-</div>
-                    <div class="sub-value" id="kpi-sto-wow"></div>
-                    <div class="sub-value" id="kpi-sto-yoy"></div>
-                </div>
             </div>
 
             <!-- Main Content -->
@@ -167,6 +238,7 @@
                     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-dctype">DC Type Trend</a></li>
                     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-sto">STO to DC</a></li>
                     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-table">Data Table</a></li>
+                    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-dc-drilldown"><i class="bi bi-diagram-3 me-1"></i>DC Drilldown</a></li>
                 </ul>
 
                 <div class="tab-content">
@@ -174,8 +246,8 @@
                     <div class="tab-pane fade show active" id="tab-trend">
                         <div class="chart-container">
                             <div class="d-flex justify-content-between align-items-center">
-                                <div class="chart-title"><i class="bi bi-graph-up me-1"></i>Total Network Inventory Trend — YoY (Excl. Backroom)</div>
-                                <div class="text-muted" style="font-size:0.7rem;">Total = On Floor + DC Reserved + In-Transit + DC OH + Labeled + Unlabeled + STO</div>
+                                <div class="chart-title"><i class="bi bi-graph-up me-1"></i>Total Network Inventory Trend — YoY</div>
+                                <div class="text-muted" style="font-size:0.7rem;">Total = Store OH (incl. Backroom) + DC Reserved + DC OH + Labeled + Unlabeled + STO + On Yard + In-Transit</div>
                             </div>
                             <canvas id="trendChart" height="120"></canvas>
                         </div>
@@ -259,40 +331,212 @@
 
                     <!-- Data Table -->
                     <div class="tab-pane fade" id="tab-table">
-                        <div class="table-container">
+                        <div class="table-container" style="padding: 10px;">
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <div class="chart-title mb-0"><i class="bi bi-table me-1"></i>Weekly Inventory Data</div>
-                                <button class="btn btn-outline-secondary btn-sm" onclick="exportTableCSV()"><i class="bi bi-download me-1"></i>Export CSV</button>
+                                <div class="d-flex gap-2 align-items-center">
+                                    <span class="text-muted" style="font-size:0.7rem;" id="row-count-label"></span>
+                                    <button class="btn btn-outline-secondary btn-sm" onclick="exportTableCSV()"><i class="bi bi-download me-1"></i>Export CSV</button>
+                                </div>
                             </div>
-                            <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
-                                <table class="table table-dark table-striped table-hover table-sm" id="data-table">
+                            <div class="mb-2">
+                                <input type="text" class="search-input" id="dept-search" placeholder="🔍 Search by Dept or SBU (e.g. FOOD, CAC, 92)..." oninput="filterTable()">
+                            </div>
+                            <div class="table-responsive" style="max-height: calc(100vh - 320px); overflow-y: auto;">
+                                <table class="table table-dark table-striped table-hover table-sm" id="data-table" style="font-size: 0.78rem;">
                                     <thead style="position: sticky; top: 0; z-index: 1; background: #0f0f1a;">
                                         <tr>
-                                            <th>Week</th>
-                                            <th>Date</th>
-                                            <th>SBU</th>
-                                            <th class="text-end">Store OH</th>
-                                            <th class="text-end">Backroom</th>
-                                            <th class="text-end">On Floor</th>
-                                            <th class="text-end">DC Reserved</th>
-                                            <th class="text-end">In-Transit</th>
-                                            <th class="text-end">DC OH</th>
-                                            <th class="text-end">DC Labeled</th>
-                                            <th class="text-end">DC Unlabeled</th>
-                                            <th class="text-end">STO to DC</th>
-                                            <th class="text-end" style="color: var(--walmart-yellow);">Total Network</th>
-                                            <th class="text-end" style="color: #3b82f6;">DC OH Reg</th>
-                                            <th class="text-end" style="color: #22c55e;">DC OH Groc</th>
-                                            <th class="text-end" style="color: #ec4899;">DC OH Fash</th>
-                                            <th class="text-end" style="color: #f97316;">DC OH Imp</th>
-                                            <th class="text-end" style="color: #a855f7;">DC OH GIDC</th>
-                                            <th class="text-end" style="color: #06b6d4;">DC OH MSC</th>
-                                            <th class="text-end" style="color: #eab308;">DC OH Spt</th>
-                                            <th class="text-end" style="color: #6b7280;">DC OH Oth</th>
+                                            <th style="min-width:55px;">Week</th>
+                                            <th style="min-width:75px;">Date</th>
+                                            <th style="min-width:100px;">SBU</th>
+                                            <th class="text-end" style="min-width:70px;">Store OH</th>
+                                            <th class="text-end" style="min-width:70px;">Backroom</th>
+                                            <th class="text-end" style="min-width:65px;">On Floor</th>
+                                            <th class="text-end" style="min-width:75px;">DC Reserved</th>
+                                            <th class="text-end" style="min-width:65px;">In-Transit</th>
+                                            <th class="text-end" style="min-width:60px;">DC OH</th>
+                                            <th class="text-end" style="min-width:70px;">DC Labeled</th>
+                                            <th class="text-end" style="min-width:75px;">DC Unlabeled</th>
+                                            <th class="text-end" style="min-width:65px;">STO to DC</th>
+                                            <th class="text-end" style="min-width:60px; color: #dc2626;">On Yard</th>
+                                            <th class="text-end" style="min-width:85px; color: var(--walmart-yellow); font-weight:700;">Total Network</th>
+                                            <th class="text-end" style="min-width:65px; color: #3b82f6;">DC OH Reg</th>
+                                            <th class="text-end" style="min-width:70px; color: #22c55e;">DC OH Groc</th>
+                                            <th class="text-end" style="min-width:65px; color: #ec4899;">DC OH Fash</th>
+                                            <th class="text-end" style="min-width:65px; color: #d97706;">DC OH Imp</th>
+                                            <th class="text-end" style="min-width:65px; color: #a855f7;">DC OH GIDC</th>
+                                            <th class="text-end" style="min-width:65px; color: #06b6d4;">DC OH MSC</th>
+                                            <th class="text-end" style="min-width:60px; color: #eab308;">DC OH Spt</th>
+                                            <th class="text-end" style="min-width:60px; color: #6b7280;">DC OH Oth</th>
+                                            <th class="text-end" style="min-width:55px; color: #6d28d9;">FC OH</th>
                                         </tr>
                                     </thead>
                                     <tbody id="data-table-body"></tbody>
                                 </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- DC Drilldown Tab -->
+                    <div class="tab-pane fade" id="tab-dc-drilldown">
+                        <!-- First-time hint tooltip -->
+                        <div id="drill-hint" class="alert alert-info alert-dismissible fade show mb-2" role="alert" style="font-size: 0.8rem; padding: 8px 12px; background: rgba(0,113,206,0.15); border-color: rgba(0,113,206,0.3); color: #6cb2eb;">
+                            <i class="bi bi-lightbulb me-1"></i>
+                            <strong>Tip:</strong> Click on any row to drill down. Use View Mode to switch between SBU/Dept/Category hierarchy. Use DC Type Filter to analyze specific DC types (GDC/RDC/FDC/Imports) within any view.
+                            <button type="button" class="btn-close btn-close-white" style="font-size: 0.6rem; padding: 10px;" onclick="dismissDrillHint()"></button>
+                        </div>
+                        <!-- Filters in a chart-container to match other tab styling -->
+                        <div class="chart-container mb-3" style="padding: 12px;">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div class="chart-title mb-0"><i class="bi bi-diagram-3 me-1"></i>DC Inventory Change Analysis</div>
+                                <div id="drill-breadcrumb" style="font-size: 0.75rem; color: var(--text-muted);">
+                                    <span id="breadcrumb-path">
+                                        <a href="#" onclick="clearDrillToLevel('enterprise'); return false;" style="color: #6cb2eb;">📊 Enterprise</a>
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="row g-2">
+                                <div class="col-md-2">
+                                    <label class="filter-label">Inventory Position</label>
+                                    <select class="form-select form-select-sm" id="dc-drill-channel-filter" onchange="renderDCDrilldown()">
+                                        <option value="dc_oh">DC On-Hand</option>
+                                        <option value="dc_labeled">DC Labeled</option>
+                                        <option value="dc_unlabeled">DC Unlabeled</option>
+                                        <option value="sto_to_dc">STO to DC</option>
+                                        <option value="on_yard">On Yard</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="filter-label">Compare Period</label>
+                                    <select class="form-select form-select-sm" id="dc-drill-compare-filter" onchange="renderDCDrilldown()">
+                                        <option value="wow">Week over Week</option>
+                                        <option value="yoy">Year over Year</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="filter-label">SBU Filter</label>
+                                    <select class="form-select form-select-sm" id="dc-drill-sbu-filter" onchange="onSBUFilterChange()">
+                                        <option value="">All SBUs</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="filter-label">Dept Filter</label>
+                                    <select class="form-select form-select-sm" id="dc-drill-dept-filter" onchange="onDeptFilterChange()">
+                                        <option value="">All Departments</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="filter-label">View Mode</label>
+                                    <select class="form-select form-select-sm" id="dc-drill-view-filter" onchange="switchDrillViewMode()">
+                                        <option value="sbu">By SBU</option>
+                                        <option value="dept">By Department</option>
+                                        <option value="catg">By Category</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="filter-label">DC Type Filter</label>
+                                    <select class="form-select form-select-sm" id="dc-drill-dctype-filter" multiple size="1" onchange="renderDCDrilldown()" style="height: 31px;">
+                                        <option value="Grocery" selected>GDC (Grocery)</option>
+                                        <option value="Regional" selected>RDC (Regional)</option>
+                                        <option value="Fashion" selected>FDC (Fashion)</option>
+                                        <option value="Imports" selected>Import DC</option>
+                                    </select>
+                                    <small class="text-muted" style="font-size:0.55rem;">Ctrl+click multi-select</small>
+                                </div>
+                                <div class="col-md-2 d-flex align-items-end">
+                                    <button class="btn btn-outline-secondary btn-sm me-2" onclick="resetDCDrillFilters()"><i class="bi bi-x-circle me-1"></i>Reset</button>
+                                    <button class="btn btn-outline-secondary btn-sm" onclick="exportDCDrilldownCSV()"><i class="bi bi-download me-1"></i>CSV</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Summary KPIs in compact bar -->
+                        <div class="chart-container mb-3" style="padding: 10px;">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <span class="text-muted" style="font-size: 0.75rem;">Selected Position:</span>
+                                    <span id="drill-selected-position" style="font-weight: 600; color: var(--walmart-yellow); margin-left: 6px;">DC On-Hand</span>
+                                </div>
+                                <div class="d-flex gap-4">
+                                    <div class="text-center">
+                                        <div id="dc-drill-kpi-oh" style="font-size: 1.1rem; font-weight: 700; color: #007bff;">-</div>
+                                        <div style="font-size: 0.65rem; color: var(--text-muted);">Current</div>
+                                    </div>
+                                    <div class="text-center">
+                                        <div id="dc-drill-kpi-prior" style="font-size: 1.1rem; font-weight: 600; color: var(--text-muted);">-</div>
+                                        <div style="font-size: 0.65rem; color: var(--text-muted);">Prior</div>
+                                    </div>
+                                    <div class="text-center">
+                                        <div id="dc-drill-kpi-oh-wow" style="font-size: 1.1rem; font-weight: 700;">-</div>
+                                        <div style="font-size: 0.65rem; color: var(--text-muted);">Change</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Main Content: Side-by-Side Increasing/Decreasing Tables -->
+                        <div class="row g-3">
+                            <!-- Left: Top INCREASING -->
+                            <div class="col-md-6">
+                                <div class="chart-container" style="padding: 10px;">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <div class="chart-title mb-0"><i class="bi bi-arrow-up-circle me-1" style="color: #d97706;"></i>Top INCREASING <span class="badge bg-danger ms-2" id="drill-increasing-total">+0M</span></div>
+                                    </div>
+                                    <div class="table-responsive" style="max-height: calc(100vh - 450px); overflow-y: auto;">
+                                        <table class="table table-dark table-hover table-sm" style="font-size: 0.78rem;">
+                                            <thead style="position: sticky; top: 0; z-index: 1; background: #0f0f1a;">
+                                                <tr>
+                                                    <th style="width: 25px;">#</th>
+                                                    <th>SBU / Dept</th>
+                                                    <th class="text-end" style="min-width: 70px;">Current</th>
+                                                    <th class="text-end" style="min-width: 70px;">Prior</th>
+                                                    <th class="text-end" style="min-width: 75px; color: #d97706;">Change</th>
+                                                    <th class="text-end" style="min-width: 50px;">%</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="dc-drill-increasing-tbody"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Right: Top DECREASING -->
+                            <div class="col-md-6">
+                                <div class="chart-container" style="padding: 10px;">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <div class="chart-title mb-0"><i class="bi bi-arrow-down-circle me-1" style="color: #06b6d4;"></i>Top DECREASING <span class="badge bg-success ms-2" id="drill-decreasing-total">-0M</span></div>
+                                    </div>
+                                    <div class="table-responsive" style="max-height: calc(100vh - 450px); overflow-y: auto;">
+                                        <table class="table table-dark table-hover table-sm" style="font-size: 0.78rem;">
+                                            <thead style="position: sticky; top: 0; z-index: 1; background: #0f0f1a;">
+                                                <tr>
+                                                    <th style="width: 25px;">#</th>
+                                                    <th>SBU / Dept</th>
+                                                    <th class="text-end" style="min-width: 70px;">Current</th>
+                                                    <th class="text-end" style="min-width: 70px;">Prior</th>
+                                                    <th class="text-end" style="min-width: 75px; color: #06b6d4;">Change</th>
+                                                    <th class="text-end" style="min-width: 50px;">%</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="dc-drill-decreasing-tbody"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Bottom: Change Bar Chart (height adjusts based on items) -->
+                        <div class="row mt-2">
+                            <div class="col-12">
+                                <div class="chart-container" style="padding: 10px;">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <div class="chart-title mb-0"><i class="bi bi-bar-chart me-1"></i>Change by <span id="drill-chart-view-label">SBU</span> — <span id="drill-chart-channel-label" style="color: var(--walmart-yellow);">DC On-Hand</span> <span id="drill-chart-compare-label" class="text-muted">(WoW)</span></div>
+                                        <div class="text-muted" style="font-size: 0.7rem;"><span style="color:#d97706;">■</span> Increase &nbsp;&nbsp;<span style="color:#06b6d4;">■</span> Decrease</div>
+                                    </div>
+                                    <div id="dcDrillChangeChartContainer" style="height: 250px;">
+                                        <canvas id="dcDrillChangeChart"></canvas>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -320,7 +564,9 @@
         dc_labeled:   '#e91e8c',
         dc_unlabeled: '#8e44ad',
         sto_to_dc:    '#17a589',
-        total:        '#ffc220'
+        on_yard:      '#f59e0b',
+        total:        '#ffc220',
+        fc_oh:        '#6d28d9',
     };
 
     const SBU_COLORS = {
@@ -376,12 +622,12 @@
         sto_to_support: 'Support', sto_to_other: 'Other'
     };
 
-    const CHANNEL_KEYS = ['store_oh','backroom','on_floor','dc_reserved','in_transit','dc_oh','dc_labeled','dc_unlabeled','sto_to_dc','total_network'];
+    const CHANNEL_KEYS = ['store_oh','backroom','on_floor','dc_reserved','in_transit','dc_oh','dc_labeled','dc_unlabeled','sto_to_dc','on_yard','total_network'];
     const CHANNEL_LABELS = {
         store_oh: 'Store OH', backroom: 'Backroom', on_floor: 'On Floor',
         dc_reserved: 'DC Reserved', in_transit: 'In-Transit',
         dc_oh: 'DC OH', dc_labeled: 'DC Labeled', dc_unlabeled: 'DC Unlabeled',
-        sto_to_dc: 'STO to DC', total_network: 'Total Network'
+        sto_to_dc: 'STO to DC', on_yard: 'On Yard', total_network: 'Total Network'
     };
 
     // ============================================================
@@ -408,6 +654,9 @@
             populateFilters();
             applyFilters();
 
+            // Pre-load DC Drilldown data so it's ready when tab is clicked
+            loadDCDrilldownData();
+
             const badge = source === 'api' ? '🟢 Live' : '📁 Static';
             document.getElementById('data-status').innerHTML = '<i class="bi bi-check-circle me-1"></i>' + RAW_DATA.date_range.weeks + ' weeks loaded (' + badge + ')';
             document.getElementById('date-range').textContent = RAW_DATA.date_range.min + ' → ' + RAW_DATA.date_range.max;
@@ -423,7 +672,7 @@
         }
     }
 
-    const HIDDEN_SBUS = ['OTHER'];
+    const HIDDEN_SBUS = ['OTHER', 'UNASSIGNED'];
 
     function populateFilters() {
         const sbuSelect = document.getElementById('sbu-filter');
@@ -434,6 +683,89 @@
             sbuSelect.appendChild(opt);
         });
 
+        // Populate department filter (all departments initially)
+        populateSidebarDeptFilter();
+    }
+
+    // Populate sidebar department filter based on selected SBUs
+    function populateSidebarDeptFilter() {
+        const deptSelect = document.getElementById('dept-filter');
+        const selectedSBUs = getSelectedSBUs();
+
+        // Remember currently selected departments
+        const previouslySelected = [...deptSelect.selectedOptions].map(o => o.value);
+
+        deptSelect.innerHTML = '';
+        if (RAW_DATA.by_dept) {
+            let deptData = RAW_DATA.by_dept.filter(r => !HIDDEN_SBUS.includes(r.SBU));
+
+            // Filter by selected SBUs if any are selected
+            if (selectedSBUs.length > 0) {
+                deptData = deptData.filter(r => selectedSBUs.includes(r.SBU));
+            }
+
+            const depts = [...new Set(deptData.map(r => r.department))].filter(d => d).sort();
+            depts.forEach(d => {
+                const opt = document.createElement('option');
+                opt.value = d;
+                opt.textContent = d;
+                // Restore selection if it's still valid
+                if (previouslySelected.includes(d)) opt.selected = true;
+                deptSelect.appendChild(opt);
+            });
+        }
+    }
+
+    // Handle SBU filter change in sidebar
+    function onSidebarSBUChange() {
+        // Update department dropdown to show only depts for selected SBUs
+        populateSidebarDeptFilter();
+        // Clear category filter
+        document.getElementById('catg-filter').innerHTML = '<option value="">Select Dept first</option>';
+        // Apply filters
+        applyFilters();
+    }
+
+    function getSelectedDepts() {
+        const sel = document.getElementById('dept-filter');
+        return [...sel.selectedOptions].map(o => o.value).filter(v => v);
+    }
+
+    function getSelectedCatgs() {
+        const sel = document.getElementById('catg-filter');
+        return [...sel.selectedOptions].map(o => o.value).filter(v => v);
+    }
+
+    function onDeptChange() {
+        const selectedDepts = getSelectedDepts();
+        const catgSelect = document.getElementById('catg-filter');
+
+        if (selectedDepts.length === 0) {
+            catgSelect.innerHTML = '<option value="">Select Dept first</option>';
+        } else {
+            // Populate categories for selected departments
+            catgSelect.innerHTML = '';
+            if (RAW_DATA.by_catg && RAW_DATA.by_catg.length > 0) {
+                const categories = [...new Set(
+                    RAW_DATA.by_catg
+                        .filter(r => selectedDepts.includes(r.department))
+                        .map(r => r.category)
+                )].filter(c => c).sort();
+
+                if (categories.length > 0) {
+                    categories.forEach(c => {
+                        const opt = document.createElement('option');
+                        opt.value = c; opt.textContent = c;
+                        catgSelect.appendChild(opt);
+                    });
+                } else {
+                    catgSelect.innerHTML = '<option value="">No categories available</option>';
+                }
+            } else {
+                catgSelect.innerHTML = '<option value="">Category data not loaded</option>';
+            }
+        }
+        applyFilters();
     }
 
     // ============================================================
@@ -447,9 +779,22 @@
     function applyFilters() {
         if (!RAW_DATA) return;
         const selectedSBUs = getSelectedSBUs();
+        const selectedDepts = getSelectedDepts();
+        const selectedCatgs = getSelectedCatgs();
         const rangeFilter = document.getElementById('range-filter').value;
 
-        let source = RAW_DATA.by_sbu;
+        // Choose data source based on filter granularity
+        let source;
+        if (selectedCatgs.length > 0 && RAW_DATA.by_catg) {
+            // Category level - most granular
+            source = RAW_DATA.by_catg.filter(r => selectedCatgs.includes(r.category));
+        } else if (selectedDepts.length > 0 && RAW_DATA.by_dept) {
+            // Department level
+            source = RAW_DATA.by_dept.filter(r => selectedDepts.includes(r.department));
+        } else {
+            // SBU level (default)
+            source = RAW_DATA.by_sbu;
+        }
 
         // Exclude hidden SBUs globally
         source = source.filter(r => !HIDDEN_SBUS.includes(r.SBU));
@@ -469,7 +814,8 @@
                     WM_YR_WK_NBR: r.WM_YR_WK_NBR,
                     store_oh: 0, backroom: 0, on_floor: 0, dc_reserved: 0,
                     in_transit: 0, dc_oh: 0, dc_labeled: 0, dc_unlabeled: 0,
-                    sto_to_dc: 0, total_network: 0,
+                    sto_to_dc: 0, on_yard: 0, total_network: 0,
+                    fc_oh: 0,
                     dc_oh_regional: 0, dc_oh_grocery: 0, dc_oh_fashion: 0,
                     dc_oh_imports: 0, dc_oh_gidc: 0, dc_oh_msc: 0,
                     dc_oh_support: 0, dc_oh_other: 0,
@@ -488,7 +834,9 @@
             w.dc_labeled += r.dc_labeled || 0;
             w.dc_unlabeled += r.dc_unlabeled || 0;
             w.sto_to_dc += r.sto_to_dc || 0;
+            w.on_yard += r.on_yard || 0;
             w.total_network += r.total_network || 0;
+            w.fc_oh += r.fc_oh || 0;
             // DC type breakdowns
             DC_OH_KEYS.forEach(k => { w[k] += r[k] || 0; });
             STO_DC_KEYS.forEach(k => { w[k] += r[k] || 0; });
@@ -542,11 +890,62 @@
         updateDCTypeCharts(weeks);
         updateSTOCharts(weeks, sbuWeeks);
         updateTable(tableSource);
+
+        // Sync sidebar filters to DC Drilldown
+        syncFiltersTodrilldown(selectedSBUs, selectedDepts);
+    }
+
+    // Sync sidebar filters to DC Drilldown tab
+    function syncFiltersTodrilldown(selectedSBUs, selectedDepts) {
+        const drillSbuFilter = document.getElementById('dc-drill-sbu-filter');
+        const drillDeptFilter = document.getElementById('dc-drill-dept-filter');
+        const drillViewFilter = document.getElementById('dc-drill-view-filter');
+
+        if (!drillSbuFilter) return;
+
+        // Sync SBU filter - only if single SBU selected
+        if (selectedSBUs.length === 1) {
+            drillSbuFilter.value = selectedSBUs[0];
+            populateDeptFilter();
+            // Auto-switch to dept view when SBU selected
+            if (drillViewFilter.value === 'sbu') {
+                drillViewFilter.value = 'dept';
+            }
+        } else if (selectedSBUs.length === 0) {
+            drillSbuFilter.value = '';
+            drillViewFilter.value = 'sbu';
+        }
+
+        // Sync Dept filter - only if single dept selected
+        if (selectedDepts.length === 1 && drillDeptFilter) {
+            populateDeptFilter();
+            drillDeptFilter.value = selectedDepts[0];
+            // Auto-switch to category view when dept selected
+            drillViewFilter.value = 'catg';
+        } else if (selectedDepts.length === 0 && drillDeptFilter) {
+            drillDeptFilter.value = '';
+        }
+
+        updateBreadcrumb();
+        renderDCDrilldown();
     }
 
     function resetFilters() {
         document.getElementById('sbu-filter').selectedIndex = -1;
+        document.getElementById('dept-filter').selectedIndex = -1;
+        document.getElementById('catg-filter').innerHTML = '<option value="">Select Dept first</option>';
         document.getElementById('range-filter').value = 'all';
+        // Repopulate department filter with all depts (since no SBU selected)
+        populateSidebarDeptFilter();
+        // Also reset DC Drilldown filters
+        const drillSbu = document.getElementById('dc-drill-sbu-filter');
+        const drillDept = document.getElementById('dc-drill-dept-filter');
+        const drillView = document.getElementById('dc-drill-view-filter');
+        const drillDCType = document.getElementById('dc-drill-dctype-filter');
+        if (drillSbu) drillSbu.value = '';
+        if (drillDept) drillDept.value = '';
+        if (drillView) drillView.value = 'sbu';
+        if (drillDCType) Array.from(drillDCType.options).forEach(opt => opt.selected = true);
         applyFilters();
     }
 
@@ -554,13 +953,14 @@
     // KPIs (latest week + WoW change + YoY comparison)
     // ============================================================
     function findYoYWeek(weeks, latest) {
-        // Find the same WM_WEEK from the prior year
-        if (!latest) return null;
+        // Find the same WM_WEEK from the prior year within the filtered data
+        // This ensures YoY comparison respects applied filters (SBU, Dept, Category)
+        if (!latest || !weeks || weeks.length === 0) return null;
         const targetYear = latest.WM_YEAR - 1;
         const targetWeek = latest.WM_WEEK;
-        // Search all raw enterprise data for the matching week last year
-        if (!RAW_DATA) return null;
-        const match = RAW_DATA.enterprise.find(r => r.WM_YEAR === targetYear && r.WM_WEEK === targetWeek);
+        // Search within the filtered weeks array (not RAW_DATA.enterprise)
+        // so YoY compares filtered data vs same filter last year
+        const match = weeks.find(r => r.WM_YEAR === targetYear && r.WM_WEEK === targetWeek);
         return match || null;
     }
 
@@ -584,8 +984,16 @@
                lyWeek?.in_transit, 'kpi-transit-yoy');
         setKPI('kpi-reserved', latest.dc_reserved, prev?.dc_reserved, 'kpi-reserved-wow',
                lyWeek?.dc_reserved, 'kpi-reserved-yoy');
+        setKPI('kpi-labeled', latest.dc_labeled || 0, prev ? (prev.dc_labeled || 0) : null, 'kpi-labeled-wow',
+               lyWeek ? (lyWeek.dc_labeled || 0) : null, 'kpi-labeled-yoy');
+        setKPI('kpi-unlabeled', latest.dc_unlabeled || 0, prev ? (prev.dc_unlabeled || 0) : null, 'kpi-unlabeled-wow',
+               lyWeek ? (lyWeek.dc_unlabeled || 0) : null, 'kpi-unlabeled-yoy');
         setKPI('kpi-sto', latest.sto_to_dc, prev?.sto_to_dc, 'kpi-sto-wow',
                lyWeek?.sto_to_dc, 'kpi-sto-yoy');
+        setKPI('kpi-fc', latest.fc_oh || 0, prev ? (prev.fc_oh || 0) : null, 'kpi-fc-wow',
+               lyWeek ? (lyWeek.fc_oh || 0) : null, 'kpi-fc-yoy');
+        setKPI('kpi-onyard', latest.on_yard || 0, prev ? (prev.on_yard || 0) : null, 'kpi-onyard-wow',
+               lyWeek ? (lyWeek.on_yard || 0) : null, 'kpi-onyard-yoy');
     }
 
     function setKPI(id, value, prevValue, wowId, lyValue, yoyId) {
@@ -611,12 +1019,12 @@
     }
 
     // ============================================================
-    // Chart: Total Network Trend — YoY (Excl. Backroom)
-    // Adjusted Total = total_network - backroom
-    //   = On Floor + DC Reserved + In-Transit + DC OH + Labeled + Unlabeled + STO
+    // Chart: Total Network Trend — YoY
+    // Total = Store OH + DC Reserved + Labeled + DC OH + Unlabeled + STO + On Yard + In-Transit
+    // Note: Store OH includes Backroom (Store OH = On Floor + Backroom)
     // ============================================================
     function adjTotal(w) {
-        return (w.total_network || 0) - (w.backroom || 0);
+        return w.total_network || 0;
     }
 
     function updateTrendChart(weeks) {
@@ -658,8 +1066,9 @@
                 backgroundColor: style.bg,
                 fill: false,
                 tension: 0.3,
-                pointRadius: 4,
-                pointHoverRadius: 6,
+                pointRadius: 3,
+                pointStyle: 'circle',
+                pointHoverRadius: 5,
                 borderWidth: yr === years[years.length - 1] ? 3 : 2, // current year thicker
                 spanGaps: true
             };
@@ -757,6 +1166,7 @@
                 fill: false,
                 tension: 0.3,
                 pointRadius: 3,
+                pointStyle: 'circle',
                 pointHoverRadius: 5,
                 borderWidth: yr === years[years.length - 1] ? 2.5 : 1.5,
                 spanGaps: true
@@ -828,6 +1238,7 @@
                     tension: 0.3,
                     pointRadius: 0,
                     pointHoverRadius: 4,
+                    pointStyle: 'circle',
                     spanGaps: true
                 });
             });
@@ -847,9 +1258,9 @@
                         font: { size: 11, weight: '500' },
                         padding: 10,
                         usePointStyle: true,
-                        pointStyleWidth: 12,
-                        boxWidth: 12,
-                        boxHeight: 12
+                        pointStyle: 'circle',
+                        boxWidth: 8,
+                        boxHeight: 8
                     }
                 },
                 tooltip: {
@@ -904,6 +1315,7 @@
                 tension: 0.3,
                 borderWidth: 2,
                 pointRadius: 2,
+                pointStyle: 'circle',
                 pointHoverRadius: 5,
                 spanGaps: true
             }));
@@ -989,6 +1401,7 @@
                     fill: false,
                     tension: 0.3,
                     pointRadius: 2,
+                    pointStyle: 'circle',
                     pointHoverRadius: 4,
                     borderWidth: yr === years[years.length - 1] ? 2.5 : 1.5,
                     spanGaps: true
@@ -1055,6 +1468,7 @@
                 fill: false,
                 tension: 0.3,
                 pointRadius: 2,
+                pointStyle: 'circle',
                 pointHoverRadius: 5
             }))
         };
@@ -1136,6 +1550,7 @@
                     fill: false,
                     tension: 0.3,
                     pointRadius: 2,
+                    pointStyle: 'circle',
                     pointHoverRadius: 4,
                     borderWidth: yr === years[years.length - 1] ? 2.5 : 1.5,
                     spanGaps: true
@@ -1240,6 +1655,7 @@
                     fill: false,
                     tension: 0.3,
                     pointRadius: 2,
+                    pointStyle: 'circle',
                     pointHoverRadius: 4,
                     borderWidth: yr === years[years.length - 1] ? 2.5 : 1.5,
                     spanGaps: true
@@ -1336,6 +1752,7 @@
                     fill: false,
                     tension: 0.3,
                     pointRadius: 2,
+                    pointStyle: 'circle',
                     pointHoverRadius: 4,
                     borderWidth: yr === years[years.length - 1] ? 2.5 : 1.5,
                     spanGaps: true
@@ -1385,7 +1802,7 @@
                 // Enterprise total row for this date
                 const weekTotal = sorted.filter(x => x.BUS_DT === r.BUS_DT);
                 const totals = {};
-                ['store_oh','backroom','on_floor','dc_reserved','in_transit','dc_oh','dc_labeled','dc_unlabeled','sto_to_dc','total_network',
+                ['store_oh','backroom','on_floor','dc_reserved','in_transit','dc_oh','dc_labeled','dc_unlabeled','sto_to_dc','on_yard','total_network','fc_oh',
                  ...DC_OH_KEYS].forEach(k => {
                     totals[k] = weekTotal.reduce((s, x) => s + (x[k] || 0), 0);
                 });
@@ -1400,8 +1817,10 @@
                     <td class="text-end">${fmtM(totals.dc_labeled)}</td>
                     <td class="text-end">${fmtM(totals.dc_unlabeled)}</td>
                     <td class="text-end">${fmtM(totals.sto_to_dc)}</td>
+                    <td class="text-end" style="color:#dc2626;">${fmtM(totals.on_yard)}</td>
                     <td class="text-end" style="color: var(--walmart-yellow); font-weight:700;">${fmtM(totals.total_network)}</td>
                     ${DC_OH_KEYS.map(k => `<td class="text-end">${fmtM(totals[k])}</td>`).join('')}
+                    <td class="text-end" style="color:#6d28d9;font-weight:600;">${fmtM(totals.fc_oh)}</td>
                 </tr>`;
                 lastDate = r.BUS_DT;
             }
@@ -1416,11 +1835,20 @@
                 <td class="text-end">${fmtM(r.dc_labeled)}</td>
                 <td class="text-end">${fmtM(r.dc_unlabeled)}</td>
                 <td class="text-end">${fmtM(r.sto_to_dc)}</td>
+                <td class="text-end" style="color:#dc2626;">${fmtM(r.on_yard)}</td>
                 <td class="text-end" style="color: var(--walmart-yellow);">${fmtM(r.total_network)}</td>
                 ${DC_OH_KEYS.map(k => `<td class="text-end">${fmtM(r[k])}</td>`).join('')}
+                <td class="text-end" style="color:#6d28d9;">${fmtM(r.fc_oh)}</td>
             </tr>`;
         });
         tbody.innerHTML = html;
+
+        // Update row count display
+        const uniqueWeeks = new Set(rows.map(r => r.BUS_DT)).size;
+        const rowCountLabel = document.getElementById('row-count-label');
+        if (rowCountLabel) {
+            rowCountLabel.textContent = `${sorted.length} rows (${uniqueWeeks} weeks)`;
+        }
     }
 
     // ============================================================
@@ -1439,10 +1867,12 @@
             source = source.filter(r => cutDates.includes(r.BUS_DT));
         }
 
-        const headers = ['BUS_DT','WM_YEAR','WM_WEEK','WM_YR_WK_NBR','SBU','Store OH','Backroom','On Floor','DC Reserved','In-Transit','DC OH','DC Labeled','DC Unlabeled','STO to DC','Total Network',
+        const headers = ['BUS_DT','WM_YEAR','WM_WEEK','WM_YR_WK_NBR','SBU','Store OH','Backroom','On Floor','DC Reserved','In-Transit','DC OH','DC Labeled','DC Unlabeled','STO to DC','On Yard','Total Network',
+                        'FC OH',
                         'DC OH Regional','DC OH Grocery','DC OH Fashion','DC OH Imports','DC OH GIDC','DC OH MSC','DC OH Support','DC OH Other',
                         'STO to Regional','STO to Grocery','STO to Fashion','STO to Imports','STO to GIDC','STO to MSC','STO to Support','STO to Other'];
-        const keys = ['BUS_DT','WM_YEAR','WM_WEEK','WM_YR_WK_NBR','SBU','store_oh','backroom','on_floor','dc_reserved','in_transit','dc_oh','dc_labeled','dc_unlabeled','sto_to_dc','total_network',
+        const keys = ['BUS_DT','WM_YEAR','WM_WEEK','WM_YR_WK_NBR','SBU','store_oh','backroom','on_floor','dc_reserved','in_transit','dc_oh','dc_labeled','dc_unlabeled','sto_to_dc','on_yard','total_network',
+                      'fc_oh',
                       ...DC_OH_KEYS, ...STO_DC_KEYS];
         const sorted = [...source].sort((a,b) => a.BUS_DT.localeCompare(b.BUS_DT) || a.SBU.localeCompare(b.SBU));
 
@@ -1459,6 +1889,235 @@
     }
 
     // ============================================================
+    // Table filter (dept/SBU search within Data Table tab)
+    // ============================================================
+    function filterTable() {
+        const q = (document.getElementById('dept-search').value || '').toLowerCase().trim();
+        const tbody = document.getElementById('data-table-body');
+        if (!tbody) return;
+        const rows = tbody.querySelectorAll('tr');
+        rows.forEach(row => {
+            if (!q) { row.style.display = ''; return; }
+            const text = row.innerText.toLowerCase();
+            row.style.display = text.includes(q) ? '' : 'none';
+        });
+    }
+
+    // ============================================================
+    // DC Lookup — search by DC number across enterprise data
+    // ============================================================
+    function dcLookup() {
+        const dcNum = (document.getElementById('dc-number-input').value || '').trim();
+        const resultEl = document.getElementById('dc-lookup-result');
+        if (!dcNum) {
+            resultEl.innerHTML = '<p class="text-muted" style="font-size:0.85rem;">Enter a DC number above and click Look Up.</p>';
+            return;
+        }
+        if (!RAW_DATA) {
+            resultEl.innerHTML = '<p class="text-muted" style="font-size:0.85rem;">Data not loaded yet. Please wait.</p>';
+            return;
+        }
+
+        // Try the /api/dc-lookup endpoint first
+        const apiUrl = window.location.pathname.replace(/\/dashboard\/.*$/, '') + '/api/dc-lookup?dc_nbr=' + encodeURIComponent(dcNum);
+        resultEl.innerHTML = '<p class="text-muted" style="font-size:0.85rem;"><span class="spinner-border spinner-border-sm me-2"></span>Searching...</p>';
+
+        fetch(apiUrl)
+            .then(r => { if (!r.ok) throw new Error('API ' + r.status); return r.json(); })
+            .then(data => renderDcResult(data, dcNum, resultEl))
+            .catch(() => {
+                // Fallback: scan by_dept for dept_nbr match
+                if (RAW_DATA.by_dept) {
+                    const matches = RAW_DATA.by_dept.filter(r =>
+                        String(r.dept_nbr) === String(dcNum) ||
+                        (r.department || '').toLowerCase().includes(dcNum.toLowerCase())
+                    );
+                    if (matches.length === 0) {
+                        resultEl.innerHTML = `<div class="dc-lookup-result"><p class="text-muted mb-0">No data found for DC/Dept <strong>${dcNum}</strong>. Note: DC-level lookup requires the <code>/api/dc-lookup</code> endpoint or <code>R0C0JUG_WMUS_HIST_DC_OH</code> table.</p></div>`;
+                        return;
+                    }
+                    // Aggregate matches by BUS_DT
+                    const grouped = {};
+                    matches.forEach(r => {
+                        if (!grouped[r.BUS_DT]) grouped[r.BUS_DT] = {
+                            BUS_DT: r.BUS_DT, WM_WEEK: r.WM_WEEK, WM_YEAR: r.WM_YEAR,
+                            department: r.department || dcNum, SBU: r.SBU,
+                            store_oh: 0, dc_oh: 0, total_network: 0, fc_oh: 0
+                        };
+                        grouped[r.BUS_DT].store_oh += r.store_oh || 0;
+                        grouped[r.BUS_DT].dc_oh += r.dc_oh || 0;
+                        grouped[r.BUS_DT].total_network += r.total_network || 0;
+                        grouped[r.BUS_DT].fc_oh += r.fc_oh || 0;
+                    });
+                    const rows = Object.values(grouped).sort((a,b) => b.BUS_DT.localeCompare(a.BUS_DT));
+                    renderDcResult({ rows, source: 'by_dept', label: matches[0].department || dcNum }, dcNum, resultEl);
+                } else {
+                    resultEl.innerHTML = `<div class="dc-lookup-result"><p class="text-muted mb-0">DC-level lookup requires the <code>/api/dc-lookup</code> endpoint. Start the FastAPI server to use this feature.</p></div>`;
+                }
+            });
+    }
+
+    function renderDcResult(data, dcNum, resultEl) {
+        const rows = data.rows || [];
+        if (rows.length === 0) {
+            resultEl.innerHTML = `<div class="dc-lookup-result"><p class="text-muted mb-0">No data found for <strong>${dcNum}</strong>.</p></div>`;
+            return;
+        }
+        const label = data.label || data.dc_desc || ('DC ' + dcNum);
+        const latest = rows[0];
+        let html = `<div class="dc-lookup-result">
+            <div class="d-flex align-items-center mb-2">
+                <span class="dc-result-badge" style="background:#1e3a5f;color:#6cb2eb;">DC ${dcNum}</span>
+                <strong>${label}</strong>
+                ${latest.SBU ? `<span class="dc-result-badge ms-2" style="background:#1e4620;color:#4ade80;">${latest.SBU}</span>` : ''}
+            </div>
+            <div class="table-responsive" style="max-height:350px;overflow-y:auto;">
+            <table class="table table-dark table-striped table-sm">
+                <thead style="position:sticky;top:0;background:#0f0f1a;">
+                    <tr>
+                        <th>Week</th><th>Date</th>
+                        <th class="text-end">Store OH</th>
+                        <th class="text-end">DC OH</th>
+                        <th class="text-end">In-Transit</th>
+                        <th class="text-end">FC OH</th>
+                        <th class="text-end" style="color:var(--walmart-yellow);">Total Network</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+        rows.forEach(r => {
+            html += `<tr>
+                <td>WK${r.WM_WEEK}</td><td>${r.BUS_DT}</td>
+                <td class="text-end">${fmtM(r.store_oh)}</td>
+                <td class="text-end">${fmtM(r.dc_oh)}</td>
+                <td class="text-end">${fmtM(r.in_transit)}</td>
+                <td class="text-end" style="color:#6d28d9;">${fmtM(r.fc_oh)}</td>
+                <td class="text-end" style="color:var(--walmart-yellow);">${fmtM(r.total_network)}</td>
+            </tr>`;
+        });
+        html += `</tbody></table></div></div>`;
+        resultEl.innerHTML = html;
+    }
+
+    function clearDcLookup() {
+        document.getElementById('dc-number-input').value = '';
+        document.getElementById('dc-lookup-result').innerHTML = '';
+    }
+
+    // ============================================================
+    // Category / Dept search
+    // Prefers by_catg (category grain); falls back to by_dept.
+    // Searches both category name/number AND dept name/number.
+    // ============================================================
+    function catSearch() {
+        const q = (document.getElementById('cat-search-input').value || '').trim().toLowerCase();
+        const resultEl = document.getElementById('cat-search-result');
+        if (!q) { resultEl.innerHTML = '<p class="text-muted" style="font-size:0.85rem;">Enter a category or department name / number.</p>'; return; }
+        if (!RAW_DATA) {
+            resultEl.innerHTML = '<p class="text-muted" style="font-size:0.85rem;">Data not loaded yet — please wait.</p>';
+            return;
+        }
+
+        // ── Try category grain first ──
+        const useCatg = !!(RAW_DATA.by_catg && RAW_DATA.by_catg.length > 0);
+        let source, matches, keyField, nameField, labelField;
+
+        if (useCatg) {
+            source = RAW_DATA.by_catg;
+            keyField = 'catg_nbr';
+            nameField = 'category';
+            labelField = 'Category';
+            matches = source.filter(r =>
+                (r.category || '').toLowerCase().includes(q) ||
+                String(r.catg_nbr || '').includes(q)
+            );
+            // If no category match, also try dept fallback in by_catg (doesn't have dept fields,
+            // so fall through to by_dept if still empty)
+        }
+
+        // ── Fall back to dept grain ──
+        if (!useCatg || matches.length === 0) {
+            if (!RAW_DATA.by_dept) {
+                resultEl.innerHTML = '<p class="text-muted" style="font-size:0.85rem;">Data not available — <code>by_dept</code> not loaded.</p>';
+                return;
+            }
+            source = RAW_DATA.by_dept;
+            keyField = 'dept_nbr';
+            nameField = 'department';
+            labelField = 'Department';
+            matches = source.filter(r =>
+                (r.department || '').toLowerCase().includes(q) ||
+                String(r.dept_nbr || '').includes(q)
+            );
+        }
+
+        if (matches.length === 0) {
+            resultEl.innerHTML = `<div class="dc-lookup-result"><p class="text-muted mb-0">No results for "<strong>${q}</strong>".</p></div>`;
+            return;
+        }
+
+        // Aggregate by key×name×SBU across latest 13 weeks
+        const allDates = [...new Set(matches.map(r => r.BUS_DT))].sort().slice(-13);
+        const rowMap = {};
+        matches.filter(r => allDates.includes(r.BUS_DT)).forEach(r => {
+            const k = String(r[keyField] || '') + '|' + (r[nameField] || '') + '|' + (r.SBU || '');
+            if (!rowMap[k]) rowMap[k] = {
+                id: r[keyField], name: r[nameField], SBU: r.SBU,
+                store_oh: 0, dc_oh: 0, in_transit: 0, fc_oh: 0, total_network: 0, weeks: 0
+            };
+            rowMap[k].store_oh    += r.store_oh    || 0;
+            rowMap[k].dc_oh       += r.dc_oh       || 0;
+            rowMap[k].in_transit  += r.in_transit  || 0;
+            rowMap[k].fc_oh       += r.fc_oh       || 0;
+            rowMap[k].total_network += r.total_network || 0;
+            rowMap[k].weeks++;
+        });
+
+        const resultRows = Object.values(rowMap).sort((a,b) => b.total_network - a.total_network);
+        const srcTag = useCatg && matches[0][keyField] === matches[0].catg_nbr
+            ? `<span class="badge bg-success ms-1" style="font-size:0.7rem;">category</span>`
+            : `<span class="badge bg-secondary ms-1" style="font-size:0.7rem;">dept</span>`;
+
+        let html = `<div class="dc-lookup-result">
+            <div class="text-muted mb-2" style="font-size:0.8rem;">
+                ${resultRows.length} ${labelField.toLowerCase()}(s) matched ${srcTag} — totals across last ${allDates.length} weeks
+            </div>
+            <div class="table-responsive" style="max-height:400px;overflow-y:auto;">
+            <table class="table table-dark table-striped table-sm">
+                <thead style="position:sticky;top:0;background:#0f0f1a;">
+                    <tr>
+                        <th>${labelField} #</th>
+                        <th>${labelField}</th>
+                        <th>SBU</th>
+                        <th class="text-end">Store OH</th>
+                        <th class="text-end">DC OH</th>
+                        <th class="text-end">In Transit</th>
+                        <th class="text-end" style="color:#6d28d9;">FC OH</th>
+                        <th class="text-end" style="color:var(--walmart-yellow);">Total Network</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+        resultRows.forEach(r => {
+            html += `<tr>
+                <td>${r.id || '-'}</td>
+                <td>${r.name || '-'}</td>
+                <td><span style="font-size:0.75rem;color:#6cb2eb;">${r.SBU || '-'}</span></td>
+                <td class="text-end">${fmtM(r.store_oh)}</td>
+                <td class="text-end">${fmtM(r.dc_oh)}</td>
+                <td class="text-end">${fmtM(r.in_transit)}</td>
+                <td class="text-end" style="color:#6d28d9;">${fmtM(r.fc_oh)}</td>
+                <td class="text-end" style="color:var(--walmart-yellow);">${fmtM(r.total_network)}</td>
+            </tr>`;
+        });
+        html += `</tbody></table></div></div>`;
+        resultEl.innerHTML = html;
+    }
+
+    function clearCatSearch() {
+        document.getElementById('cat-search-input').value = '';
+        document.getElementById('cat-search-result').innerHTML = '';
+    }
+
+    // ============================================================
     // Chart helper
     // ============================================================
     function renderChart(canvasId, type, data, options) {
@@ -1472,9 +2131,9 @@
                 font: { size: 12, weight: '500' },
                 padding: 14,
                 usePointStyle: true,
-                pointStyleWidth: 14,
-                boxWidth: 14,
-                boxHeight: 14
+                pointStyle: 'circle',
+                boxWidth: 6,
+                boxHeight: 6
             }
         };
         if (!options.plugins) options.plugins = {};
@@ -1484,6 +2143,13 @@
             options.plugins.legend.labels = Object.assign({}, legendDefaults.labels, options.plugins.legend.labels);
         }
 
+        // Ensure all line datasets have round point style
+        if (type === 'line' && data.datasets) {
+            data.datasets.forEach(ds => {
+                if (!ds.pointStyle) ds.pointStyle = 'circle';
+            });
+        }
+
         CHARTS[canvasId] = new Chart(ctx, {
             type,
             data,
@@ -1491,6 +2157,15 @@
                 responsive: true,
                 maintainAspectRatio: true,
                 interaction: { mode: 'index', intersect: false },
+                elements: {
+                    point: {
+                        pointStyle: 'circle',
+                        radius: 4,
+                        hoverRadius: 6,
+                        borderWidth: 2
+                    }
+                },
+                aspectRatio: 2.5,
                 ...options
             },
             plugins: [ChartDataLabels]
@@ -1515,6 +2190,620 @@
         if (Math.abs(n) >= 1e3) return (n / 1e3).toFixed(0) + 'K';
         return n.toLocaleString();
     }
+
+    // ============================================================
+    // DC Drilldown Tab - Change Analysis
+    // ============================================================
+    let DC_DRILL_DATA = {
+        latestWeek: null,
+        sbu: { current: {}, priorWoW: {}, priorYoY: {} },
+        dept: { current: {}, priorWoW: {}, priorYoY: {} },
+        catg: { current: {}, priorWoW: {}, priorYoY: {} },
+        dctype: { current: {}, priorWoW: {}, priorYoY: {} }
+    };
+
+    // Channel names mapping
+    const CHANNEL_NAMES = {
+        dc_oh: 'DC On-Hand',
+        dc_labeled: 'DC Labeled',
+        dc_unlabeled: 'DC Unlabeled',
+        sto_to_dc: 'STO to DC',
+        on_yard: 'On Yard'
+    };
+
+    // Load DC drilldown data with WoW/YoY comparison for all levels
+    // Note: HIDDEN_SBUS is already defined earlier as ['OTHER']
+    async function loadDCDrilldownData() {
+        if (!RAW_DATA || !RAW_DATA.by_sbu) {
+            console.log('DC Drilldown: No by_sbu data available');
+            return;
+        }
+
+        // Get unique weeks and sort to find latest
+        const weekMap = {};
+        RAW_DATA.by_sbu.forEach(r => {
+            const key = r.WM_YEAR * 100 + r.WM_WEEK;
+            if (!weekMap[key]) weekMap[key] = { WM_YEAR: r.WM_YEAR, WM_WEEK: r.WM_WEEK, BUS_DT: r.BUS_DT };
+        });
+        const sortedWeeks = Object.values(weekMap).sort((a, b) => (b.WM_YEAR * 100 + b.WM_WEEK) - (a.WM_YEAR * 100 + a.WM_WEEK));
+
+        const latestWeek = sortedWeeks[0];
+        DC_DRILL_DATA.latestWeek = latestWeek;
+
+        // Find prior week (WoW) - handle year boundary
+        let priorWoWWeek = latestWeek.WM_WEEK - 1;
+        let priorWoWYear = latestWeek.WM_YEAR;
+        if (priorWoWWeek < 1) {
+            priorWoWWeek = 52;
+            priorWoWYear = latestWeek.WM_YEAR - 1;
+        }
+        const priorYoYYear = latestWeek.WM_YEAR - 1;
+        const priorYoYWeek = latestWeek.WM_WEEK;
+
+        // Aggregate helper function - stores DC type breakdown for filtering
+        function aggregate(data, keyFn, year, week) {
+            const agg = {};
+            data.filter(r => r.WM_YEAR === year && r.WM_WEEK === week)
+                .filter(r => !HIDDEN_SBUS.includes(r.SBU))
+                .forEach(r => {
+                    const key = keyFn(r);
+                    if (!agg[key]) agg[key] = {
+                        key, SBU: r.SBU, dept: r.department, catg: r.category,
+                        dc_oh: 0, dc_labeled: 0, dc_unlabeled: 0, sto_to_dc: 0, on_yard: 0,
+                        // DC Type breakdown for filtering
+                        dc_oh_regional: 0, dc_oh_grocery: 0, dc_oh_fashion: 0, dc_oh_imports: 0,
+                        dc_labeled_regional: 0, dc_labeled_grocery: 0, dc_labeled_fashion: 0, dc_labeled_imports: 0,
+                        dc_unlabeled_regional: 0, dc_unlabeled_grocery: 0, dc_unlabeled_fashion: 0, dc_unlabeled_imports: 0,
+                        sto_to_dc_regional: 0, sto_to_dc_grocery: 0, sto_to_dc_fashion: 0, sto_to_dc_imports: 0,
+                        on_yard_regional: 0, on_yard_grocery: 0, on_yard_fashion: 0, on_yard_imports: 0
+                    };
+                    // Totals
+                    agg[key].dc_oh += r.dc_oh || 0;
+                    agg[key].dc_labeled += r.dc_labeled || 0;
+                    agg[key].dc_unlabeled += r.dc_unlabeled || 0;
+                    agg[key].sto_to_dc += r.sto_to_dc || 0;
+                    agg[key].on_yard += r.on_yard || 0;
+                    // DC Type breakdown
+                    agg[key].dc_oh_regional += r.dc_oh_regional || 0;
+                    agg[key].dc_oh_grocery += r.dc_oh_grocery || 0;
+                    agg[key].dc_oh_fashion += r.dc_oh_fashion || 0;
+                    agg[key].dc_oh_imports += r.dc_oh_imports || 0;
+                    agg[key].dc_labeled_regional += r.dc_labeled_regional || 0;
+                    agg[key].dc_labeled_grocery += r.dc_labeled_grocery || 0;
+                    agg[key].dc_labeled_fashion += r.dc_labeled_fashion || 0;
+                    agg[key].dc_labeled_imports += r.dc_labeled_imports || 0;
+                    agg[key].dc_unlabeled_regional += r.dc_unlabeled_regional || 0;
+                    agg[key].dc_unlabeled_grocery += r.dc_unlabeled_grocery || 0;
+                    agg[key].dc_unlabeled_fashion += r.dc_unlabeled_fashion || 0;
+                    agg[key].dc_unlabeled_imports += r.dc_unlabeled_imports || 0;
+                    agg[key].sto_to_dc_regional += r.sto_to_dc_regional || r.sto_grocery || 0;
+                    agg[key].sto_to_dc_grocery += r.sto_to_dc_grocery || r.sto_regional || 0;
+                    agg[key].sto_to_dc_fashion += r.sto_to_dc_fashion || r.sto_fashion || 0;
+                    agg[key].sto_to_dc_imports += r.sto_to_dc_imports || r.sto_imports || 0;
+                    agg[key].on_yard_regional += r.on_yard_regional || 0;
+                    agg[key].on_yard_grocery += r.on_yard_grocery || 0;
+                    agg[key].on_yard_fashion += r.on_yard_fashion || 0;
+                    agg[key].on_yard_imports += r.on_yard_imports || 0;
+                });
+            return agg;
+        }
+
+        // SBU level
+        DC_DRILL_DATA.sbu.current = aggregate(RAW_DATA.by_sbu, r => r.SBU, latestWeek.WM_YEAR, latestWeek.WM_WEEK);
+        DC_DRILL_DATA.sbu.priorWoW = aggregate(RAW_DATA.by_sbu, r => r.SBU, priorWoWYear, priorWoWWeek);
+        DC_DRILL_DATA.sbu.priorYoY = aggregate(RAW_DATA.by_sbu, r => r.SBU, priorYoYYear, priorYoYWeek);
+
+        // Dept level (from by_dept)
+        if (RAW_DATA.by_dept) {
+            DC_DRILL_DATA.dept.current = aggregate(RAW_DATA.by_dept, r => `${r.SBU}|${r.department}`, latestWeek.WM_YEAR, latestWeek.WM_WEEK);
+            DC_DRILL_DATA.dept.priorWoW = aggregate(RAW_DATA.by_dept, r => `${r.SBU}|${r.department}`, priorWoWYear, priorWoWWeek);
+            DC_DRILL_DATA.dept.priorYoY = aggregate(RAW_DATA.by_dept, r => `${r.SBU}|${r.department}`, priorYoYYear, priorYoYWeek);
+        }
+
+        // Category level (from by_catg)
+        if (RAW_DATA.by_catg && RAW_DATA.by_catg.length > 0) {
+            DC_DRILL_DATA.catg.current = aggregate(RAW_DATA.by_catg, r => `${r.SBU}|${r.department}|${r.category}`, latestWeek.WM_YEAR, latestWeek.WM_WEEK);
+            DC_DRILL_DATA.catg.priorWoW = aggregate(RAW_DATA.by_catg, r => `${r.SBU}|${r.department}|${r.category}`, priorWoWYear, priorWoWWeek);
+            DC_DRILL_DATA.catg.priorYoY = aggregate(RAW_DATA.by_catg, r => `${r.SBU}|${r.department}|${r.category}`, priorYoYYear, priorYoYWeek);
+        }
+
+        // DC Type level - aggregate by DC type (Regional, Grocery, Fashion, Imports)
+        function aggregateDCType(data, year, week) {
+            const types = { Regional: 0, Grocery: 0, Fashion: 0, Imports: 0 };
+            const typesPrior = { Regional: 0, Grocery: 0, Fashion: 0, Imports: 0 };
+            data.filter(r => r.WM_YEAR === year && r.WM_WEEK === week)
+                .filter(r => !HIDDEN_SBUS.includes(r.SBU))
+                .forEach(r => {
+                    types.Regional += r.dc_oh_regional || 0;
+                    types.Grocery += r.dc_oh_grocery || 0;
+                    types.Fashion += r.dc_oh_fashion || 0;
+                    types.Imports += r.dc_oh_imports || 0;
+                });
+            const result = {};
+            ['Regional', 'Grocery', 'Fashion', 'Imports'].forEach(t => {
+                result[t] = { key: t, name: t, dc_oh: types[t], dc_labeled: 0, dc_unlabeled: 0, sto_to_dc: 0, on_yard: 0 };
+            });
+            return result;
+        }
+        DC_DRILL_DATA.dctype.current = aggregateDCType(RAW_DATA.by_sbu, latestWeek.WM_YEAR, latestWeek.WM_WEEK);
+        DC_DRILL_DATA.dctype.priorWoW = aggregateDCType(RAW_DATA.by_sbu, priorWoWYear, priorWoWWeek);
+        DC_DRILL_DATA.dctype.priorYoY = aggregateDCType(RAW_DATA.by_sbu, priorYoYYear, priorYoYWeek);
+
+        console.log('DC Drilldown loaded:', {
+            sbu: Object.keys(DC_DRILL_DATA.sbu.current).length,
+            dept: Object.keys(DC_DRILL_DATA.dept.current).length,
+            catg: Object.keys(DC_DRILL_DATA.catg.current).length,
+            dctype: Object.keys(DC_DRILL_DATA.dctype.current).length,
+            week: `WK${latestWeek.WM_WEEK} FY${latestWeek.WM_YEAR}`
+        });
+
+        // Populate SBU filter
+        const sbuFilter = document.getElementById('dc-drill-sbu-filter');
+        if (sbuFilter) {
+            sbuFilter.innerHTML = '<option value="">All SBUs</option>';
+            Object.keys(DC_DRILL_DATA.sbu.current).sort().forEach(sbu => {
+                sbuFilter.innerHTML += `<option value="${sbu}">${sbu}</option>`;
+            });
+        }
+
+        // Populate Dept filter
+        populateDeptFilter();
+
+        renderDCDrilldown();
+    }
+
+    function populateDeptFilter() {
+        const deptFilter = document.getElementById('dc-drill-dept-filter');
+        const sbuFilter = document.getElementById('dc-drill-sbu-filter').value;
+        if (!deptFilter) return;
+
+        deptFilter.innerHTML = '<option value="">All Departments</option>';
+        if (!RAW_DATA.by_dept) return;
+
+        const depts = new Set();
+        Object.values(DC_DRILL_DATA.dept.current).forEach(r => {
+            if (!sbuFilter || r.SBU === sbuFilter) depts.add(r.dept);
+        });
+        [...depts].sort().forEach(d => {
+            if (d) deptFilter.innerHTML += `<option value="${d}">${d}</option>`;
+        });
+    }
+
+    // Smart drill-down: SBU selection auto-switches to Dept view
+    function onSBUFilterChange() {
+        const sbuFilter = document.getElementById('dc-drill-sbu-filter').value;
+        const viewFilter = document.getElementById('dc-drill-view-filter');
+        const deptFilter = document.getElementById('dc-drill-dept-filter');
+
+        // Clear dept filter when SBU changes
+        deptFilter.value = '';
+        populateDeptFilter();
+
+        // Auto-drill: If SBU selected, switch to Dept view
+        if (sbuFilter) {
+            viewFilter.value = 'dept';
+        } else {
+            // If "All SBUs", go back to SBU view
+            viewFilter.value = 'sbu';
+        }
+        updateBreadcrumb();
+        renderDCDrilldown();
+    }
+
+    // Smart drill-down: Dept selection auto-switches to Category view
+    function onDeptFilterChange() {
+        const deptFilter = document.getElementById('dc-drill-dept-filter').value;
+        const viewFilter = document.getElementById('dc-drill-view-filter');
+
+        // Auto-drill: If Dept selected, switch to Category view
+        if (deptFilter) {
+            viewFilter.value = 'catg';
+        } else {
+            // If "All Departments", go back to Dept view (since SBU is still selected)
+            const sbuFilter = document.getElementById('dc-drill-sbu-filter').value;
+            viewFilter.value = sbuFilter ? 'dept' : 'sbu';
+        }
+        updateBreadcrumb();
+        renderDCDrilldown();
+    }
+
+    function switchDrillViewMode() {
+        populateDeptFilter();
+        renderDCDrilldown();
+    }
+
+    function selectDrillChannel(channel) {
+        document.getElementById('dc-drill-channel-filter').value = channel;
+        renderDCDrilldown();
+    }
+
+    // Helper function to get DC Type filtered value for a channel
+    function getDCTypeFilteredValue(row, channel, selectedDCTypes) {
+        // If all DC types selected (or none), return total
+        if (!row || selectedDCTypes.length === 0 || selectedDCTypes.length === 4) {
+            return row ? (row[channel] || 0) : 0;
+        }
+        // Sum only selected DC types
+        let sum = 0;
+        selectedDCTypes.forEach(dcType => {
+            const colName = `${channel}_${dcType.toLowerCase()}`;
+            sum += row[colName] || 0;
+        });
+        return sum;
+    }
+
+    function renderDCDrilldown() {
+        if (!DC_DRILL_DATA.sbu.current) return;
+
+        const channel = document.getElementById('dc-drill-channel-filter').value;
+        const compareMode = document.getElementById('dc-drill-compare-filter').value;
+        const viewMode = document.getElementById('dc-drill-view-filter').value;
+        const sbuFilter = document.getElementById('dc-drill-sbu-filter').value;
+        const deptFilter = document.getElementById('dc-drill-dept-filter').value;
+
+        // Get selected DC Types for filtering
+        const dcTypeSelect = document.getElementById('dc-drill-dctype-filter');
+        const selectedDCTypes = dcTypeSelect ? Array.from(dcTypeSelect.selectedOptions).map(o => o.value) : ['Grocery', 'Regional', 'Fashion', 'Imports'];
+
+        // Get the right data based on view mode
+        const dataSet = DC_DRILL_DATA[viewMode] || DC_DRILL_DATA.sbu;
+        const current = dataSet.current;
+        const prior = compareMode === 'wow' ? dataSet.priorWoW : dataSet.priorYoY;
+        const compareLabel = compareMode === 'wow' ? 'WoW' : 'YoY';
+        const viewLabel = viewMode === 'sbu' ? 'SBU' : viewMode === 'dept' ? 'Department' : 'Category';
+
+        // Build DC Type filter label
+        const dcTypeLabel = selectedDCTypes.length === 4 || selectedDCTypes.length === 0 ? '' :
+            ` (${selectedDCTypes.map(t => t.substring(0,3).toUpperCase()).join('+')})`;
+
+        // Build change data
+        const changes = [];
+        Object.keys(current).forEach(key => {
+            const r = current[key];
+            // Apply filters
+            if (sbuFilter && r.SBU !== sbuFilter) return;
+            if (deptFilter && r.dept !== deptFilter) return;
+
+            const prev = prior[key] || {};
+            const currVal = getDCTypeFilteredValue(r, channel, selectedDCTypes);
+            const prevVal = getDCTypeFilteredValue(prev, channel, selectedDCTypes);
+            const change = currVal - prevVal;
+            const pctChange = prevVal > 0 ? ((change / prevVal) * 100) : (currVal > 0 ? 100 : 0);
+
+            // Skip if both current and prior are 0
+            if (currVal === 0 && prevVal === 0) return;
+
+            // Display name based on view mode
+            let displayName = key;
+            if (viewMode === 'sbu') displayName = r.SBU || key;
+            else if (viewMode === 'dept') displayName = r.dept || key.split('|')[1] || key;
+            else if (viewMode === 'catg') displayName = r.catg || key.split('|')[2] || key;
+
+            changes.push({
+                key: key,
+                SBU: r.SBU,
+                name: displayName,
+                current: currVal,
+                prior: prevVal,
+                change: change,
+                pctChange: pctChange
+            });
+        });
+
+        // Update KPI summary bar
+        updateDrillKPIs(channel, compareMode, viewMode, sbuFilter, deptFilter, selectedDCTypes);
+
+        // Render tables
+        renderIncreasingTable(changes, viewMode);
+        renderDecreasingTable(changes, viewMode);
+        renderChangeChart(changes, channel, compareLabel, viewMode);
+
+        // Update chart labels with DC Type indicator
+        document.getElementById('drill-chart-channel-label').textContent = (CHANNEL_NAMES[channel] || channel) + dcTypeLabel;
+        document.getElementById('drill-chart-compare-label').textContent = `(${compareLabel})`;
+        document.getElementById('drill-chart-view-label').textContent = viewLabel;
+    }
+
+    function updateDrillKPIs(selectedChannel, compareMode, viewMode, sbuFilter, deptFilter, selectedDCTypes) {
+        const dataSet = DC_DRILL_DATA[viewMode] || DC_DRILL_DATA.sbu;
+        const current = dataSet.current;
+        const prior = compareMode === 'wow' ? dataSet.priorWoW : dataSet.priorYoY;
+
+        // Default DC types if not provided
+        const dcTypes = selectedDCTypes || ['Grocery', 'Regional', 'Fashion', 'Imports'];
+
+        // Calculate totals for selected channel only (with DC Type filter)
+        let currTotal = 0, prevTotal = 0;
+        Object.values(current).forEach(r => {
+            if (sbuFilter && r.SBU !== sbuFilter) return;
+            if (deptFilter && r.dept !== deptFilter) return;
+            currTotal += getDCTypeFilteredValue(r, selectedChannel, dcTypes);
+        });
+        Object.values(prior).forEach(r => {
+            if (sbuFilter && r.SBU !== sbuFilter) return;
+            if (deptFilter && r.dept !== deptFilter) return;
+            prevTotal += getDCTypeFilteredValue(r, selectedChannel, dcTypes);
+        });
+
+        const change = currTotal - prevTotal;
+        const pctChange = prevTotal > 0 ? ((change / prevTotal) * 100).toFixed(1) : 0;
+
+        // Build DC Type label for display
+        const dcTypeLabel = dcTypes.length === 4 || dcTypes.length === 0 ? '' :
+            ` (${dcTypes.map(t => t.substring(0,3).toUpperCase()).join('+')})`;
+
+        // Update KPI display
+        document.getElementById('drill-selected-position').textContent = (CHANNEL_NAMES[selectedChannel] || selectedChannel) + dcTypeLabel;
+        document.getElementById('dc-drill-kpi-oh').textContent = fmtB(currTotal);
+        document.getElementById('dc-drill-kpi-prior').textContent = fmtB(prevTotal);
+
+        const arrow = change > 0 ? '▲' : change < 0 ? '▼' : '—';
+        const color = change > 0 ? '#d97706' : change < 0 ? '#06b6d4' : '#888';
+        document.getElementById('dc-drill-kpi-oh-wow').innerHTML = `<span style="color:${color};">${arrow} ${fmtB(Math.abs(change))} (${Math.abs(pctChange)}%)</span>`;
+    }
+
+    function renderIncreasingTable(changes, viewMode) {
+        const tbody = document.getElementById('dc-drill-increasing-tbody');
+        tbody.innerHTML = '';
+
+        const increasing = changes.filter(r => r.change > 0).sort((a, b) => b.change - a.change).slice(0, 15);
+        const totalIncrease = increasing.reduce((sum, r) => sum + r.change, 0);
+        document.getElementById('drill-increasing-total').textContent = '+' + fmtB(totalIncrease);
+
+        const canDrill = viewMode !== 'catg'; // Can't drill past category
+
+        increasing.forEach((r, idx) => {
+            const sbuColor = SBU_COLORS[r.SBU] || '#6c757d';
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td style="font-weight:600;">${idx + 1}</td>
+                <td><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${sbuColor};margin-right:6px;"></span>${r.name}${canDrill ? ' <i class="bi bi-chevron-right" style="font-size:0.6rem;opacity:0.5;"></i>' : ''}</td>
+                <td class="text-end">${fmtB(r.current)}</td>
+                <td class="text-end text-muted">${fmtB(r.prior)}</td>
+                <td class="text-end" style="color:#d97706; font-weight:600;">+${fmtB(r.change)}</td>
+                <td class="text-end"><span class="badge bg-danger">${r.pctChange.toFixed(1)}%</span></td>
+            `;
+            if (canDrill) {
+                row.style.cursor = 'pointer';
+                row.onclick = () => drillIntoRow(viewMode, r);
+            }
+            tbody.appendChild(row);
+        });
+
+        if (increasing.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">No increases found</td></tr>';
+        }
+    }
+
+    function renderDecreasingTable(changes, viewMode) {
+        const tbody = document.getElementById('dc-drill-decreasing-tbody');
+        tbody.innerHTML = '';
+
+        const decreasing = changes.filter(r => r.change < 0).sort((a, b) => a.change - b.change).slice(0, 15);
+        const totalDecrease = decreasing.reduce((sum, r) => sum + r.change, 0);
+        document.getElementById('drill-decreasing-total').textContent = fmtB(totalDecrease);
+
+        const canDrill = viewMode !== 'catg';
+
+        decreasing.forEach((r, idx) => {
+            const sbuColor = SBU_COLORS[r.SBU] || '#6c757d';
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td style="font-weight:600;">${idx + 1}</td>
+                <td><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${sbuColor};margin-right:6px;"></span>${r.name}${canDrill ? ' <i class="bi bi-chevron-right" style="font-size:0.6rem;opacity:0.5;"></i>' : ''}</td>
+                <td class="text-end">${fmtB(r.current)}</td>
+                <td class="text-end text-muted">${fmtB(r.prior)}</td>
+                <td class="text-end" style="color:#06b6d4; font-weight:600;">${fmtB(r.change)}</td>
+                <td class="text-end"><span class="badge bg-success">${r.pctChange.toFixed(1)}%</span></td>
+            `;
+            if (canDrill) {
+                row.style.cursor = 'pointer';
+                row.onclick = () => drillIntoRow(viewMode, r);
+            }
+            tbody.appendChild(row);
+        });
+
+        if (decreasing.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">No decreases found</td></tr>';
+        }
+    }
+
+    // Drill into a row (SBU → Dept, Dept → Category)
+    function drillIntoRow(currentView, row) {
+        if (currentView === 'sbu') {
+            // Drill from SBU to Dept
+            document.getElementById('dc-drill-sbu-filter').value = row.SBU;
+            document.getElementById('dc-drill-dept-filter').value = '';
+            document.getElementById('dc-drill-view-filter').value = 'dept';
+            populateDeptFilter();
+        } else if (currentView === 'dept') {
+            // Drill from Dept to Category
+            document.getElementById('dc-drill-dept-filter').value = row.name;
+            document.getElementById('dc-drill-view-filter').value = 'catg';
+        }
+        updateBreadcrumb();
+        renderDCDrilldown();
+    }
+
+    function renderChangeChart(changes, channel, compareLabel, viewMode) {
+        const chartId = 'dcDrillChangeChart';
+        if (CHARTS[chartId]) { CHARTS[chartId].destroy(); delete CHARTS[chartId]; }
+
+        // Sort by change (descending - biggest increase first), limit to top 20 for readability
+        const sorted = [...changes].sort((a, b) => b.change - a.change).slice(0, 20);
+        const labels = sorted.map(r => r.name.length > 25 ? r.name.substring(0, 22) + '...' : r.name);
+        const values = sorted.map(r => r.change);
+        const colors = sorted.map(r => r.change >= 0 ? '#d97706' : '#06b6d4');
+
+        // Dynamically set chart container height based on number of items (30px per bar)
+        const container = document.getElementById('dcDrillChangeChartContainer');
+        const chartHeight = Math.max(200, sorted.length * 30);
+        container.style.height = chartHeight + 'px';
+
+        const ctx = document.getElementById(chartId).getContext('2d');
+        CHARTS[chartId] = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [{
+                    data: values,
+                    backgroundColor: colors,
+                    borderColor: colors,
+                    borderWidth: 1,
+                    barThickness: 20,
+                    maxBarThickness: 25
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => {
+                                const val = ctx.raw;
+                                const arrow = val > 0 ? '▲' : val < 0 ? '▼' : '—';
+                                return `${arrow} ${fmtM(Math.abs(val))}`;
+                            }
+                        }
+                    },
+                    datalabels: {
+                        color: '#fff',
+                        anchor: ctx => ctx.dataset.data[ctx.dataIndex] >= 0 ? 'end' : 'start',
+                        align: ctx => ctx.dataset.data[ctx.dataIndex] >= 0 ? 'right' : 'left',
+                        font: { size: 10, weight: 'bold' },
+                        formatter: v => v !== 0 ? fmtB(v) : ''
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { color: '#2a2a4a' },
+                        ticks: { color: '#e0e0e0', callback: v => fmtB(v) }
+                    },
+                    y: {
+                        grid: { display: false },
+                        ticks: { color: '#e0e0e0', font: { size: 10 } }
+                    }
+                }
+            },
+            plugins: [ChartDataLabels]
+        });
+    }
+
+    function resetDCDrillFilters() {
+        document.getElementById('dc-drill-channel-filter').value = 'dc_oh';
+        document.getElementById('dc-drill-compare-filter').value = 'wow';
+        document.getElementById('dc-drill-sbu-filter').value = '';
+        document.getElementById('dc-drill-dept-filter').value = '';
+        document.getElementById('dc-drill-view-filter').value = 'sbu';
+        // Reset DC Type filter to select all
+        const dcTypeFilter = document.getElementById('dc-drill-dctype-filter');
+        if (dcTypeFilter) {
+            Array.from(dcTypeFilter.options).forEach(opt => opt.selected = true);
+        }
+        populateDeptFilter();
+        updateBreadcrumb();
+        loadDCDrilldownData();
+    }
+
+    // First-time hint management
+    function dismissDrillHint() {
+        const hint = document.getElementById('drill-hint');
+        if (hint) hint.style.display = 'none';
+        localStorage.setItem('dcDrillHintDismissed', 'true');
+    }
+
+    function checkDrillHint() {
+        if (localStorage.getItem('dcDrillHintDismissed') === 'true') {
+            const hint = document.getElementById('drill-hint');
+            if (hint) hint.style.display = 'none';
+        }
+    }
+    // Check on page load
+    checkDrillHint();
+
+    // Navigate back to a specific level
+    function clearDrillToLevel(level) {
+        if (level === 'enterprise') {
+            document.getElementById('dc-drill-sbu-filter').value = '';
+            document.getElementById('dc-drill-dept-filter').value = '';
+            document.getElementById('dc-drill-view-filter').value = 'sbu';
+            populateDeptFilter();
+        } else if (level === 'sbu') {
+            document.getElementById('dc-drill-dept-filter').value = '';
+            document.getElementById('dc-drill-view-filter').value = 'dept';
+        }
+        updateBreadcrumb();
+        renderDCDrilldown();
+    }
+
+    // Update breadcrumb based on current filters
+    function updateBreadcrumb() {
+        const sbuFilter = document.getElementById('dc-drill-sbu-filter').value;
+        const deptFilter = document.getElementById('dc-drill-dept-filter').value;
+
+        let html = '<a href="#" onclick="clearDrillToLevel(\'enterprise\'); return false;" style="color: #6cb2eb;">📊 Enterprise</a>';
+
+        if (sbuFilter) {
+            const sbuColor = SBU_COLORS[sbuFilter] || '#6c757d';
+            html += ` <span style="color: #666;">›</span> <a href="#" onclick="clearDrillToLevel(\'sbu\'); return false;" style="color: #6cb2eb;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${sbuColor};margin-right:4px;"></span>${sbuFilter}</a>`;
+        }
+
+        if (deptFilter) {
+            html += ` <span style="color: #666;">›</span> <span style="color: var(--walmart-yellow);">${deptFilter}</span>`;
+        }
+
+        document.getElementById('breadcrumb-path').innerHTML = html;
+    }
+
+    function exportDCDrilldownCSV() {
+        const viewMode = document.getElementById('dc-drill-view-filter').value;
+        const dataSet = DC_DRILL_DATA[viewMode] || DC_DRILL_DATA.sbu;
+        if (!dataSet.current) return;
+
+        const channel = document.getElementById('dc-drill-channel-filter').value;
+        const compareMode = document.getElementById('dc-drill-compare-filter').value;
+        const sbuFilter = document.getElementById('dc-drill-sbu-filter').value;
+        const deptFilter = document.getElementById('dc-drill-dept-filter').value;
+        const current = dataSet.current;
+        const prior = compareMode === 'wow' ? dataSet.priorWoW : dataSet.priorYoY;
+
+        const rows = [['Name', 'SBU', 'Current', 'Prior', 'Change', 'Change_Pct']];
+        Object.keys(current).forEach(key => {
+            const r = current[key];
+            if (sbuFilter && r.SBU !== sbuFilter) return;
+            if (deptFilter && r.dept !== deptFilter) return;
+            const curr = r[channel] || 0;
+            const prev = (prior[key] && prior[key][channel]) || 0;
+            const change = curr - prev;
+            const pct = prev > 0 ? ((change / prev) * 100).toFixed(2) : 0;
+            const name = viewMode === 'sbu' ? r.SBU : viewMode === 'dept' ? r.dept : r.catg;
+            rows.push([name, r.SBU, curr, prev, change, pct]);
+        });
+
+        const csv = rows.map(r => r.join(',')).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `dc_drilldown_${viewMode}_${channel}_${compareMode}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    // Initialize DC Drilldown when tab is shown
+    document.addEventListener('shown.bs.tab', function(e) {
+        if (e.target.getAttribute('href') === '#tab-dc-drilldown') {
+            // Re-render in case filters changed; data is pre-loaded on page load
+            if (DC_DRILL_DATA.sbu.current && Object.keys(DC_DRILL_DATA.sbu.current).length > 0) {
+                renderDCDrilldown();
+            } else {
+                loadDCDrilldownData();
+            }
+        }
+    });
 
     // ============================================================
     // Init

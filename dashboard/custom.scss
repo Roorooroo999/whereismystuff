@@ -1,0 +1,176 @@
+/*-- scss:defaults --*/
+
+// Walmart brand colors
+$walmart-blue: #0071ce;
+$walmart-yellow: #ffc220;
+
+// Dark theme colors (matching HTML dashboard)
+$body-bg: #1a1a2e;
+$body-color: #e8e8e8;
+$card-bg: #16213e;
+$sidebar-bg: #0f0f1a;
+
+// Bootstrap overrides
+$primary: $walmart-blue;
+$success: #28a745;
+$info: #17a2b8;
+$warning: #ffc107;
+$danger: #dc3545;
+$secondary: #6c757d;
+
+// Font
+$font-family-base: 'Segoe UI', system-ui, -apple-system, sans-serif;
+
+/*-- scss:rules --*/
+
+body {
+  background-color: $body-bg;
+  color: $body-color;
+}
+
+.navbar {
+  background-color: $walmart-blue !important;
+}
+
+.navbar-brand {
+  color: white !important;
+  font-weight: 600;
+}
+
+.sidebar {
+  background-color: $sidebar-bg;
+  border-right: 1px solid #2a2a4a;
+}
+
+.card {
+  background-color: $card-bg;
+  border: 1px solid #2a2a4a;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.card-header {
+  background-color: rgba(0,0,0,0.2);
+  border-bottom: 1px solid #2a2a4a;
+  color: $body-color;
+}
+
+// Value boxes
+.value-box {
+  border-radius: 10px;
+  box-shadow: 0 3px 6px rgba(0,0,0,0.3);
+}
+
+.value-box .value {
+  font-weight: 700;
+  text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
+}
+
+// Form controls
+.form-select, .form-control {
+  background-color: #1a1a2e;
+  border-color: #2a2a4a;
+  color: $body-color;
+}
+
+.form-select:focus, .form-control:focus {
+  background-color: #1a1a2e;
+  border-color: $walmart-blue;
+  color: $body-color;
+  box-shadow: 0 0 0 0.2rem rgba(0,113,206,0.25);
+}
+
+.form-select option {
+  background-color: #1a1a2e;
+  color: $body-color;
+}
+
+// Buttons
+.btn-primary {
+  background-color: $walmart-blue;
+  border-color: $walmart-blue;
+}
+
+.btn-outline-secondary {
+  color: #a0a0a0;
+  border-color: #2a2a4a;
+}
+
+.btn-outline-secondary:hover {
+  background-color: #2a2a4a;
+  color: $body-color;
+}
+
+// Tables
+.table {
+  color: $body-color;
+}
+
+.table-dark {
+  background-color: $sidebar-bg;
+}
+
+.dataTables_wrapper {
+  color: $body-color;
+}
+
+.dataTables_wrapper .dataTables_filter input,
+.dataTables_wrapper .dataTables_length select {
+  background-color: #1a1a2e;
+  border-color: #2a2a4a;
+  color: $body-color;
+}
+
+// Nav tabs
+.nav-tabs {
+  border-bottom: 1px solid #2a2a4a;
+}
+
+.nav-tabs .nav-link.active {
+  background-color: $walmart-blue;
+  color: white;
+  border-color: $walmart-blue;
+}
+
+.nav-tabs .nav-link {
+  color: #6cb2eb;
+  font-weight: 500;
+  border: 1px solid transparent;
+}
+
+.nav-tabs .nav-link:hover {
+  border-color: #2a2a4a;
+}
+
+// Headings
+h1, h2, h3, h4, h5, h6 {
+  color: $body-color;
+}
+
+// Text utilities
+.text-muted {
+  color: #a0a0a0 !important;
+}
+
+// Charts
+.plotly .main-svg {
+  background: transparent !important;
+}
+
+// Scrollbar styling
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: $sidebar-bg;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #3a3a5a;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: $walmart-blue;
+}

@@ -1,9 +1,14 @@
 ---
-title: "Where's My Stuff - Inventory Rollup"
+title: "Where's My Stuff - Inventory Dashboard"
 format:
   dashboard:
-    theme: cosmo
+    theme:
+      - cosmo
+      - custom.scss
     orientation: columns
+    nav-buttons:
+      - icon: github
+        href: https://github.com/walmart
 server: shiny
 ---
 
@@ -15,6 +20,7 @@ library(shiny)
 library(bigrquery)
 library(DBI)
 library(dplyr)
+library(tidyr)
 library(ggplot2)
 library(plotly)
 library(DT)
@@ -33,31 +39,78 @@ con <- dbConnect(
   billing = billing_project
 )
 
-# Query the rollup data
+# Hidden SBUs (low volume - filtered out)
+HIDDEN_SBUS <- c("OTHER", "UNASSIGNED")
+
+# Query the rollup data with all channels including DC Type breakdown
 query <- "
 SELECT
   BUS_DT,
   MDS_FAM_ID,
-  WALMART_NBR,
+  ITEM_NBR AS WALMART_NBR,
+  REPL_GROUP_NBR,
   OMNI_SEG_DESC AS SBU,
   OMNI_DIVISION,
   OMNI_DEPT_NBR,
   OMNI_DEPT_DESC,
+  OMNI_CATG_NBR,
+  OMNI_CATG_DESC AS CATEGORY,
   REPLEN_TYPE,
-  DC_TYPE_DESC,
   UNIT_COST,
+  -- Store Network
   STORE_OH_UNITS,
+  COALESCE(ON_FLOOR_UNITS, 0) AS ON_FLOOR_UNITS,
+  COALESCE(BACKROOM_UNITS, 0) AS BACKROOM_UNITS,
+  COALESCE(DC_RESERVED_UNITS, 0) AS DC_RESERVED_UNITS,
   IN_TRANSIT_UNITS,
-  DC_OH_UNITS
+  -- DC Network (Total)
+  DC_OH_UNITS,
+  COALESCE(DC_LABELED_UNITS, 0) AS DC_LABELED_UNITS,
+  COALESCE(DC_UNLABELED_UNITS, 0) AS DC_UNLABELED_UNITS,
+  -- DC Type Breakdown
+  COALESCE(DC_OH_REGIONAL_UNITS, 0) AS DC_OH_REGIONAL,
+  COALESCE(DC_OH_GROCERY_UNITS, 0) AS DC_OH_GROCERY,
+  COALESCE(DC_OH_FASHION_UNITS, 0) AS DC_OH_FASHION,
+  COALESCE(DC_OH_IMPORTS_UNITS, 0) AS DC_OH_IMPORTS,
+  -- Additional Channels
+  COALESCE(STO_IN_TRANSIT_TO_DC_UNITS, 0) AS STO_UNITS,
+  COALESCE(FC_OH_UNITS, 0) AS FC_OH_UNITS,
+  COALESCE(ON_YARD_UNITS, 0) AS ON_YARD_UNITS,
+  -- Totals
+  COALESCE(TOTAL_NETWORK_UNITS, 0) AS TOTAL_NETWORK_UNITS,
+  -- Costs
+  COALESCE(STORE_OH_COST, 0) AS STORE_OH_COST,
+  COALESCE(DC_OH_COST, 0) AS DC_OH_COST,
+  COALESCE(IN_TRANSIT_COST, 0) AS IN_TRANSIT_COST,
+  COALESCE(TOTAL_NETWORK_COST, 0) AS TOTAL_NETWORK_COST
 FROM `wmt-instockinventory-datamart.WM_AD_HOC.WHERES_MY_STUFF_ROLLUP`
 "
 
 rollup_data <- dbGetQuery(con, query)
 
+# Filter out hidden SBUs
+rollup_data <- rollup_data %>% filter(!SBU %in% HIDDEN_SBUS)
+
 # Get unique values for filters
-departments <- sort(unique(rollup_data$OMNI_DEPT_DESC))
 sbus <- sort(unique(rollup_data$SBU))
+departments <- sort(unique(rollup_data$OMNI_DEPT_DESC))
+categories <- sort(unique(rollup_data$CATEGORY[!is.na(rollup_data$CATEGORY)]))
 divisions <- sort(unique(rollup_data$OMNI_DIVISION))
+dc_types <- c("Regional (RDC)", "Grocery (GDC)", "Fashion (FDC)", "Imports")
+
+# Format helpers
+format_units <- function(x) {
+  if (x >= 1e9) return(paste0(round(x / 1e9, 2), "B"))
+  if (x >= 1e6) return(paste0(round(x / 1e6, 1), "M"))
+  if (x >= 1e3) return(paste0(round(x / 1e3, 1), "K"))
+  return(format(round(x), big.mark = ","))
+}
+
+format_cost <- function(x) {
+  if (x >= 1e9) return(paste0("$", round(x / 1e9, 2), "B"))
+  if (x >= 1e6) return(paste0("$", round(x / 1e6, 1), "M"))
+  return(paste0("$", format(round(x), big.mark = ",")))
+}
 ```
 
 # Filters
@@ -66,299 +119,512 @@ divisions <- sort(unique(rollup_data$OMNI_DIVISION))
 
 ```{r}
 selectInput(
-  "sbu_filter",
-  "SBU (Segment):",
-  choices = c("All" = "", sbus),
-  selected = "",
-  multiple = TRUE
+ "sbu_filter",
+ "SBU (Division):",
+ choices = c("All SBUs" = "", sbus),
+ selected = "",
+ multiple = TRUE
 )
 
 selectInput(
-  "division_filter",
-  "Division:",
-  choices = c("All" = "", divisions),
-  selected = "",
-  multiple = TRUE
+ "dept_filter",
+ "Department:",
+ choices = c("All Departments" = "", departments),
+ selected = "",
+ multiple = TRUE
 )
 
 selectInput(
-  "dept_filter",
-  "Department:",
-  choices = c("All" = "", departments),
-  selected = "",
-  multiple = TRUE
+ "catg_filter",
+ "Category:",
+ choices = c("All Categories" = "", categories),
+ selected = "",
+ multiple = TRUE
+)
+
+selectInput(
+ "dc_type_filter",
+ "DC Type:",
+ choices = c("All DC Types" = "", dc_types),
+ selected = "",
+ multiple = TRUE
+)
+
+selectInput(
+ "replen_filter",
+ "Replen Type:",
+ choices = c("All" = "", "REPLEN", "NON-REPLEN"),
+ selected = ""
 )
 
 textInput(
-  "item_filter",
-  "Item (MDS_FAM_ID or WALMART_NBR):",
-  value = ""
+ "item_filter",
+ "Item Search (MDS_FAM_ID, Item#, CID):",
+ value = ""
 )
-
-selectInput(
-  "replen_filter",
-  "Replen Type:",
-  choices = c("All" = "", "REPLEN", "NON-REPLEN"),
-  selected = ""
-)
-
-actionButton("refresh_btn", "Refresh Data", class = "btn-primary")
 
 hr()
 
-p(em(paste("Last refreshed:", Sys.time())))
+actionButton("reset_btn", "Reset Filters", class = "btn-outline-secondary btn-sm")
+
+hr()
+
+p(tags$small(em(paste("Data Date:", max(rollup_data$BUS_DT, na.rm = TRUE)))))
 ```
 
 ```{r}
 #| context: server
 
-# Reactive filtered data
-filtered_data <- reactive({
-  data <- rollup_data
-
-  # Apply SBU filter
-  if (!is.null(input$sbu_filter) && length(input$sbu_filter) > 0 && input$sbu_filter[1] != "") {
-    data <- data %>% filter(SBU %in% input$sbu_filter)
-  }
-
-  # Apply Division filter
-  if (!is.null(input$division_filter) && length(input$division_filter) > 0 && input$division_filter[1] != "") {
-    data <- data %>% filter(OMNI_DIVISION %in% input$division_filter)
-  }
-
-  # Apply Department filter
-  if (!is.null(input$dept_filter) && length(input$dept_filter) > 0 && input$dept_filter[1] != "") {
-    data <- data %>% filter(OMNI_DEPT_DESC %in% input$dept_filter)
-  }
-
-  # Apply Item filter
-  if (!is.null(input$item_filter) && input$item_filter != "") {
-    item_search <- input$item_filter
-    data <- data %>%
-      filter(
-        grepl(item_search, as.character(MDS_FAM_ID), ignore.case = TRUE) |
-        grepl(item_search, as.character(WALMART_NBR), ignore.case = TRUE)
-      )
-  }
-
-  # Apply Replen filter
-  if (!is.null(input$replen_filter) && input$replen_filter != "") {
-    data <- data %>% filter(REPLEN_TYPE == input$replen_filter)
-  }
-
-  data
+# Reset filters
+observeEvent(input$reset_btn, {
+ updateSelectInput(session, "sbu_filter", selected = "")
+ updateSelectInput(session, "dept_filter", selected = "")
+ updateSelectInput(session, "catg_filter", selected = "")
+ updateSelectInput(session, "dc_type_filter", selected = "")
+ updateSelectInput(session, "replen_filter", selected = "")
+ updateTextInput(session, "item_filter", value = "")
 })
 
-# Summary metrics
-summary_metrics <- reactive({
-  data <- filtered_data()
+# Reactive filtered data
+filtered_data <- reactive({
+ data <- rollup_data
 
-  list(
-    total_items = n_distinct(data$MDS_FAM_ID),
-    store_units = sum(data$STORE_OH_UNITS, na.rm = TRUE),
-    transit_units = sum(data$IN_TRANSIT_UNITS, na.rm = TRUE),
-    dc_units = sum(data$DC_OH_UNITS, na.rm = TRUE),
-    total_units = sum(data$STORE_OH_UNITS, na.rm = TRUE) +
-                  sum(data$IN_TRANSIT_UNITS, na.rm = TRUE) +
-                  sum(data$DC_OH_UNITS, na.rm = TRUE),
-    store_cost = sum(data$STORE_OH_UNITS * data$UNIT_COST, na.rm = TRUE),
-    transit_cost = sum(data$IN_TRANSIT_UNITS * data$UNIT_COST, na.rm = TRUE),
-    dc_cost = sum(data$DC_OH_UNITS * data$UNIT_COST, na.rm = TRUE)
-  )
+ # Apply SBU filter
+ if (!is.null(input$sbu_filter) && length(input$sbu_filter) > 0 && input$sbu_filter[1] != "") {
+   data <- data %>% filter(SBU %in% input$sbu_filter)
+ }
+
+ # Apply Department filter
+ if (!is.null(input$dept_filter) && length(input$dept_filter) > 0 && input$dept_filter[1] != "") {
+   data <- data %>% filter(OMNI_DEPT_DESC %in% input$dept_filter)
+ }
+
+ # Apply Category filter
+ if (!is.null(input$catg_filter) && length(input$catg_filter) > 0 && input$catg_filter[1] != "") {
+   data <- data %>% filter(CATEGORY %in% input$catg_filter)
+ }
+
+ # Apply Replen filter
+ if (!is.null(input$replen_filter) && input$replen_filter != "") {
+   data <- data %>% filter(REPLEN_TYPE == input$replen_filter)
+ }
+
+ # Apply Item filter
+ if (!is.null(input$item_filter) && input$item_filter != "") {
+   item_search <- input$item_filter
+   data <- data %>%
+     filter(
+       grepl(item_search, as.character(MDS_FAM_ID), ignore.case = TRUE) |
+       grepl(item_search, as.character(WALMART_NBR), ignore.case = TRUE) |
+       grepl(item_search, as.character(REPL_GROUP_NBR), ignore.case = TRUE)
+     )
+ }
+
+ data
+})
+
+# Get selected DC types for filtering DC values
+selected_dc_types <- reactive({
+ if (is.null(input$dc_type_filter) || length(input$dc_type_filter) == 0 || input$dc_type_filter[1] == "") {
+   return(c("Regional", "Grocery", "Fashion", "Imports"))
+ }
+ types <- c()
+ if ("Regional (RDC)" %in% input$dc_type_filter) types <- c(types, "Regional")
+ if ("Grocery (GDC)" %in% input$dc_type_filter) types <- c(types, "Grocery")
+ if ("Fashion (FDC)" %in% input$dc_type_filter) types <- c(types, "Fashion")
+ if ("Imports" %in% input$dc_type_filter) types <- c(types, "Imports")
+ return(types)
+})
+
+# Summary metrics with DC Type filtering
+summary_metrics <- reactive({
+ data <- filtered_data()
+ dc_types <- selected_dc_types()
+
+ # Calculate DC units based on selected DC types
+ dc_oh <- 0
+ if ("Regional" %in% dc_types) dc_oh <- dc_oh + sum(data$DC_OH_REGIONAL, na.rm = TRUE)
+ if ("Grocery" %in% dc_types) dc_oh <- dc_oh + sum(data$DC_OH_GROCERY, na.rm = TRUE)
+ if ("Fashion" %in% dc_types) dc_oh <- dc_oh + sum(data$DC_OH_FASHION, na.rm = TRUE)
+ if ("Imports" %in% dc_types) dc_oh <- dc_oh + sum(data$DC_OH_IMPORTS, na.rm = TRUE)
+
+ # If DC type filter is applied, zero out store metrics
+ dc_type_filtered <- length(dc_types) < 4
+
+ list(
+   total_items = n_distinct(data$MDS_FAM_ID),
+   # Store Network (zeroed if DC type filter active)
+   on_floor_units = if (dc_type_filtered) 0 else sum(data$ON_FLOOR_UNITS, na.rm = TRUE),
+   backroom_units = if (dc_type_filtered) 0 else sum(data$BACKROOM_UNITS, na.rm = TRUE),
+   store_units = if (dc_type_filtered) 0 else sum(data$STORE_OH_UNITS, na.rm = TRUE),
+   dc_reserved_units = if (dc_type_filtered) 0 else sum(data$DC_RESERVED_UNITS, na.rm = TRUE),
+   transit_units = if (dc_type_filtered) 0 else sum(data$IN_TRANSIT_UNITS, na.rm = TRUE),
+   # DC Network (filtered by DC type)
+   dc_units = dc_oh,
+   dc_oh_regional = sum(data$DC_OH_REGIONAL, na.rm = TRUE),
+   dc_oh_grocery = sum(data$DC_OH_GROCERY, na.rm = TRUE),
+   dc_oh_fashion = sum(data$DC_OH_FASHION, na.rm = TRUE),
+   dc_oh_imports = sum(data$DC_OH_IMPORTS, na.rm = TRUE),
+   dc_labeled_units = sum(data$DC_LABELED_UNITS, na.rm = TRUE),
+   dc_unlabeled_units = sum(data$DC_UNLABELED_UNITS, na.rm = TRUE),
+   # Additional Channels
+   sto_units = sum(data$STO_UNITS, na.rm = TRUE),
+   fc_units = if (dc_type_filtered) 0 else sum(data$FC_OH_UNITS, na.rm = TRUE),
+   on_yard_units = sum(data$ON_YARD_UNITS, na.rm = TRUE),
+   # Total Network
+   total_units = sum(data$TOTAL_NETWORK_UNITS, na.rm = TRUE),
+   # Costs
+   store_cost = sum(data$STORE_OH_COST, na.rm = TRUE),
+   dc_cost = sum(data$DC_OH_COST, na.rm = TRUE),
+   transit_cost = sum(data$IN_TRANSIT_COST, na.rm = TRUE),
+   total_cost = sum(data$TOTAL_NETWORK_COST, na.rm = TRUE)
+ )
 })
 ```
 
 # Overview
 
-## Row {height=25%}
+## Row {height=12%}
 
 ```{r}
-#| title: "Total Items"
+#| title: "Total Units"
 #| component: valuebox
 
 renderValueBox({
-  valueBox(
-    value = format(summary_metrics()$total_items, big.mark = ","),
-    icon = "box",
-    color = "primary"
-  )
+ valueBox(
+   value = format_units(summary_metrics()$total_units),
+   icon = "box-seam-fill",
+   color = "primary"
+ )
 })
 ```
 
 ```{r}
-#| title: "Store On-Hand Units"
+#| title: "Total Inventory Cost"
 #| component: valuebox
 
 renderValueBox({
-  valueBox(
-    value = format(summary_metrics()$store_units, big.mark = ","),
-    icon = "shop",
-    color = "success"
-  )
+ valueBox(
+   value = format_cost(summary_metrics()$total_cost),
+   icon = "currency-dollar",
+   color = "success"
+ )
 })
 ```
 
 ```{r}
-#| title: "In-Transit Units"
+#| title: "On Floor"
 #| component: valuebox
 
 renderValueBox({
-  valueBox(
-    value = format(summary_metrics()$transit_units, big.mark = ","),
-    icon = "truck",
-    color = "warning"
-  )
+ valueBox(
+   value = format_units(summary_metrics()$on_floor_units),
+   icon = "shop",
+   color = "success"
+ )
 })
 ```
 
 ```{r}
-#| title: "DC On-Hand Units"
+#| title: "Backroom"
 #| component: valuebox
 
 renderValueBox({
-  valueBox(
-    value = format(summary_metrics()$dc_units, big.mark = ","),
-    icon = "building",
-    color = "info"
-  )
+ valueBox(
+   value = format_units(summary_metrics()$backroom_units),
+   icon = "box",
+   color = "warning"
+ )
 })
 ```
 
-## Row {height=75%}
+## Row {height=12%}
+
+```{r}
+#| title: "DC On-Hand"
+#| component: valuebox
+
+renderValueBox({
+ valueBox(
+   value = format_units(summary_metrics()$dc_units),
+   icon = "building",
+   color = "info"
+ )
+})
+```
+
+```{r}
+#| title: "In-Transit"
+#| component: valuebox
+
+renderValueBox({
+ valueBox(
+   value = format_units(summary_metrics()$transit_units),
+   icon = "truck",
+   color = "warning"
+ )
+})
+```
+
+```{r}
+#| title: "DC Reserved"
+#| component: valuebox
+
+renderValueBox({
+ valueBox(
+   value = format_units(summary_metrics()$dc_reserved_units),
+   icon = "box-arrow-right",
+   color = "secondary"
+ )
+})
+```
+
+```{r}
+#| title: "STO to DC"
+#| component: valuebox
+
+renderValueBox({
+ valueBox(
+   value = format_units(summary_metrics()$sto_units),
+   icon = "arrow-left-right",
+   color = "info"
+ )
+})
+```
+
+## Row {height=12%}
+
+```{r}
+#| title: "DC Labeled"
+#| component: valuebox
+
+renderValueBox({
+ valueBox(
+   value = format_units(summary_metrics()$dc_labeled_units),
+   icon = "tag",
+   color = "danger"
+ )
+})
+```
+
+```{r}
+#| title: "DC Unlabeled"
+#| component: valuebox
+
+renderValueBox({
+ valueBox(
+   value = format_units(summary_metrics()$dc_unlabeled_units),
+   icon = "tag-fill",
+   color = "secondary"
+ )
+})
+```
+
+```{r}
+#| title: "FC (eComm)"
+#| component: valuebox
+
+renderValueBox({
+ valueBox(
+   value = format_units(summary_metrics()$fc_units),
+   icon = "cart4",
+   color = "primary"
+ )
+})
+```
+
+```{r}
+#| title: "On Yard"
+#| component: valuebox
+
+renderValueBox({
+ valueBox(
+   value = format_units(summary_metrics()$on_yard_units),
+   icon = "signpost-2",
+   color = "danger"
+ )
+})
+```
+
+## Row {height=64%}
 
 ### Column {width=50%}
 
 ```{r}
-#| title: "Inventory by Network"
+#| title: "Inventory by SBU"
 
 renderPlotly({
-  metrics <- summary_metrics()
+ data <- filtered_data() %>%
+   group_by(SBU) %>%
+   summarise(
+     On_Floor = sum(ON_FLOOR_UNITS, na.rm = TRUE),
+     Backroom = sum(BACKROOM_UNITS, na.rm = TRUE),
+     DC_OH = sum(DC_OH_UNITS, na.rm = TRUE),
+     In_Transit = sum(IN_TRANSIT_UNITS, na.rm = TRUE),
+     DC_Reserved = sum(DC_RESERVED_UNITS, na.rm = TRUE),
+     DC_Labeled = sum(DC_LABELED_UNITS, na.rm = TRUE),
+     DC_Unlabeled = sum(DC_UNLABELED_UNITS, na.rm = TRUE),
+     STO = sum(STO_UNITS, na.rm = TRUE),
+     FC = sum(FC_OH_UNITS, na.rm = TRUE),
+     On_Yard = sum(ON_YARD_UNITS, na.rm = TRUE),
+     Total = sum(TOTAL_NETWORK_UNITS, na.rm = TRUE),
+     .groups = "drop"
+   ) %>%
+   arrange(desc(Total)) %>%
+   head(10) %>%
+   pivot_longer(cols = c(On_Floor, Backroom, DC_OH, In_Transit, DC_Reserved,
+                         DC_Labeled, DC_Unlabeled, STO, FC, On_Yard),
+                names_to = "Channel", values_to = "Units")
 
-  df <- data.frame(
-    Network = c("Store", "In-Transit", "DC"),
-    Units = c(metrics$store_units, metrics$transit_units, metrics$dc_units)
-  )
+ # Channel colors matching HTML dashboard
+ channel_colors <- c(
+   "On_Floor" = "#40916c", "Backroom" = "#c49a09", "DC_OH" = "#007bff",
+   "In_Transit" = "#e67300", "DC_Reserved" = "#7c3aed", "DC_Labeled" = "#e91e8c",
+   "DC_Unlabeled" = "#8e44ad", "STO" = "#17a589", "FC" = "#6d28d9", "On_Yard" = "#dc2626"
+ )
 
-  p <- ggplot(df, aes(x = reorder(Network, -Units), y = Units, fill = Network)) +
-    geom_col() +
-    scale_y_continuous(labels = label_comma()) +
-    scale_fill_manual(values = c("Store" = "#28a745", "In-Transit" = "#ffc107", "DC" = "#17a2b8")) +
-    labs(x = "", y = "Units") +
-    theme_minimal() +
-    theme(legend.position = "none")
+ # Order channels
+ data$Channel <- factor(data$Channel, levels = names(channel_colors))
 
-  ggplotly(p)
+ p <- ggplot(data, aes(x = Units / 1e6, y = reorder(SBU, Units), fill = Channel)) +
+   geom_col(position = "stack") +
+   scale_fill_manual(values = channel_colors) +
+   labs(x = "Units (M)", y = "") +
+   theme_minimal() +
+   theme(legend.position = "bottom", legend.title = element_blank())
+
+ ggplotly(p) %>% layout(legend = list(orientation = "h", y = -0.2))
 })
 ```
 
 ```{r}
-#| title: "Inventory by Division"
+#| title: "Channel Mix (%)"
 
 renderPlotly({
-  data <- filtered_data() %>%
-    group_by(OMNI_DIVISION) %>%
-    summarise(
-      Total_Units = sum(STORE_OH_UNITS + IN_TRANSIT_UNITS + DC_OH_UNITS, na.rm = TRUE),
-      .groups = "drop"
-    ) %>%
-    arrange(desc(Total_Units))
+ metrics <- summary_metrics()
 
-  p <- ggplot(data, aes(x = reorder(OMNI_DIVISION, Total_Units), y = Total_Units, fill = OMNI_DIVISION)) +
-    geom_col() +
-    coord_flip() +
-    scale_y_continuous(labels = label_comma()) +
-    labs(x = "", y = "Total Units") +
-    theme_minimal() +
-    theme(legend.position = "none")
+ total <- metrics$on_floor_units + metrics$backroom_units + metrics$dc_units +
+          metrics$transit_units + metrics$dc_reserved_units + metrics$dc_labeled_units +
+          metrics$dc_unlabeled_units + metrics$sto_units + metrics$fc_units + metrics$on_yard_units
 
-  ggplotly(p)
+ if (total == 0) total <- 1  # Avoid division by zero
+
+ df <- data.frame(
+   Channel = c("On Floor", "Backroom", "DC OH", "In-Transit", "DC Reserved",
+               "DC Labeled", "DC Unlabeled", "STO", "FC", "On Yard"),
+   Units = c(metrics$on_floor_units, metrics$backroom_units, metrics$dc_units,
+             metrics$transit_units, metrics$dc_reserved_units, metrics$dc_labeled_units,
+             metrics$dc_unlabeled_units, metrics$sto_units, metrics$fc_units, metrics$on_yard_units),
+   Pct = c(metrics$on_floor_units, metrics$backroom_units, metrics$dc_units,
+           metrics$transit_units, metrics$dc_reserved_units, metrics$dc_labeled_units,
+           metrics$dc_unlabeled_units, metrics$sto_units, metrics$fc_units, metrics$on_yard_units) / total * 100
+ )
+
+ channel_colors <- c(
+   "On Floor" = "#40916c", "Backroom" = "#c49a09", "DC OH" = "#007bff",
+   "In-Transit" = "#e67300", "DC Reserved" = "#7c3aed", "DC Labeled" = "#e91e8c",
+   "DC Unlabeled" = "#8e44ad", "STO" = "#17a589", "FC" = "#6d28d9", "On Yard" = "#dc2626"
+ )
+
+ df$Channel <- factor(df$Channel, levels = names(channel_colors))
+
+ p <- ggplot(df, aes(x = 1, y = Pct, fill = Channel)) +
+   geom_col(position = "stack", width = 0.5) +
+   coord_flip() +
+   scale_fill_manual(values = channel_colors) +
+   labs(x = "", y = "Percentage (%)") +
+   theme_minimal() +
+   theme(axis.text.y = element_blank(), axis.ticks.y = element_blank(),
+         legend.position = "bottom")
+
+ ggplotly(p) %>% layout(legend = list(orientation = "h", y = -0.2))
 })
 ```
 
 ### Column {width=50%}
 
 ```{r}
-#| title: "Inventory by Replen Type"
+#| title: "DC Inventory by Type"
 
 renderPlotly({
-  data <- filtered_data() %>%
-    group_by(REPLEN_TYPE) %>%
-    summarise(
-      Store = sum(STORE_OH_UNITS, na.rm = TRUE),
-      Transit = sum(IN_TRANSIT_UNITS, na.rm = TRUE),
-      DC = sum(DC_OH_UNITS, na.rm = TRUE),
-      .groups = "drop"
-    ) %>%
-    tidyr::pivot_longer(cols = c(Store, Transit, DC), names_to = "Network", values_to = "Units")
+ metrics <- summary_metrics()
 
-  p <- ggplot(data, aes(x = REPLEN_TYPE, y = Units, fill = Network)) +
-    geom_col(position = "dodge") +
-    scale_y_continuous(labels = label_comma()) +
-    scale_fill_manual(values = c("Store" = "#28a745", "Transit" = "#ffc107", "DC" = "#17a2b8")) +
-    labs(x = "", y = "Units") +
-    theme_minimal()
+ df <- data.frame(
+   DC_Type = c("Regional (RDC)", "Grocery (GDC)", "Fashion (FDC)", "Imports"),
+   DC_OH = c(metrics$dc_oh_regional, metrics$dc_oh_grocery, metrics$dc_oh_fashion, metrics$dc_oh_imports)
+ )
 
-  ggplotly(p)
+ dc_colors <- c("Regional (RDC)" = "#0069d9", "Grocery (GDC)" = "#40916c",
+                "Fashion (FDC)" = "#9b59b6", "Imports" = "#c45c00")
+
+ p <- ggplot(df, aes(x = DC_OH / 1e6, y = reorder(DC_Type, DC_OH), fill = DC_Type)) +
+   geom_col() +
+   scale_fill_manual(values = dc_colors) +
+   labs(x = "DC On-Hand (M)", y = "") +
+   theme_minimal() +
+   theme(legend.position = "none")
+
+ ggplotly(p)
 })
 ```
 
 ```{r}
-#| title: "Top 10 Departments by Inventory"
+#| title: "Top 10 Departments by Total Inventory"
 
 renderPlotly({
-  data <- filtered_data() %>%
-    group_by(OMNI_DEPT_DESC) %>%
-    summarise(
-      Total_Units = sum(STORE_OH_UNITS + IN_TRANSIT_UNITS + DC_OH_UNITS, na.rm = TRUE),
-      .groups = "drop"
-    ) %>%
-    arrange(desc(Total_Units)) %>%
-    head(10)
+ data <- filtered_data() %>%
+   filter(!is.na(OMNI_DEPT_DESC)) %>%
+   group_by(OMNI_DEPT_DESC) %>%
+   summarise(Total = sum(TOTAL_NETWORK_UNITS, na.rm = TRUE), .groups = "drop") %>%
+   arrange(desc(Total)) %>%
+   head(10)
 
-  p <- ggplot(data, aes(x = reorder(OMNI_DEPT_DESC, Total_Units), y = Total_Units)) +
-    geom_col(fill = "#6f42c1") +
-    coord_flip() +
-    scale_y_continuous(labels = label_comma()) +
-    labs(x = "", y = "Total Units") +
-    theme_minimal()
+ p <- ggplot(data, aes(x = Total / 1e6, y = reorder(OMNI_DEPT_DESC, Total))) +
+   geom_col(fill = "#0071ce") +
+   labs(x = "Total Units (M)", y = "") +
+   theme_minimal()
 
-  ggplotly(p)
+ ggplotly(p)
 })
 ```
 
-# Detail View
+# By SBU
 
 ## Row
 
 ```{r}
-#| title: "Item Detail Table"
+#| title: "SBU Breakdown Table"
 
 renderDT({
-  data <- filtered_data() %>%
-    group_by(MDS_FAM_ID, WALMART_NBR, OMNI_DEPT_DESC, OMNI_DIVISION, REPLEN_TYPE) %>%
-    summarise(
-      STORE_OH = sum(STORE_OH_UNITS, na.rm = TRUE),
-      IN_TRANSIT = sum(IN_TRANSIT_UNITS, na.rm = TRUE),
-      DC_OH = sum(DC_OH_UNITS, na.rm = TRUE),
-      TOTAL = sum(STORE_OH_UNITS + IN_TRANSIT_UNITS + DC_OH_UNITS, na.rm = TRUE),
-      UNIT_COST = mean(UNIT_COST, na.rm = TRUE),
-      .groups = "drop"
-    ) %>%
-    arrange(desc(TOTAL))
+ data <- filtered_data() %>%
+   group_by(SBU) %>%
+   summarise(
+     On_Floor = sum(ON_FLOOR_UNITS, na.rm = TRUE),
+     Backroom = sum(BACKROOM_UNITS, na.rm = TRUE),
+     Store_OH = sum(STORE_OH_UNITS, na.rm = TRUE),
+     DC_OH = sum(DC_OH_UNITS, na.rm = TRUE),
+     In_Transit = sum(IN_TRANSIT_UNITS, na.rm = TRUE),
+     DC_Reserved = sum(DC_RESERVED_UNITS, na.rm = TRUE),
+     DC_Labeled = sum(DC_LABELED_UNITS, na.rm = TRUE),
+     DC_Unlabeled = sum(DC_UNLABELED_UNITS, na.rm = TRUE),
+     STO = sum(STO_UNITS, na.rm = TRUE),
+     FC = sum(FC_OH_UNITS, na.rm = TRUE),
+     On_Yard = sum(ON_YARD_UNITS, na.rm = TRUE),
+     Total = sum(TOTAL_NETWORK_UNITS, na.rm = TRUE),
+     Cost = sum(TOTAL_NETWORK_COST, na.rm = TRUE),
+     .groups = "drop"
+   ) %>%
+   arrange(desc(Total))
 
-  datatable(
-    data,
-    filter = "top",
-    options = list(
-      pageLength = 25,
-      scrollX = TRUE,
-      dom = 'Bfrtip',
-      buttons = c('copy', 'csv', 'excel')
-    ),
-    extensions = 'Buttons'
-  ) %>%
-    formatCurrency("UNIT_COST", currency = "$", digits = 2) %>%
-    formatRound(c("STORE_OH", "IN_TRANSIT", "DC_OH", "TOTAL"), digits = 0, mark = ",")
+ datatable(
+   data,
+   filter = "top",
+   options = list(pageLength = 15, scrollX = TRUE, dom = 'Bfrtip', buttons = c('copy', 'csv', 'excel')),
+   extensions = 'Buttons'
+ ) %>%
+   formatRound(c("On_Floor", "Backroom", "Store_OH", "DC_OH", "In_Transit", "DC_Reserved",
+                 "DC_Labeled", "DC_Unlabeled", "STO", "FC", "On_Yard", "Total"), digits = 0, mark = ",") %>%
+   formatCurrency("Cost", currency = "$", digits = 0)
 })
 ```
 
@@ -367,54 +633,136 @@ renderDT({
 ## Row {height=40%}
 
 ```{r}
-#| title: "DC Inventory by Type"
+#| title: "DC Type Breakdown with SBU Detail"
 
-renderPlotly({
-  data <- filtered_data() %>%
-    filter(!is.na(DC_TYPE_DESC)) %>%
-    group_by(DC_TYPE_DESC) %>%
-    summarise(
-      DC_Units = sum(DC_OH_UNITS, na.rm = TRUE),
-      .groups = "drop"
-    ) %>%
-    arrange(desc(DC_Units))
+renderDT({
+ data <- filtered_data() %>%
+   group_by(SBU) %>%
+   summarise(
+     DC_OH_Regional = sum(DC_OH_REGIONAL, na.rm = TRUE),
+     DC_OH_Grocery = sum(DC_OH_GROCERY, na.rm = TRUE),
+     DC_OH_Fashion = sum(DC_OH_FASHION, na.rm = TRUE),
+     DC_OH_Imports = sum(DC_OH_IMPORTS, na.rm = TRUE),
+     DC_Labeled = sum(DC_LABELED_UNITS, na.rm = TRUE),
+     DC_Unlabeled = sum(DC_UNLABELED_UNITS, na.rm = TRUE),
+     STO = sum(STO_UNITS, na.rm = TRUE),
+     On_Yard = sum(ON_YARD_UNITS, na.rm = TRUE),
+     Total_DC = sum(DC_OH_UNITS, na.rm = TRUE) + sum(DC_LABELED_UNITS, na.rm = TRUE) +
+                sum(DC_UNLABELED_UNITS, na.rm = TRUE) + sum(STO_UNITS, na.rm = TRUE) + sum(ON_YARD_UNITS, na.rm = TRUE),
+     DC_Cost = sum(DC_OH_COST, na.rm = TRUE),
+     .groups = "drop"
+   ) %>%
+   arrange(desc(Total_DC))
 
-  p <- ggplot(data, aes(x = reorder(DC_TYPE_DESC, DC_Units), y = DC_Units, fill = DC_TYPE_DESC)) +
-    geom_col() +
-    coord_flip() +
-    scale_y_continuous(labels = label_comma()) +
-    labs(x = "", y = "DC Units") +
-    theme_minimal() +
-    theme(legend.position = "none")
-
-  ggplotly(p)
+ datatable(
+   data,
+   filter = "top",
+   options = list(pageLength = 15, scrollX = TRUE, dom = 'Bfrtip', buttons = c('copy', 'csv', 'excel')),
+   extensions = 'Buttons'
+ ) %>%
+   formatRound(c("DC_OH_Regional", "DC_OH_Grocery", "DC_OH_Fashion", "DC_OH_Imports",
+                 "DC_Labeled", "DC_Unlabeled", "STO", "On_Yard", "Total_DC"), digits = 0, mark = ",") %>%
+   formatCurrency("DC_Cost", currency = "$", digits = 0)
 })
 ```
 
 ## Row {height=60%}
 
 ```{r}
-#| title: "DC Breakdown by Division & Type"
+#| title: "DC Type by SBU"
+
+renderPlotly({
+ data <- filtered_data() %>%
+   group_by(SBU) %>%
+   summarise(
+     Regional = sum(DC_OH_REGIONAL, na.rm = TRUE),
+     Grocery = sum(DC_OH_GROCERY, na.rm = TRUE),
+     Fashion = sum(DC_OH_FASHION, na.rm = TRUE),
+     Imports = sum(DC_OH_IMPORTS, na.rm = TRUE),
+     .groups = "drop"
+   ) %>%
+   arrange(desc(Regional + Grocery + Fashion + Imports)) %>%
+   head(10) %>%
+   pivot_longer(cols = c(Regional, Grocery, Fashion, Imports),
+                names_to = "DC_Type", values_to = "Units")
+
+ dc_colors <- c("Regional" = "#0069d9", "Grocery" = "#40916c",
+                "Fashion" = "#9b59b6", "Imports" = "#c45c00")
+
+ p <- ggplot(data, aes(x = Units / 1e6, y = reorder(SBU, Units), fill = DC_Type)) +
+   geom_col(position = "stack") +
+   scale_fill_manual(values = dc_colors) +
+   labs(x = "Units (M)", y = "") +
+   theme_minimal() +
+   theme(legend.position = "bottom")
+
+ ggplotly(p) %>% layout(legend = list(orientation = "h", y = -0.2))
+})
+```
+
+```{r}
+#| title: "DC Inventory Composition"
+
+renderPlotly({
+ metrics <- summary_metrics()
+
+ df <- data.frame(
+   Component = c("DC On-Hand", "DC Labeled", "DC Unlabeled", "STO to DC", "On Yard"),
+   Units = c(metrics$dc_units, metrics$dc_labeled_units, metrics$dc_unlabeled_units,
+             metrics$sto_units, metrics$on_yard_units)
+ )
+
+ comp_colors <- c("DC On-Hand" = "#007bff", "DC Labeled" = "#e91e8c",
+                  "DC Unlabeled" = "#8e44ad", "STO to DC" = "#17a589", "On Yard" = "#dc2626")
+
+ p <- ggplot(df, aes(x = reorder(Component, -Units), y = Units / 1e6, fill = Component)) +
+   geom_col() +
+   scale_fill_manual(values = comp_colors) +
+   labs(x = "", y = "Units (M)") +
+   theme_minimal() +
+   theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1))
+
+ ggplotly(p)
+})
+```
+
+# Data Table
+
+## Row
+
+```{r}
+#| title: "Full Data Export (SBU > Department)"
 
 renderDT({
-  data <- filtered_data() %>%
-    filter(!is.na(DC_TYPE_DESC)) %>%
-    group_by(OMNI_DIVISION, DC_TYPE_DESC) %>%
-    summarise(
-      Items = n_distinct(MDS_FAM_ID),
-      DC_Units = sum(DC_OH_UNITS, na.rm = TRUE),
-      .groups = "drop"
-    ) %>%
-    arrange(desc(DC_Units))
+ data <- filtered_data() %>%
+   group_by(SBU, OMNI_DEPT_DESC, OMNI_DEPT_NBR) %>%
+   summarise(
+     On_Floor = sum(ON_FLOOR_UNITS, na.rm = TRUE),
+     Backroom = sum(BACKROOM_UNITS, na.rm = TRUE),
+     Store_OH = sum(STORE_OH_UNITS, na.rm = TRUE),
+     DC_OH = sum(DC_OH_UNITS, na.rm = TRUE),
+     In_Transit = sum(IN_TRANSIT_UNITS, na.rm = TRUE),
+     DC_Reserved = sum(DC_RESERVED_UNITS, na.rm = TRUE),
+     DC_Labeled = sum(DC_LABELED_UNITS, na.rm = TRUE),
+     DC_Unlabeled = sum(DC_UNLABELED_UNITS, na.rm = TRUE),
+     STO = sum(STO_UNITS, na.rm = TRUE),
+     FC = sum(FC_OH_UNITS, na.rm = TRUE),
+     On_Yard = sum(ON_YARD_UNITS, na.rm = TRUE),
+     Total = sum(TOTAL_NETWORK_UNITS, na.rm = TRUE),
+     Cost = sum(TOTAL_NETWORK_COST, na.rm = TRUE),
+     .groups = "drop"
+   ) %>%
+   rename(Department = OMNI_DEPT_DESC, Dept_Nbr = OMNI_DEPT_NBR) %>%
+   arrange(SBU, desc(Total))
 
-  datatable(
-    data,
-    filter = "top",
-    options = list(
-      pageLength = 20,
-      scrollX = TRUE
-    )
-  ) %>%
-    formatRound(c("DC_Units"), digits = 0, mark = ",")
+ datatable(
+   data,
+   filter = "top",
+   options = list(pageLength = 25, scrollX = TRUE, dom = 'Bfrtip', buttons = c('copy', 'csv', 'excel')),
+   extensions = 'Buttons'
+ ) %>%
+   formatRound(c("On_Floor", "Backroom", "Store_OH", "DC_OH", "In_Transit", "DC_Reserved",
+                 "DC_Labeled", "DC_Unlabeled", "STO", "FC", "On_Yard", "Total"), digits = 0, mark = ",") %>%
+   formatCurrency("Cost", currency = "$", digits = 0)
 })
 ```

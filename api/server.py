@@ -855,18 +855,28 @@ async def _load_hist_cache_background():
 @app.on_event("startup")
 async def startup_event():
     """Load main cache on startup, historical cache in background."""
-    logger.info("[STARTUP] Starting server initialization...")
-    logger.info(f"[STARTUP] PROJECT_ID={PROJECT_ID}, DATASET={DATASET}, TABLE={TABLE}")
-    logger.info(f"[STARTUP] GOOGLE_CREDENTIALS env var is {'SET' if os.environ.get('GOOGLE_CREDENTIALS') else 'NOT SET'}")
+    # Use print() for guaranteed output on Posit Connect
+    print("[STARTUP] ========================================", flush=True)
+    print(f"[STARTUP] Starting server initialization...", flush=True)
+    print(f"[STARTUP] PROJECT_ID={PROJECT_ID}", flush=True)
+    print(f"[STARTUP] DATASET={DATASET}", flush=True)
+    print(f"[STARTUP] TABLE={TABLE}", flush=True)
+    creds_set = "SET" if os.environ.get("GOOGLE_CREDENTIALS") else "NOT SET"
+    print(f"[STARTUP] GOOGLE_CREDENTIALS env var is {creds_set}", flush=True)
+    if os.environ.get("GOOGLE_CREDENTIALS"):
+        creds_preview = os.environ.get("GOOGLE_CREDENTIALS", "")[:50]
+        print(f"[STARTUP] GOOGLE_CREDENTIALS starts with: {creds_preview}...", flush=True)
+    print("[STARTUP] ========================================", flush=True)
+
     loop = asyncio.get_event_loop()
     try:
-        logger.info("[STARTUP] Beginning cache load...")
+        print("[STARTUP] Beginning cache load...", flush=True)
         await loop.run_in_executor(None, cache.load)
-        logger.info("[STARTUP] Cache load completed successfully")
+        print("[STARTUP] Cache load completed successfully", flush=True)
     except Exception as e:
-        logger.error(f"[CACHE] Initial load failed: {e}")
+        print(f"[CACHE] Initial load failed: {e}", flush=True)
         import traceback
-        logger.error(f"[CACHE] Traceback: {traceback.format_exc()}")
+        print(f"[CACHE] Traceback: {traceback.format_exc()}", flush=True)
     # Load historical cache in background — don't block server startup
     asyncio.create_task(_load_hist_cache_background())
     asyncio.create_task(cache_refresh_loop())

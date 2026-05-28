@@ -752,8 +752,9 @@ class HistoricalCache:
                  FROM {fqn} GROUP BY BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU, dept_nbr, department
                  ORDER BY BUS_DT, SBU, dept_nbr"""
 
-        # Category level — include ALL DC metrics needed for DC Drilldown (matching metric_sql)
-        # Must include all DC Type breakdown columns for filtering to work properly
+        # Category level — HIST_COMBINED does NOT have DC_LABELED/UNLABELED type columns!
+        # Only DC_OH_*, STO_TO_*, and ON_YARD_* type breakdowns exist in HIST_COMBINED
+        # DC_LABELED/UNLABELED type breakdowns are only available in DC_LEVEL table via CASE WHEN
         catg_metric_sql = """
             SUM(COALESCE(STORE_OH_UNITS, 0)) AS store_oh,
             SUM(COALESCE(DC_OH_UNITS, 0)) AS dc_oh,
@@ -764,27 +765,17 @@ class HistoricalCache:
             SUM(COALESCE(IN_TRANSIT_UNITS, 0)) AS in_transit,
             SUM(COALESCE(TOTAL_NETWORK_UNITS, 0)) AS total_network,
             SUM(COALESCE(FC_OH_UNITS, 0)) AS fc_oh,
-            -- DC OH by type
+            -- DC OH by type (these exist in HIST_COMBINED)
             SUM(COALESCE(DC_OH_REGIONAL_UNITS, 0)) AS dc_oh_regional,
             SUM(COALESCE(DC_OH_GROCERY_UNITS, 0)) AS dc_oh_grocery,
             SUM(COALESCE(DC_OH_FASHION_UNITS, 0)) AS dc_oh_fashion,
             SUM(COALESCE(DC_OH_IMPORTS_UNITS, 0)) AS dc_oh_imports,
-            -- DC Labeled by type
-            SUM(COALESCE(DC_LABELED_REGIONAL_UNITS, 0)) AS dc_labeled_regional,
-            SUM(COALESCE(DC_LABELED_GROCERY_UNITS, 0)) AS dc_labeled_grocery,
-            SUM(COALESCE(DC_LABELED_FASHION_UNITS, 0)) AS dc_labeled_fashion,
-            SUM(COALESCE(DC_LABELED_IMPORTS_UNITS, 0)) AS dc_labeled_imports,
-            -- DC Unlabeled by type
-            SUM(COALESCE(DC_UNLABELED_REGIONAL_UNITS, 0)) AS dc_unlabeled_regional,
-            SUM(COALESCE(DC_UNLABELED_GROCERY_UNITS, 0)) AS dc_unlabeled_grocery,
-            SUM(COALESCE(DC_UNLABELED_FASHION_UNITS, 0)) AS dc_unlabeled_fashion,
-            SUM(COALESCE(DC_UNLABELED_IMPORTS_UNITS, 0)) AS dc_unlabeled_imports,
-            -- STO by type (using sto_to_dc naming for frontend compatibility)
+            -- STO by type (these exist in HIST_COMBINED)
             SUM(COALESCE(STO_TO_REGIONAL_UNITS, 0)) AS sto_to_dc_regional,
             SUM(COALESCE(STO_TO_GROCERY_UNITS, 0)) AS sto_to_dc_grocery,
             SUM(COALESCE(STO_TO_FASHION_UNITS, 0)) AS sto_to_dc_fashion,
             SUM(COALESCE(STO_TO_IMPORTS_UNITS, 0)) AS sto_to_dc_imports,
-            -- On Yard by type
+            -- On Yard by type (these exist in HIST_COMBINED)
             SUM(COALESCE(ON_YARD_REGIONAL_UNITS, 0)) AS on_yard_regional,
             SUM(COALESCE(ON_YARD_GROCERY_UNITS, 0)) AS on_yard_grocery,
             SUM(COALESCE(ON_YARD_FASHION_UNITS, 0)) AS on_yard_fashion,

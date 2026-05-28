@@ -870,45 +870,56 @@ class HistoricalCache:
         """
 
         print(f"[HIST] Loading DC Drilldown data from: {HIST_PROJECT_ID}.{DATASET}.{DC_HIST_TABLE}", flush=True)
+
+        # DC Drilldown - SBU level (separate try/except for granular error handling)
         try:
-            # DC Drilldown - SBU level
             dc_q1 = f"""SELECT BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU, {dc_drill_metric_sql}
                         FROM {dc_fqn} GROUP BY BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU ORDER BY BUS_DT, SBU"""
             self.dc_drill_sbu_df = client.query(dc_q1).to_dataframe()
             print(f"[HIST] DC Drilldown SBU: {len(self.dc_drill_sbu_df):,} rows", flush=True)
+        except Exception as e:
+            print(f"[HIST] DC Drilldown SBU FAILED: {e}", flush=True)
+            self.dc_drill_sbu_df = None
 
-            # DC Drilldown - Dept level
-            # DC_LEVEL table uses DEPARTMENT column (not OMNI_DEPT_DESC)
+        # DC Drilldown - Dept level
+        try:
             dc_q2 = f"""SELECT BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU,
                                OMNI_DEPT_NBR AS dept_nbr, DEPARTMENT AS department, {dc_drill_metric_sql}
                         FROM {dc_fqn} GROUP BY BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU, dept_nbr, department
                         ORDER BY BUS_DT, SBU, dept_nbr"""
             self.dc_drill_dept_df = client.query(dc_q2).to_dataframe()
             print(f"[HIST] DC Drilldown Dept: {len(self.dc_drill_dept_df):,} rows", flush=True)
+        except Exception as e:
+            print(f"[HIST] DC Drilldown Dept FAILED: {e}", flush=True)
+            self.dc_drill_dept_df = None
 
-            # DC Drilldown - Category level
-            # DC_LEVEL table uses DEPARTMENT and CATEGORY columns (not OMNI_*_DESC)
+        # DC Drilldown - Category level
+        # CRITICAL: Uses CATEGORY column (not OMNI_CATG_DESC) and OMNI_CATG_NBR for category ID
+        # Removed WHERE clause - let the frontend handle NULL categories
+        try:
             dc_q3 = f"""SELECT BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU,
                                OMNI_DEPT_NBR AS dept_nbr, DEPARTMENT AS department,
                                OMNI_CATG_NBR AS catg_nbr, CATEGORY AS category, {dc_drill_metric_sql}
                         FROM {dc_fqn}
-                        WHERE OMNI_CATG_NBR IS NOT NULL
+                        WHERE CATEGORY IS NOT NULL
                         GROUP BY BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU, dept_nbr, department, catg_nbr, category
                         ORDER BY BUS_DT, SBU, dept_nbr, catg_nbr"""
             self.dc_drill_catg_df = client.query(dc_q3).to_dataframe()
             print(f"[HIST] DC Drilldown Category: {len(self.dc_drill_catg_df):,} rows", flush=True)
-
-            # Convert date columns
-            for df in [self.dc_drill_sbu_df, self.dc_drill_dept_df, self.dc_drill_catg_df]:
-                if df is not None and "BUS_DT" in df.columns:
-                    df["BUS_DT"] = df["BUS_DT"].astype(str)
+            # Debug: Print column names to verify case
+            if self.dc_drill_catg_df is not None and len(self.dc_drill_catg_df) > 0:
+                print(f"[HIST] DC Drilldown Category columns: {list(self.dc_drill_catg_df.columns)}", flush=True)
+                print(f"[HIST] DC Drilldown Category sample row: {self.dc_drill_catg_df.iloc[0].to_dict()}", flush=True)
+            else:
+                print(f"[HIST] DC Drilldown Category WARNING: Empty dataframe returned!", flush=True)
         except Exception as e:
-            print(f"[HIST] DC Drilldown load FAILED: {e}", flush=True)
-            logger.warning(f"[HIST] DC Drilldown load failed: {e}. DC Drilldown tab will use fallback data.")
-            # Fallback: use existing HIST_TABLE data for DC Drilldown
-            self.dc_drill_sbu_df = None
-            self.dc_drill_dept_df = None
+            print(f"[HIST] DC Drilldown Category FAILED: {e}", flush=True)
             self.dc_drill_catg_df = None
+
+        # Convert date columns for all successful DC Drilldown dataframes
+        for df in [self.dc_drill_sbu_df, self.dc_drill_dept_df, self.dc_drill_catg_df]:
+            if df is not None and "BUS_DT" in df.columns:
+                df["BUS_DT"] = df["BUS_DT"].astype(str)
 
         # Convert date columns to strings for JSON serialization
         for df in [self.enterprise_df, self.sbu_df, self.dept_df, self.catg_df]:

@@ -970,6 +970,11 @@
         const prev = weeks.length > 1 ? weeks[weeks.length - 2] : null;
         const lyWeek = findYoYWeek(weeks, latest);
 
+        // DEBUG: Log FC and On Yard values
+        console.log('🔍 KPI DEBUG - Latest week:', latest.BUS_DT, 'WK' + latest.WM_WEEK);
+        console.log('🔍 fc_oh:', latest.fc_oh, '| on_yard:', latest.on_yard);
+        console.log('🔍 dc_oh:', latest.dc_oh, '| in_transit:', latest.in_transit);
+
         setKPI('kpi-total', adjTotal(latest), prev ? adjTotal(prev) : null, 'kpi-total-wow',
                lyWeek ? adjTotal(lyWeek) : null, 'kpi-total-yoy');
         setKPI('kpi-store', latest.store_oh, prev?.store_oh, 'kpi-store-wow',

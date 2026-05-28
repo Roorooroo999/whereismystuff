@@ -720,16 +720,6 @@ class HistoricalCache:
             SUM(COALESCE(DC_OH_MSC_UNITS, 0)) AS dc_oh_msc,
             SUM(COALESCE(DC_OH_SUPPORT_UNITS, 0)) AS dc_oh_support,
             SUM(COALESCE(DC_OH_OTHER_UNITS, 0)) AS dc_oh_other,
-            -- DC Labeled by type (for DC Drilldown filtering)
-            SUM(COALESCE(DC_LABELED_REGIONAL_UNITS, 0)) AS dc_labeled_regional,
-            SUM(COALESCE(DC_LABELED_GROCERY_UNITS, 0)) AS dc_labeled_grocery,
-            SUM(COALESCE(DC_LABELED_FASHION_UNITS, 0)) AS dc_labeled_fashion,
-            SUM(COALESCE(DC_LABELED_IMPORTS_UNITS, 0)) AS dc_labeled_imports,
-            -- DC Unlabeled by type (for DC Drilldown filtering)
-            SUM(COALESCE(DC_UNLABELED_REGIONAL_UNITS, 0)) AS dc_unlabeled_regional,
-            SUM(COALESCE(DC_UNLABELED_GROCERY_UNITS, 0)) AS dc_unlabeled_grocery,
-            SUM(COALESCE(DC_UNLABELED_FASHION_UNITS, 0)) AS dc_unlabeled_fashion,
-            SUM(COALESCE(DC_UNLABELED_IMPORTS_UNITS, 0)) AS dc_unlabeled_imports,
             -- STO by type
             SUM(COALESCE(STO_TO_REGIONAL_UNITS, 0)) AS sto_to_regional,
             SUM(COALESCE(STO_TO_GROCERY_UNITS, 0)) AS sto_to_grocery,

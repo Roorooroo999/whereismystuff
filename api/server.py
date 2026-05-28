@@ -125,9 +125,12 @@ class DataCache:
         """Load all data from BigQuery in ONE query, pre-aggregated at the finest filter grain."""
         self.is_loading = True
         t0 = time.time()
+        print("[CACHE] load() called, getting BigQuery client...", flush=True)
         try:
             client = self._get_client()
+            print("[CACHE] BigQuery client created successfully", flush=True)
         except Exception as e:
+            print(f"[CACHE] Failed to create BigQuery client: {e}", flush=True)
             logger.error(f"[CACHE] Failed to create BigQuery client: {e}")
             self.is_loading = False
             return
@@ -194,10 +197,14 @@ class DataCache:
         GROUP BY sbu, dept_nbr, department, category, replen_type
         """
 
+        print("[CACHE] Loading main data from BigQuery...", flush=True)
+        print(f"[CACHE] Query table: {PROJECT_ID}.{DATASET}.{TABLE}", flush=True)
         logger.info("[CACHE] Loading main data from BigQuery...")
         try:
             df = client.query(query).to_dataframe()
+            print(f"[CACHE] Query returned {len(df)} rows", flush=True)
         except Exception as e:
+            print(f"[CACHE] BigQuery query failed: {e}", flush=True)
             logger.error(f"[CACHE] BigQuery query failed: {e}")
             self.is_loading = False
             return
@@ -872,7 +879,13 @@ async def startup_event():
     try:
         print("[STARTUP] Beginning cache load...", flush=True)
         await loop.run_in_executor(None, cache.load)
-        print("[STARTUP] Cache load completed successfully", flush=True)
+        print("[STARTUP] Cache load function completed", flush=True)
+        print(f"[STARTUP] cache.is_ready = {cache.is_ready}", flush=True)
+        print(f"[STARTUP] cache.df is None = {cache.df is None}", flush=True)
+        if cache.df is not None:
+            print(f"[STARTUP] cache.df rows = {len(cache.df)}", flush=True)
+        else:
+            print("[STARTUP] WARNING: cache.df is None - load likely failed!", flush=True)
     except Exception as e:
         print(f"[CACHE] Initial load failed: {e}", flush=True)
         import traceback

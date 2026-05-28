@@ -895,25 +895,30 @@ class HistoricalCache:
 
         # DC Drilldown - Category level
         # CRITICAL: Uses CATEGORY column (not OMNI_CATG_DESC) and OMNI_CATG_NBR for category ID
-        # Removed WHERE clause - let the frontend handle NULL categories
+        # NO WHERE clause - include all rows, filter NULLs in frontend if needed
         try:
             dc_q3 = f"""SELECT BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU,
                                OMNI_DEPT_NBR AS dept_nbr, DEPARTMENT AS department,
                                OMNI_CATG_NBR AS catg_nbr, CATEGORY AS category, {dc_drill_metric_sql}
                         FROM {dc_fqn}
-                        WHERE CATEGORY IS NOT NULL
                         GROUP BY BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU, dept_nbr, department, catg_nbr, category
                         ORDER BY BUS_DT, SBU, dept_nbr, catg_nbr"""
+            print(f"[HIST] Executing DC Category query...", flush=True)
             self.dc_drill_catg_df = client.query(dc_q3).to_dataframe()
             print(f"[HIST] DC Drilldown Category: {len(self.dc_drill_catg_df):,} rows", flush=True)
             # Debug: Print column names to verify case
             if self.dc_drill_catg_df is not None and len(self.dc_drill_catg_df) > 0:
                 print(f"[HIST] DC Drilldown Category columns: {list(self.dc_drill_catg_df.columns)}", flush=True)
                 print(f"[HIST] DC Drilldown Category sample row: {self.dc_drill_catg_df.iloc[0].to_dict()}", flush=True)
+                # Check for unique weeks to verify data coverage
+                unique_weeks = self.dc_drill_catg_df[['WM_YEAR', 'WM_WEEK']].drop_duplicates()
+                print(f"[HIST] DC Category weeks available: {len(unique_weeks)} weeks, latest: {unique_weeks.iloc[-1].to_dict()}", flush=True)
             else:
                 print(f"[HIST] DC Drilldown Category WARNING: Empty dataframe returned!", flush=True)
         except Exception as e:
             print(f"[HIST] DC Drilldown Category FAILED: {e}", flush=True)
+            import traceback
+            print(f"[HIST] DC Category traceback: {traceback.format_exc()}", flush=True)
             self.dc_drill_catg_df = None
 
         # Convert date columns for all successful DC Drilldown dataframes

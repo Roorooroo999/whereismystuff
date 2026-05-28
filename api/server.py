@@ -688,37 +688,38 @@ class HistoricalCache:
         t0 = time.time()
         client = self._get_client()
 
+        # Historical metrics - use COALESCE for columns that may not exist in older data
         metric_sql = """
-            SUM(STORE_OH_UNITS) AS store_oh,
-            SUM(BACKROOM_UNITS) AS backroom,
-            SUM(ON_FLOOR_UNITS) AS on_floor,
-            SUM(DC_RESERVED_UNITS) AS dc_reserved,
-            SUM(IN_TRANSIT_UNITS) AS in_transit,
-            SUM(DC_OH_UNITS) AS dc_oh,
-            SUM(DC_LABELED_UNITS) AS dc_labeled,
-            SUM(DC_UNLABELED_UNITS) AS dc_unlabeled,
-            SUM(STO_IN_TRANSIT_TO_DC_UNITS) AS sto_to_dc,
+            SUM(COALESCE(STORE_OH_UNITS, 0)) AS store_oh,
+            SUM(COALESCE(BACKROOM_UNITS, 0)) AS backroom,
+            SUM(COALESCE(ON_FLOOR_UNITS, 0)) AS on_floor,
+            SUM(COALESCE(DC_RESERVED_UNITS, 0)) AS dc_reserved,
+            SUM(COALESCE(IN_TRANSIT_UNITS, 0)) AS in_transit,
+            SUM(COALESCE(DC_OH_UNITS, 0)) AS dc_oh,
+            SUM(COALESCE(DC_LABELED_UNITS, 0)) AS dc_labeled,
+            SUM(COALESCE(DC_UNLABELED_UNITS, 0)) AS dc_unlabeled,
+            SUM(COALESCE(STO_IN_TRANSIT_TO_DC_UNITS, 0)) AS sto_to_dc,
             SUM(COALESCE(ON_YARD_UNITS, 0)) AS on_yard,
-            SUM(TOTAL_NETWORK_UNITS) AS total_network,
-            SUM(FC_OH_UNITS) AS fc_oh,
-            SUM(FC_OH_COST) AS fc_oh_cost,
-            SUM(TOTAL_NETWORK_COST) AS total_network_cost,
-            SUM(DC_OH_REGIONAL_UNITS) AS dc_oh_regional,
-            SUM(DC_OH_GROCERY_UNITS) AS dc_oh_grocery,
-            SUM(DC_OH_FASHION_UNITS) AS dc_oh_fashion,
-            SUM(DC_OH_IMPORTS_UNITS) AS dc_oh_imports,
-            SUM(DC_OH_GIDC_UNITS) AS dc_oh_gidc,
-            SUM(DC_OH_MSC_UNITS) AS dc_oh_msc,
-            SUM(DC_OH_SUPPORT_UNITS) AS dc_oh_support,
-            SUM(DC_OH_OTHER_UNITS) AS dc_oh_other,
-            SUM(STO_TO_REGIONAL_UNITS) AS sto_to_regional,
-            SUM(STO_TO_GROCERY_UNITS) AS sto_to_grocery,
-            SUM(STO_TO_FASHION_UNITS) AS sto_to_fashion,
-            SUM(STO_TO_IMPORTS_UNITS) AS sto_to_imports,
-            SUM(STO_TO_GIDC_UNITS) AS sto_to_gidc,
-            SUM(STO_TO_MSC_UNITS) AS sto_to_msc,
-            SUM(STO_TO_SUPPORT_UNITS) AS sto_to_support,
-            SUM(STO_TO_OTHER_UNITS) AS sto_to_other
+            SUM(COALESCE(TOTAL_NETWORK_UNITS, 0)) AS total_network,
+            SUM(COALESCE(FC_OH_UNITS, 0)) AS fc_oh,
+            SUM(COALESCE(FC_OH_COST, 0)) AS fc_oh_cost,
+            SUM(COALESCE(TOTAL_NETWORK_COST, 0)) AS total_network_cost,
+            SUM(COALESCE(DC_OH_REGIONAL_UNITS, 0)) AS dc_oh_regional,
+            SUM(COALESCE(DC_OH_GROCERY_UNITS, 0)) AS dc_oh_grocery,
+            SUM(COALESCE(DC_OH_FASHION_UNITS, 0)) AS dc_oh_fashion,
+            SUM(COALESCE(DC_OH_IMPORTS_UNITS, 0)) AS dc_oh_imports,
+            SUM(COALESCE(DC_OH_GIDC_UNITS, 0)) AS dc_oh_gidc,
+            SUM(COALESCE(DC_OH_MSC_UNITS, 0)) AS dc_oh_msc,
+            SUM(COALESCE(DC_OH_SUPPORT_UNITS, 0)) AS dc_oh_support,
+            SUM(COALESCE(DC_OH_OTHER_UNITS, 0)) AS dc_oh_other,
+            SUM(COALESCE(STO_TO_REGIONAL_UNITS, 0)) AS sto_to_regional,
+            SUM(COALESCE(STO_TO_GROCERY_UNITS, 0)) AS sto_to_grocery,
+            SUM(COALESCE(STO_TO_FASHION_UNITS, 0)) AS sto_to_fashion,
+            SUM(COALESCE(STO_TO_IMPORTS_UNITS, 0)) AS sto_to_imports,
+            SUM(COALESCE(STO_TO_GIDC_UNITS, 0)) AS sto_to_gidc,
+            SUM(COALESCE(STO_TO_MSC_UNITS, 0)) AS sto_to_msc,
+            SUM(COALESCE(STO_TO_SUPPORT_UNITS, 0)) AS sto_to_support,
+            SUM(COALESCE(STO_TO_OTHER_UNITS, 0)) AS sto_to_other
         """
 
         fqn = f"`{HIST_PROJECT_ID}.{DATASET}.{HIST_TABLE}`"
@@ -765,21 +766,35 @@ class HistoricalCache:
                  GROUP BY BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU, dept_nbr, department, catg_nbr, category
                  ORDER BY BUS_DT, SBU, dept_nbr, catg_nbr"""
 
-        logger.info("[HIST] Loading enterprise-level historical data...")
-        self.enterprise_df = client.query(q1).to_dataframe()
-        logger.info(f"[HIST] Enterprise: {len(self.enterprise_df):,} rows")
+        print(f"[HIST] Loading from table: {HIST_PROJECT_ID}.{DATASET}.{HIST_TABLE}", flush=True)
 
+        print("[HIST] Loading enterprise-level historical data...", flush=True)
+        logger.info("[HIST] Loading enterprise-level historical data...")
+        try:
+            self.enterprise_df = client.query(q1).to_dataframe()
+            print(f"[HIST] Enterprise: {len(self.enterprise_df):,} rows", flush=True)
+            if 'fc_oh' in self.enterprise_df.columns:
+                print(f"[HIST] Enterprise fc_oh sum: {self.enterprise_df['fc_oh'].sum()}", flush=True)
+            if 'on_yard' in self.enterprise_df.columns:
+                print(f"[HIST] Enterprise on_yard sum: {self.enterprise_df['on_yard'].sum()}", flush=True)
+        except Exception as e:
+            print(f"[HIST] Enterprise query FAILED: {e}", flush=True)
+            raise
+
+        print("[HIST] Loading SBU-level historical data...", flush=True)
         logger.info("[HIST] Loading SBU-level historical data...")
         self.sbu_df = client.query(q2).to_dataframe()
-        logger.info(f"[HIST] SBU: {len(self.sbu_df):,} rows")
+        print(f"[HIST] SBU: {len(self.sbu_df):,} rows", flush=True)
 
+        print("[HIST] Loading Dept-level historical data...", flush=True)
         logger.info("[HIST] Loading Dept-level historical data...")
         self.dept_df = client.query(q3).to_dataframe()
-        logger.info(f"[HIST] Dept: {len(self.dept_df):,} rows")
+        print(f"[HIST] Dept: {len(self.dept_df):,} rows", flush=True)
 
+        print("[HIST] Loading Category-level historical data...", flush=True)
         logger.info("[HIST] Loading Category-level historical data...")
         self.catg_df = client.query(q4).to_dataframe()
-        logger.info(f"[HIST] Category: {len(self.catg_df):,} rows")
+        print(f"[HIST] Category: {len(self.catg_df):,} rows", flush=True)
 
         # Convert date columns to strings for JSON serialization
         for df in [self.enterprise_df, self.sbu_df, self.dept_df, self.catg_df]:

@@ -878,17 +878,19 @@ class HistoricalCache:
             print(f"[HIST] DC Drilldown SBU: {len(self.dc_drill_sbu_df):,} rows", flush=True)
 
             # DC Drilldown - Dept level
+            # DC_LEVEL table uses DEPARTMENT column (not OMNI_DEPT_DESC)
             dc_q2 = f"""SELECT BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU,
-                               OMNI_DEPT_NBR AS dept_nbr, OMNI_DEPT_DESC AS department, {dc_drill_metric_sql}
+                               OMNI_DEPT_NBR AS dept_nbr, DEPARTMENT AS department, {dc_drill_metric_sql}
                         FROM {dc_fqn} GROUP BY BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU, dept_nbr, department
                         ORDER BY BUS_DT, SBU, dept_nbr"""
             self.dc_drill_dept_df = client.query(dc_q2).to_dataframe()
             print(f"[HIST] DC Drilldown Dept: {len(self.dc_drill_dept_df):,} rows", flush=True)
 
             # DC Drilldown - Category level
+            # DC_LEVEL table uses DEPARTMENT and CATEGORY columns (not OMNI_*_DESC)
             dc_q3 = f"""SELECT BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU,
-                               OMNI_DEPT_NBR AS dept_nbr, OMNI_DEPT_DESC AS department,
-                               OMNI_CATG_NBR AS catg_nbr, OMNI_CATG_DESC AS category, {dc_drill_metric_sql}
+                               OMNI_DEPT_NBR AS dept_nbr, DEPARTMENT AS department,
+                               OMNI_CATG_NBR AS catg_nbr, CATEGORY AS category, {dc_drill_metric_sql}
                         FROM {dc_fqn}
                         WHERE OMNI_CATG_NBR IS NOT NULL
                         GROUP BY BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU, dept_nbr, department, catg_nbr, category

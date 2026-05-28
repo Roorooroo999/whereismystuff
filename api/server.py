@@ -833,37 +833,40 @@ class HistoricalCache:
         # Provides SBU/Dept/Category views with full DC Type breakdown
         # ============================================================
         dc_fqn = f"`{HIST_PROJECT_ID}.{DATASET}.{DC_HIST_TABLE}`"
+        # DC_LEVEL table columns: DC_OH_UNITS, DC_LABELED_UNITS, DC_UNLABELED_UNITS,
+        # STO_TO_DC_UNITS, ON_YARD_UNITS, DC_TYPE (for filtering)
+        # Aggregate by DC_TYPE to get breakdown
         dc_drill_metric_sql = """
             SUM(COALESCE(DC_OH_UNITS, 0)) AS dc_oh,
             SUM(COALESCE(DC_LABELED_UNITS, 0)) AS dc_labeled,
             SUM(COALESCE(DC_UNLABELED_UNITS, 0)) AS dc_unlabeled,
-            SUM(COALESCE(STO_IN_TRANSIT_TO_DC_UNITS, 0)) AS sto_to_dc,
+            SUM(COALESCE(STO_TO_DC_UNITS, 0)) AS sto_to_dc,
             SUM(COALESCE(ON_YARD_UNITS, 0)) AS on_yard,
-            -- DC OH by type
-            SUM(COALESCE(DC_OH_REGIONAL_UNITS, 0)) AS dc_oh_regional,
-            SUM(COALESCE(DC_OH_GROCERY_UNITS, 0)) AS dc_oh_grocery,
-            SUM(COALESCE(DC_OH_FASHION_UNITS, 0)) AS dc_oh_fashion,
-            SUM(COALESCE(DC_OH_IMPORTS_UNITS, 0)) AS dc_oh_imports,
+            -- DC OH by type (using DC_TYPE column)
+            SUM(CASE WHEN DC_TYPE = 'Regional' THEN COALESCE(DC_OH_UNITS, 0) ELSE 0 END) AS dc_oh_regional,
+            SUM(CASE WHEN DC_TYPE = 'Grocery' THEN COALESCE(DC_OH_UNITS, 0) ELSE 0 END) AS dc_oh_grocery,
+            SUM(CASE WHEN DC_TYPE = 'Fashion' THEN COALESCE(DC_OH_UNITS, 0) ELSE 0 END) AS dc_oh_fashion,
+            SUM(CASE WHEN DC_TYPE = 'Imports' THEN COALESCE(DC_OH_UNITS, 0) ELSE 0 END) AS dc_oh_imports,
             -- DC Labeled by type
-            SUM(COALESCE(DC_LABELED_REGIONAL_UNITS, 0)) AS dc_labeled_regional,
-            SUM(COALESCE(DC_LABELED_GROCERY_UNITS, 0)) AS dc_labeled_grocery,
-            SUM(COALESCE(DC_LABELED_FASHION_UNITS, 0)) AS dc_labeled_fashion,
-            SUM(COALESCE(DC_LABELED_IMPORTS_UNITS, 0)) AS dc_labeled_imports,
+            SUM(CASE WHEN DC_TYPE = 'Regional' THEN COALESCE(DC_LABELED_UNITS, 0) ELSE 0 END) AS dc_labeled_regional,
+            SUM(CASE WHEN DC_TYPE = 'Grocery' THEN COALESCE(DC_LABELED_UNITS, 0) ELSE 0 END) AS dc_labeled_grocery,
+            SUM(CASE WHEN DC_TYPE = 'Fashion' THEN COALESCE(DC_LABELED_UNITS, 0) ELSE 0 END) AS dc_labeled_fashion,
+            SUM(CASE WHEN DC_TYPE = 'Imports' THEN COALESCE(DC_LABELED_UNITS, 0) ELSE 0 END) AS dc_labeled_imports,
             -- DC Unlabeled by type
-            SUM(COALESCE(DC_UNLABELED_REGIONAL_UNITS, 0)) AS dc_unlabeled_regional,
-            SUM(COALESCE(DC_UNLABELED_GROCERY_UNITS, 0)) AS dc_unlabeled_grocery,
-            SUM(COALESCE(DC_UNLABELED_FASHION_UNITS, 0)) AS dc_unlabeled_fashion,
-            SUM(COALESCE(DC_UNLABELED_IMPORTS_UNITS, 0)) AS dc_unlabeled_imports,
+            SUM(CASE WHEN DC_TYPE = 'Regional' THEN COALESCE(DC_UNLABELED_UNITS, 0) ELSE 0 END) AS dc_unlabeled_regional,
+            SUM(CASE WHEN DC_TYPE = 'Grocery' THEN COALESCE(DC_UNLABELED_UNITS, 0) ELSE 0 END) AS dc_unlabeled_grocery,
+            SUM(CASE WHEN DC_TYPE = 'Fashion' THEN COALESCE(DC_UNLABELED_UNITS, 0) ELSE 0 END) AS dc_unlabeled_fashion,
+            SUM(CASE WHEN DC_TYPE = 'Imports' THEN COALESCE(DC_UNLABELED_UNITS, 0) ELSE 0 END) AS dc_unlabeled_imports,
             -- STO by type
-            SUM(COALESCE(STO_TO_REGIONAL_UNITS, 0)) AS sto_to_dc_regional,
-            SUM(COALESCE(STO_TO_GROCERY_UNITS, 0)) AS sto_to_dc_grocery,
-            SUM(COALESCE(STO_TO_FASHION_UNITS, 0)) AS sto_to_dc_fashion,
-            SUM(COALESCE(STO_TO_IMPORTS_UNITS, 0)) AS sto_to_dc_imports,
+            SUM(CASE WHEN DC_TYPE = 'Regional' THEN COALESCE(STO_TO_DC_UNITS, 0) ELSE 0 END) AS sto_to_dc_regional,
+            SUM(CASE WHEN DC_TYPE = 'Grocery' THEN COALESCE(STO_TO_DC_UNITS, 0) ELSE 0 END) AS sto_to_dc_grocery,
+            SUM(CASE WHEN DC_TYPE = 'Fashion' THEN COALESCE(STO_TO_DC_UNITS, 0) ELSE 0 END) AS sto_to_dc_fashion,
+            SUM(CASE WHEN DC_TYPE = 'Imports' THEN COALESCE(STO_TO_DC_UNITS, 0) ELSE 0 END) AS sto_to_dc_imports,
             -- On Yard by type
-            SUM(COALESCE(ON_YARD_REGIONAL_UNITS, 0)) AS on_yard_regional,
-            SUM(COALESCE(ON_YARD_GROCERY_UNITS, 0)) AS on_yard_grocery,
-            SUM(COALESCE(ON_YARD_FASHION_UNITS, 0)) AS on_yard_fashion,
-            SUM(COALESCE(ON_YARD_IMPORTS_UNITS, 0)) AS on_yard_imports
+            SUM(CASE WHEN DC_TYPE = 'Regional' THEN COALESCE(ON_YARD_UNITS, 0) ELSE 0 END) AS on_yard_regional,
+            SUM(CASE WHEN DC_TYPE = 'Grocery' THEN COALESCE(ON_YARD_UNITS, 0) ELSE 0 END) AS on_yard_grocery,
+            SUM(CASE WHEN DC_TYPE = 'Fashion' THEN COALESCE(ON_YARD_UNITS, 0) ELSE 0 END) AS on_yard_fashion,
+            SUM(CASE WHEN DC_TYPE = 'Imports' THEN COALESCE(ON_YARD_UNITS, 0) ELSE 0 END) AS on_yard_imports
         """
 
         print(f"[HIST] Loading DC Drilldown data from: {HIST_PROJECT_ID}.{DATASET}.{DC_HIST_TABLE}", flush=True)

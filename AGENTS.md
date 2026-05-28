@@ -71,6 +71,15 @@ The two historical tables have **different column structures**. This has caused 
 
 **Note:** DC_LEVEL does **NOT** have pre-aggregated type columns. Use `CASE WHEN DC_TYPE = '...'` to derive breakdowns.
 
+**IMPORTANT Column Name Differences:**
+| HIST_COMBINED | DC_LEVEL | SQL Alias |
+|---------------|----------|-----------|
+| `OMNI_DEPT_DESC` | `DEPARTMENT` | `AS department` |
+| `OMNI_CATG_DESC` | `CATEGORY` | `AS category` |
+| `STO_IN_TRANSIT_TO_DC_UNITS` | `STO_TO_DC_UNITS` | `AS sto_to_dc` |
+
+Always use SQL aliases to normalize column names for the frontend.
+
 ---
 
 ## Common Issues & Fixes
@@ -218,12 +227,21 @@ historical.html
 ### To DC Drilldown queries:
 
 1. Verify column exists in `R0C0JUG_WMUS_HIST_DC_LEVEL`
-2. If column is at DC level (not pre-aggregated), use `CASE WHEN DC_TYPE`:
+2. **Use correct table column names** (see table above for differences)
+3. **Always alias to lowercase** for frontend consistency:
+   ```sql
+   -- CORRECT: Use actual table column, alias to lowercase
+   SELECT DEPARTMENT AS department, CATEGORY AS category
+   
+   -- WRONG: Using HIST_COMBINED column names on DC_LEVEL table
+   SELECT OMNI_DEPT_DESC AS department  -- This column doesn't exist!
+   ```
+4. If column is at DC level (not pre-aggregated), use `CASE WHEN DC_TYPE`:
    ```sql
    SUM(CASE WHEN DC_TYPE = 'Regional' THEN column ELSE 0 END) AS column_regional
    ```
-3. Add to `dc_drill_metric_sql` in `HistoricalCache.load()`
-4. Update frontend `loadDCDrilldownData()` if needed
+5. Add to `dc_drill_metric_sql` in `HistoricalCache.load()`
+6. Frontend expects lowercase column names (`department`, `category`, `sto_to_dc`)
 
 ---
 

@@ -677,7 +677,15 @@ class HistoricalCache:
 
     @property
     def is_ready(self) -> bool:
-        return self.enterprise_df is not None and not self.enterprise_df.empty
+        # Must check ALL required dataframes, not just enterprise_df
+        # Otherwise requests can come in while cache is partially loaded
+        return (
+            self.enterprise_df is not None and not self.enterprise_df.empty
+            and self.sbu_df is not None
+            and self.dept_df is not None
+            and self.catg_df is not None
+            and not self.is_loading  # Also check we're not mid-load
+        )
 
     def _get_client(self):
         creds_json = os.environ.get("GOOGLE_CREDENTIALS", "")
@@ -954,9 +962,10 @@ class HistoricalCache:
                 "weeks": len(dates)
             },
             "sbu_list": list(sbu_list),
-            "enterprise": self.enterprise_df.to_dict(orient="records"),
-            "by_sbu": self.sbu_df.to_dict(orient="records"),
-            "by_dept": self.dept_df.to_dict(orient="records"),
+            # Add null checks for ALL dataframes to prevent AttributeError during partial load
+            "enterprise": self.enterprise_df.to_dict(orient="records") if self.enterprise_df is not None else [],
+            "by_sbu": self.sbu_df.to_dict(orient="records") if self.sbu_df is not None else [],
+            "by_dept": self.dept_df.to_dict(orient="records") if self.dept_df is not None else [],
             "by_catg": self.catg_df.to_dict(orient="records") if self.catg_df is not None else [],
             # DC Drilldown data from separate DC_HIST_TABLE (with full DC Type breakdown)
             "dc_drill_sbu": self.dc_drill_sbu_df.to_dict(orient="records") if self.dc_drill_sbu_df is not None else [],

@@ -855,11 +855,18 @@ async def _load_hist_cache_background():
 @app.on_event("startup")
 async def startup_event():
     """Load main cache on startup, historical cache in background."""
+    logger.info("[STARTUP] Starting server initialization...")
+    logger.info(f"[STARTUP] PROJECT_ID={PROJECT_ID}, DATASET={DATASET}, TABLE={TABLE}")
+    logger.info(f"[STARTUP] GOOGLE_CREDENTIALS env var is {'SET' if os.environ.get('GOOGLE_CREDENTIALS') else 'NOT SET'}")
     loop = asyncio.get_event_loop()
     try:
+        logger.info("[STARTUP] Beginning cache load...")
         await loop.run_in_executor(None, cache.load)
+        logger.info("[STARTUP] Cache load completed successfully")
     except Exception as e:
         logger.error(f"[CACHE] Initial load failed: {e}")
+        import traceback
+        logger.error(f"[CACHE] Traceback: {traceback.format_exc()}")
     # Load historical cache in background — don't block server startup
     asyncio.create_task(_load_hist_cache_background())
     asyncio.create_task(cache_refresh_loop())

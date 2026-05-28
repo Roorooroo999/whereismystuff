@@ -73,6 +73,10 @@
         .alert-info { background-color: rgba(0,113,206,0.2); border-color: #0071ce; color: #6cb2eb; }
         .dept-breakdown { display: none; }
         .dept-breakdown.show { display: block; }
+        #dept-tbody tr { background-color: rgba(255,255,255,0.02); }
+        #dept-tbody tr:nth-child(odd) { background-color: rgba(255,255,255,0.04); }
+        #dept-tbody tr:hover { background-color: rgba(0,113,206,0.15); }
+        #dept-tbody td { color: #e8e8e8; }
         .text-muted { color: var(--text-muted) !important; }
         h5, h6 { color: var(--text-light); }
         .filter-tag { display: inline-block; font-size: 0.65rem; padding: 1px 6px; border-radius: 8px; background: rgba(0,113,206,0.25); color: #6cb2eb; margin-right: 4px; margin-top: 4px; }
@@ -376,18 +380,23 @@
                             <div class="table-container">
                                 <div class="chart-title"><i class="bi bi-list-nested me-1"></i>Department Breakdown</div>
                                 <div class="table-responsive">
-                                    <table class="table table-sm table-striped table-hover">
-                                        <thead class="table-dark">
+                                    <table class="table table-sm table-striped table-hover" style="font-size:0.8rem; color:#e8e8e8;">
+                                        <thead class="table-dark" style="background-color:#0f0f1a;">
                                             <tr>
-                                                <th>Department</th>
-                                                <th class="text-end">Store OH</th>
-                                                <th class="text-end">DC OH</th>
-                                                <th class="text-end">In-Transit</th>
-                                                <th class="text-end">DC Reserved</th>
-                                                <th class="text-end">DC Labeled</th>
-                                                <th class="text-end">DC Unlabeled</th>
-                                                <th class="text-end">Total</th>
-                                                <th class="text-end">Cost</th>
+                                                <th style="max-width:140px; color:#fff;">Department</th>
+                                                <th class="text-end" title="On Floor" style="color:#fff;">Floor</th>
+                                                <th class="text-end" title="Backroom" style="color:#fff;">Bkrm</th>
+                                                <th class="text-end" title="Store OH" style="color:#fff;">Store</th>
+                                                <th class="text-end" title="DC On-Hand" style="color:#fff;">DC</th>
+                                                <th class="text-end" title="In-Transit" style="color:#fff;">Trns</th>
+                                                <th class="text-end" title="DC Reserved" style="color:#fff;">Rsv</th>
+                                                <th class="text-end" title="DC Labeled" style="color:#fff;">Lbl</th>
+                                                <th class="text-end" title="DC Unlabeled" style="color:#fff;">Unl</th>
+                                                <th class="text-end" title="STO to DC" style="color:#fff;">STO</th>
+                                                <th class="text-end" title="FC (eComm)" style="color:#fff;">FC</th>
+                                                <th class="text-end" title="On Yard" style="color:#fff;">Yard</th>
+                                                <th class="text-end" style="color:#fff;">Total</th>
+                                                <th class="text-end" style="color:#fff;">Cost</th>
                                             </tr>
                                         </thead>
                                         <tbody id="dept-tbody"></tbody>
@@ -1031,13 +1040,18 @@
         function updateDeptTable(deptData) {
             document.getElementById('dept-tbody').innerHTML = deptData.slice(0, 20).map(row => `
                 <tr>
-                    <td>${row.department}</td>
+                    <td style="max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${row.department}">${row.department}</td>
+                    <td class="text-end">${formatNumber(row.on_floor_units || 0)}</td>
+                    <td class="text-end">${formatNumber(row.backroom_units || 0)}</td>
                     <td class="text-end">${formatNumber(row.store_units)}</td>
-                    <td class="text-end">${formatNumber(row.dc_oh_units)}</td>
+                    <td class="text-end">${formatNumber(row.dc_units || row.dc_oh_units || 0)}</td>
                     <td class="text-end">${formatNumber(row.transit_units)}</td>
                     <td class="text-end">${formatNumber(row.dc_reserved_units)}</td>
                     <td class="text-end">${formatNumber(row.dc_labeled_units)}</td>
-                    <td class="text-end">${formatNumber(row.dc_unlabeled_units)}</td>
+                    <td class="text-end">${formatNumber(row.dc_unlabeled_units || 0)}</td>
+                    <td class="text-end">${formatNumber(row.sto_units || 0)}</td>
+                    <td class="text-end">${formatNumber(row.fc_oh_units || 0)}</td>
+                    <td class="text-end">${formatNumber(row.on_yard_units || 0)}</td>
                     <td class="text-end"><strong>${formatNumber(row.total_units)}</strong></td>
                     <td class="text-end">${formatCurrency(row.total_cost)}</td>
                 </tr>`).join('');

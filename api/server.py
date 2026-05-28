@@ -84,6 +84,8 @@ HIST_PROJECT_ID = os.environ.get("HIST_PROJECT_ID", "wmt-execution-intel-prod")
 DATASET = os.environ.get("DATASET", "WM_AD_HOC")
 TABLE = os.environ.get("TABLE", "WHERES_MY_STUFF_ROLLUP")
 HIST_TABLE = os.environ.get("HIST_TABLE", "R0C0JUG_WMUS_HIST_COMBINED")
+# DC Drilldown uses a separate DC-level historical table with finer granularity
+DC_HIST_TABLE = os.environ.get("DC_HIST_TABLE", "R0C0JUG_WMUS_HIST_DC_LEVEL")
 REFRESH_INTERVAL = int(os.environ.get("CACHE_REFRESH_SECONDS", "3600"))  # 1 hour default
 
 
@@ -662,6 +664,10 @@ class HistoricalCache:
         self.sbu_df: Optional[pd.DataFrame] = None
         self.dept_df: Optional[pd.DataFrame] = None
         self.catg_df: Optional[pd.DataFrame] = None
+        # DC Drilldown uses separate DC-level table for SBU/Dept/Category views
+        self.dc_drill_sbu_df: Optional[pd.DataFrame] = None
+        self.dc_drill_dept_df: Optional[pd.DataFrame] = None
+        self.dc_drill_catg_df: Optional[pd.DataFrame] = None
         self.loaded_at: Optional[float] = None
         self.loaded_date: Optional[str] = None
         self.load_time_sec: float = 0
@@ -689,6 +695,7 @@ class HistoricalCache:
         client = self._get_client()
 
         # Historical metrics - use COALESCE for columns that may not exist in older data
+        # Includes ALL DC Type breakdown columns needed by DC Drilldown filtering
         metric_sql = """
             SUM(COALESCE(STORE_OH_UNITS, 0)) AS store_oh,
             SUM(COALESCE(BACKROOM_UNITS, 0)) AS backroom,
@@ -704,6 +711,7 @@ class HistoricalCache:
             SUM(COALESCE(FC_OH_UNITS, 0)) AS fc_oh,
             SUM(COALESCE(FC_OH_COST, 0)) AS fc_oh_cost,
             SUM(COALESCE(TOTAL_NETWORK_COST, 0)) AS total_network_cost,
+            -- DC OH by type
             SUM(COALESCE(DC_OH_REGIONAL_UNITS, 0)) AS dc_oh_regional,
             SUM(COALESCE(DC_OH_GROCERY_UNITS, 0)) AS dc_oh_grocery,
             SUM(COALESCE(DC_OH_FASHION_UNITS, 0)) AS dc_oh_fashion,
@@ -712,6 +720,17 @@ class HistoricalCache:
             SUM(COALESCE(DC_OH_MSC_UNITS, 0)) AS dc_oh_msc,
             SUM(COALESCE(DC_OH_SUPPORT_UNITS, 0)) AS dc_oh_support,
             SUM(COALESCE(DC_OH_OTHER_UNITS, 0)) AS dc_oh_other,
+            -- DC Labeled by type (for DC Drilldown filtering)
+            SUM(COALESCE(DC_LABELED_REGIONAL_UNITS, 0)) AS dc_labeled_regional,
+            SUM(COALESCE(DC_LABELED_GROCERY_UNITS, 0)) AS dc_labeled_grocery,
+            SUM(COALESCE(DC_LABELED_FASHION_UNITS, 0)) AS dc_labeled_fashion,
+            SUM(COALESCE(DC_LABELED_IMPORTS_UNITS, 0)) AS dc_labeled_imports,
+            -- DC Unlabeled by type (for DC Drilldown filtering)
+            SUM(COALESCE(DC_UNLABELED_REGIONAL_UNITS, 0)) AS dc_unlabeled_regional,
+            SUM(COALESCE(DC_UNLABELED_GROCERY_UNITS, 0)) AS dc_unlabeled_grocery,
+            SUM(COALESCE(DC_UNLABELED_FASHION_UNITS, 0)) AS dc_unlabeled_fashion,
+            SUM(COALESCE(DC_UNLABELED_IMPORTS_UNITS, 0)) AS dc_unlabeled_imports,
+            -- STO by type
             SUM(COALESCE(STO_TO_REGIONAL_UNITS, 0)) AS sto_to_regional,
             SUM(COALESCE(STO_TO_GROCERY_UNITS, 0)) AS sto_to_grocery,
             SUM(COALESCE(STO_TO_FASHION_UNITS, 0)) AS sto_to_fashion,
@@ -719,7 +738,12 @@ class HistoricalCache:
             SUM(COALESCE(STO_TO_GIDC_UNITS, 0)) AS sto_to_gidc,
             SUM(COALESCE(STO_TO_MSC_UNITS, 0)) AS sto_to_msc,
             SUM(COALESCE(STO_TO_SUPPORT_UNITS, 0)) AS sto_to_support,
-            SUM(COALESCE(STO_TO_OTHER_UNITS, 0)) AS sto_to_other
+            SUM(COALESCE(STO_TO_OTHER_UNITS, 0)) AS sto_to_other,
+            -- On Yard by type (for DC Drilldown filtering)
+            SUM(COALESCE(ON_YARD_REGIONAL_UNITS, 0)) AS on_yard_regional,
+            SUM(COALESCE(ON_YARD_GROCERY_UNITS, 0)) AS on_yard_grocery,
+            SUM(COALESCE(ON_YARD_FASHION_UNITS, 0)) AS on_yard_fashion,
+            SUM(COALESCE(ON_YARD_IMPORTS_UNITS, 0)) AS on_yard_imports
         """
 
         fqn = f"`{HIST_PROJECT_ID}.{DATASET}.{HIST_TABLE}`"
@@ -738,25 +762,43 @@ class HistoricalCache:
                  FROM {fqn} GROUP BY BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU, dept_nbr, department
                  ORDER BY BUS_DT, SBU, dept_nbr"""
 
-        # Category level — include DC metrics needed for DC Drilldown (including DC Type breakdown)
+        # Category level — include ALL DC metrics needed for DC Drilldown (matching metric_sql)
+        # Must include all DC Type breakdown columns for filtering to work properly
         catg_metric_sql = """
-            SUM(STORE_OH_UNITS) AS store_oh,
-            SUM(DC_OH_UNITS) AS dc_oh,
-            SUM(DC_LABELED_UNITS) AS dc_labeled,
-            SUM(DC_UNLABELED_UNITS) AS dc_unlabeled,
-            SUM(STO_IN_TRANSIT_TO_DC_UNITS) AS sto_to_dc,
+            SUM(COALESCE(STORE_OH_UNITS, 0)) AS store_oh,
+            SUM(COALESCE(DC_OH_UNITS, 0)) AS dc_oh,
+            SUM(COALESCE(DC_LABELED_UNITS, 0)) AS dc_labeled,
+            SUM(COALESCE(DC_UNLABELED_UNITS, 0)) AS dc_unlabeled,
+            SUM(COALESCE(STO_IN_TRANSIT_TO_DC_UNITS, 0)) AS sto_to_dc,
             SUM(COALESCE(ON_YARD_UNITS, 0)) AS on_yard,
-            SUM(IN_TRANSIT_UNITS) AS in_transit,
-            SUM(TOTAL_NETWORK_UNITS) AS total_network,
-            SUM(FC_OH_UNITS) AS fc_oh,
-            SUM(DC_OH_REGIONAL_UNITS) AS dc_oh_regional,
-            SUM(DC_OH_GROCERY_UNITS) AS dc_oh_grocery,
-            SUM(DC_OH_FASHION_UNITS) AS dc_oh_fashion,
-            SUM(DC_OH_IMPORTS_UNITS) AS dc_oh_imports,
-            SUM(STO_TO_REGIONAL_UNITS) AS sto_to_dc_regional,
-            SUM(STO_TO_GROCERY_UNITS) AS sto_to_dc_grocery,
-            SUM(STO_TO_FASHION_UNITS) AS sto_to_dc_fashion,
-            SUM(STO_TO_IMPORTS_UNITS) AS sto_to_dc_imports
+            SUM(COALESCE(IN_TRANSIT_UNITS, 0)) AS in_transit,
+            SUM(COALESCE(TOTAL_NETWORK_UNITS, 0)) AS total_network,
+            SUM(COALESCE(FC_OH_UNITS, 0)) AS fc_oh,
+            -- DC OH by type
+            SUM(COALESCE(DC_OH_REGIONAL_UNITS, 0)) AS dc_oh_regional,
+            SUM(COALESCE(DC_OH_GROCERY_UNITS, 0)) AS dc_oh_grocery,
+            SUM(COALESCE(DC_OH_FASHION_UNITS, 0)) AS dc_oh_fashion,
+            SUM(COALESCE(DC_OH_IMPORTS_UNITS, 0)) AS dc_oh_imports,
+            -- DC Labeled by type
+            SUM(COALESCE(DC_LABELED_REGIONAL_UNITS, 0)) AS dc_labeled_regional,
+            SUM(COALESCE(DC_LABELED_GROCERY_UNITS, 0)) AS dc_labeled_grocery,
+            SUM(COALESCE(DC_LABELED_FASHION_UNITS, 0)) AS dc_labeled_fashion,
+            SUM(COALESCE(DC_LABELED_IMPORTS_UNITS, 0)) AS dc_labeled_imports,
+            -- DC Unlabeled by type
+            SUM(COALESCE(DC_UNLABELED_REGIONAL_UNITS, 0)) AS dc_unlabeled_regional,
+            SUM(COALESCE(DC_UNLABELED_GROCERY_UNITS, 0)) AS dc_unlabeled_grocery,
+            SUM(COALESCE(DC_UNLABELED_FASHION_UNITS, 0)) AS dc_unlabeled_fashion,
+            SUM(COALESCE(DC_UNLABELED_IMPORTS_UNITS, 0)) AS dc_unlabeled_imports,
+            -- STO by type (using sto_to_dc naming for frontend compatibility)
+            SUM(COALESCE(STO_TO_REGIONAL_UNITS, 0)) AS sto_to_dc_regional,
+            SUM(COALESCE(STO_TO_GROCERY_UNITS, 0)) AS sto_to_dc_grocery,
+            SUM(COALESCE(STO_TO_FASHION_UNITS, 0)) AS sto_to_dc_fashion,
+            SUM(COALESCE(STO_TO_IMPORTS_UNITS, 0)) AS sto_to_dc_imports,
+            -- On Yard by type
+            SUM(COALESCE(ON_YARD_REGIONAL_UNITS, 0)) AS on_yard_regional,
+            SUM(COALESCE(ON_YARD_GROCERY_UNITS, 0)) AS on_yard_grocery,
+            SUM(COALESCE(ON_YARD_FASHION_UNITS, 0)) AS on_yard_fashion,
+            SUM(COALESCE(ON_YARD_IMPORTS_UNITS, 0)) AS on_yard_imports
         """
         q4 = f"""SELECT BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU,
                         OMNI_DEPT_NBR AS dept_nbr, OMNI_DEPT_DESC AS department,
@@ -796,6 +838,83 @@ class HistoricalCache:
         self.catg_df = client.query(q4).to_dataframe()
         print(f"[HIST] Category: {len(self.catg_df):,} rows", flush=True)
 
+        # ============================================================
+        # DC Drilldown - Load from separate DC_HIST_TABLE
+        # Provides SBU/Dept/Category views with full DC Type breakdown
+        # ============================================================
+        dc_fqn = f"`{HIST_PROJECT_ID}.{DATASET}.{DC_HIST_TABLE}`"
+        dc_drill_metric_sql = """
+            SUM(COALESCE(DC_OH_UNITS, 0)) AS dc_oh,
+            SUM(COALESCE(DC_LABELED_UNITS, 0)) AS dc_labeled,
+            SUM(COALESCE(DC_UNLABELED_UNITS, 0)) AS dc_unlabeled,
+            SUM(COALESCE(STO_IN_TRANSIT_TO_DC_UNITS, 0)) AS sto_to_dc,
+            SUM(COALESCE(ON_YARD_UNITS, 0)) AS on_yard,
+            -- DC OH by type
+            SUM(COALESCE(DC_OH_REGIONAL_UNITS, 0)) AS dc_oh_regional,
+            SUM(COALESCE(DC_OH_GROCERY_UNITS, 0)) AS dc_oh_grocery,
+            SUM(COALESCE(DC_OH_FASHION_UNITS, 0)) AS dc_oh_fashion,
+            SUM(COALESCE(DC_OH_IMPORTS_UNITS, 0)) AS dc_oh_imports,
+            -- DC Labeled by type
+            SUM(COALESCE(DC_LABELED_REGIONAL_UNITS, 0)) AS dc_labeled_regional,
+            SUM(COALESCE(DC_LABELED_GROCERY_UNITS, 0)) AS dc_labeled_grocery,
+            SUM(COALESCE(DC_LABELED_FASHION_UNITS, 0)) AS dc_labeled_fashion,
+            SUM(COALESCE(DC_LABELED_IMPORTS_UNITS, 0)) AS dc_labeled_imports,
+            -- DC Unlabeled by type
+            SUM(COALESCE(DC_UNLABELED_REGIONAL_UNITS, 0)) AS dc_unlabeled_regional,
+            SUM(COALESCE(DC_UNLABELED_GROCERY_UNITS, 0)) AS dc_unlabeled_grocery,
+            SUM(COALESCE(DC_UNLABELED_FASHION_UNITS, 0)) AS dc_unlabeled_fashion,
+            SUM(COALESCE(DC_UNLABELED_IMPORTS_UNITS, 0)) AS dc_unlabeled_imports,
+            -- STO by type
+            SUM(COALESCE(STO_TO_REGIONAL_UNITS, 0)) AS sto_to_dc_regional,
+            SUM(COALESCE(STO_TO_GROCERY_UNITS, 0)) AS sto_to_dc_grocery,
+            SUM(COALESCE(STO_TO_FASHION_UNITS, 0)) AS sto_to_dc_fashion,
+            SUM(COALESCE(STO_TO_IMPORTS_UNITS, 0)) AS sto_to_dc_imports,
+            -- On Yard by type
+            SUM(COALESCE(ON_YARD_REGIONAL_UNITS, 0)) AS on_yard_regional,
+            SUM(COALESCE(ON_YARD_GROCERY_UNITS, 0)) AS on_yard_grocery,
+            SUM(COALESCE(ON_YARD_FASHION_UNITS, 0)) AS on_yard_fashion,
+            SUM(COALESCE(ON_YARD_IMPORTS_UNITS, 0)) AS on_yard_imports
+        """
+
+        print(f"[HIST] Loading DC Drilldown data from: {HIST_PROJECT_ID}.{DATASET}.{DC_HIST_TABLE}", flush=True)
+        try:
+            # DC Drilldown - SBU level
+            dc_q1 = f"""SELECT BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU, {dc_drill_metric_sql}
+                        FROM {dc_fqn} GROUP BY BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU ORDER BY BUS_DT, SBU"""
+            self.dc_drill_sbu_df = client.query(dc_q1).to_dataframe()
+            print(f"[HIST] DC Drilldown SBU: {len(self.dc_drill_sbu_df):,} rows", flush=True)
+
+            # DC Drilldown - Dept level
+            dc_q2 = f"""SELECT BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU,
+                               OMNI_DEPT_NBR AS dept_nbr, OMNI_DEPT_DESC AS department, {dc_drill_metric_sql}
+                        FROM {dc_fqn} GROUP BY BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU, dept_nbr, department
+                        ORDER BY BUS_DT, SBU, dept_nbr"""
+            self.dc_drill_dept_df = client.query(dc_q2).to_dataframe()
+            print(f"[HIST] DC Drilldown Dept: {len(self.dc_drill_dept_df):,} rows", flush=True)
+
+            # DC Drilldown - Category level
+            dc_q3 = f"""SELECT BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU,
+                               OMNI_DEPT_NBR AS dept_nbr, OMNI_DEPT_DESC AS department,
+                               OMNI_CATG_NBR AS catg_nbr, OMNI_CATG_DESC AS category, {dc_drill_metric_sql}
+                        FROM {dc_fqn}
+                        WHERE OMNI_CATG_NBR IS NOT NULL
+                        GROUP BY BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU, dept_nbr, department, catg_nbr, category
+                        ORDER BY BUS_DT, SBU, dept_nbr, catg_nbr"""
+            self.dc_drill_catg_df = client.query(dc_q3).to_dataframe()
+            print(f"[HIST] DC Drilldown Category: {len(self.dc_drill_catg_df):,} rows", flush=True)
+
+            # Convert date columns
+            for df in [self.dc_drill_sbu_df, self.dc_drill_dept_df, self.dc_drill_catg_df]:
+                if df is not None and "BUS_DT" in df.columns:
+                    df["BUS_DT"] = df["BUS_DT"].astype(str)
+        except Exception as e:
+            print(f"[HIST] DC Drilldown load FAILED: {e}", flush=True)
+            logger.warning(f"[HIST] DC Drilldown load failed: {e}. DC Drilldown tab will use fallback data.")
+            # Fallback: use existing HIST_TABLE data for DC Drilldown
+            self.dc_drill_sbu_df = None
+            self.dc_drill_dept_df = None
+            self.dc_drill_catg_df = None
+
         # Convert date columns to strings for JSON serialization
         for df in [self.enterprise_df, self.sbu_df, self.dept_df, self.catg_df]:
             if "BUS_DT" in df.columns:
@@ -806,7 +925,10 @@ class HistoricalCache:
         self.load_time_sec = round(time.time() - t0, 1)
         self.is_loading = False
 
-        total_rows = len(self.enterprise_df) + len(self.sbu_df) + len(self.dept_df) + len(self.catg_df)
+        dc_drill_rows = (len(self.dc_drill_sbu_df) if self.dc_drill_sbu_df is not None else 0) + \
+                        (len(self.dc_drill_dept_df) if self.dc_drill_dept_df is not None else 0) + \
+                        (len(self.dc_drill_catg_df) if self.dc_drill_catg_df is not None else 0)
+        total_rows = len(self.enterprise_df) + len(self.sbu_df) + len(self.dept_df) + len(self.catg_df) + dc_drill_rows
         logger.info(f"[HIST] Loaded {total_rows:,} total rows in {self.load_time_sec}s")
 
     def to_response(self) -> dict:
@@ -834,6 +956,10 @@ class HistoricalCache:
             "by_sbu": self.sbu_df.to_dict(orient="records"),
             "by_dept": self.dept_df.to_dict(orient="records"),
             "by_catg": self.catg_df.to_dict(orient="records") if self.catg_df is not None else [],
+            # DC Drilldown data from separate DC_HIST_TABLE (with full DC Type breakdown)
+            "dc_drill_sbu": self.dc_drill_sbu_df.to_dict(orient="records") if self.dc_drill_sbu_df is not None else [],
+            "dc_drill_dept": self.dc_drill_dept_df.to_dict(orient="records") if self.dc_drill_dept_df is not None else [],
+            "dc_drill_catg": self.dc_drill_catg_df.to_dict(orient="records") if self.dc_drill_catg_df is not None else [],
         }
 
         logger.info(f"[HIST] JSON response built in {round(time.time() - t0, 2)}s")

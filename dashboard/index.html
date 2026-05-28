@@ -73,10 +73,12 @@
         .alert-info { background-color: rgba(0,113,206,0.2); border-color: #0071ce; color: #6cb2eb; }
         .dept-breakdown { display: none; }
         .dept-breakdown.show { display: block; }
-        #dept-tbody tr { background-color: rgba(255,255,255,0.02); }
-        #dept-tbody tr:nth-child(odd) { background-color: rgba(255,255,255,0.04); }
-        #dept-tbody tr:hover { background-color: rgba(0,113,206,0.15); }
-        #dept-tbody td { color: #e8e8e8; }
+        #dept-breakdown-table { --bs-table-color: #fff; }
+        #dept-breakdown-table tbody tr { background-color: rgba(255,255,255,0.02) !important; }
+        #dept-breakdown-table tbody tr:nth-child(odd) { background-color: rgba(255,255,255,0.05) !important; }
+        #dept-breakdown-table tbody tr:hover { background-color: rgba(0,113,206,0.2) !important; }
+        #dept-breakdown-table td { color: #fff !important; }
+        #dept-breakdown-table th { color: #fff !important; }
         .text-muted { color: var(--text-muted) !important; }
         h5, h6 { color: var(--text-light); }
         .filter-tag { display: inline-block; font-size: 0.65rem; padding: 1px 6px; border-radius: 8px; background: rgba(0,113,206,0.25); color: #6cb2eb; margin-right: 4px; margin-top: 4px; }
@@ -380,7 +382,7 @@
                             <div class="table-container">
                                 <div class="chart-title"><i class="bi bi-list-nested me-1"></i>Department Breakdown</div>
                                 <div class="table-responsive">
-                                    <table class="table table-sm table-striped table-hover" style="font-size:0.8rem; color:#e8e8e8;">
+                                    <table class="table table-sm" id="dept-breakdown-table" style="font-size:0.8rem; color:#fff !important; --bs-table-bg: transparent; --bs-table-striped-bg: rgba(255,255,255,0.03); --bs-table-hover-bg: rgba(0,113,206,0.15);">
                                         <thead class="table-dark" style="background-color:#0f0f1a;">
                                             <tr>
                                                 <th style="max-width:140px; color:#fff;">Department</th>

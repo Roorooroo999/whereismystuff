@@ -2276,10 +2276,10 @@
                     agg[key].dc_unlabeled_grocery += r.dc_unlabeled_grocery || 0;
                     agg[key].dc_unlabeled_fashion += r.dc_unlabeled_fashion || 0;
                     agg[key].dc_unlabeled_imports += r.dc_unlabeled_imports || 0;
-                    agg[key].sto_to_dc_regional += r.sto_to_dc_regional || r.sto_grocery || 0;
-                    agg[key].sto_to_dc_grocery += r.sto_to_dc_grocery || r.sto_regional || 0;
-                    agg[key].sto_to_dc_fashion += r.sto_to_dc_fashion || r.sto_fashion || 0;
-                    agg[key].sto_to_dc_imports += r.sto_to_dc_imports || r.sto_imports || 0;
+                    agg[key].sto_to_dc_regional += r.sto_to_dc_regional || r.sto_to_regional || 0;
+                    agg[key].sto_to_dc_grocery += r.sto_to_dc_grocery || r.sto_to_grocery || 0;
+                    agg[key].sto_to_dc_fashion += r.sto_to_dc_fashion || r.sto_to_fashion || 0;
+                    agg[key].sto_to_dc_imports += r.sto_to_dc_imports || r.sto_to_imports || 0;
                     agg[key].on_yard_regional += r.on_yard_regional || 0;
                     agg[key].on_yard_grocery += r.on_yard_grocery || 0;
                     agg[key].on_yard_fashion += r.on_yard_fashion || 0;
@@ -2288,23 +2288,48 @@
             return agg;
         }
 
-        // SBU level
-        DC_DRILL_DATA.sbu.current = aggregate(RAW_DATA.by_sbu, r => r.SBU, latestWeek.WM_YEAR, latestWeek.WM_WEEK);
-        DC_DRILL_DATA.sbu.priorWoW = aggregate(RAW_DATA.by_sbu, r => r.SBU, priorWoWYear, priorWoWWeek);
-        DC_DRILL_DATA.sbu.priorYoY = aggregate(RAW_DATA.by_sbu, r => r.SBU, priorYoYYear, priorYoYWeek);
+        // ============================================================
+        // DC Drilldown uses SEPARATE dc_drill_* data from DC_HIST_TABLE
+        // This provides full DC Type breakdown columns
+        // Falls back to by_sbu/by_dept/by_catg if dc_drill_* not available
+        // ============================================================
 
-        // Dept level (from by_dept)
-        if (RAW_DATA.by_dept) {
-            DC_DRILL_DATA.dept.current = aggregate(RAW_DATA.by_dept, r => `${r.SBU}|${r.department}`, latestWeek.WM_YEAR, latestWeek.WM_WEEK);
-            DC_DRILL_DATA.dept.priorWoW = aggregate(RAW_DATA.by_dept, r => `${r.SBU}|${r.department}`, priorWoWYear, priorWoWWeek);
-            DC_DRILL_DATA.dept.priorYoY = aggregate(RAW_DATA.by_dept, r => `${r.SBU}|${r.department}`, priorYoYYear, priorYoYWeek);
+        // SBU level - prefer dc_drill_sbu, fallback to by_sbu
+        const sbuSource = (RAW_DATA.dc_drill_sbu && RAW_DATA.dc_drill_sbu.length > 0) ? RAW_DATA.dc_drill_sbu : RAW_DATA.by_sbu;
+        console.log('DC Drilldown SBU source:', RAW_DATA.dc_drill_sbu?.length || 0, 'rows (dc_drill_sbu), fallback:', RAW_DATA.by_sbu?.length || 0, 'rows (by_sbu)');
+        DC_DRILL_DATA.sbu.current = aggregate(sbuSource, r => r.SBU, latestWeek.WM_YEAR, latestWeek.WM_WEEK);
+        DC_DRILL_DATA.sbu.priorWoW = aggregate(sbuSource, r => r.SBU, priorWoWYear, priorWoWWeek);
+        DC_DRILL_DATA.sbu.priorYoY = aggregate(sbuSource, r => r.SBU, priorYoYYear, priorYoYWeek);
+
+        // Dept level - prefer dc_drill_dept, fallback to by_dept
+        const deptSource = (RAW_DATA.dc_drill_dept && RAW_DATA.dc_drill_dept.length > 0) ? RAW_DATA.dc_drill_dept : RAW_DATA.by_dept;
+        console.log('DC Drilldown Dept source:', RAW_DATA.dc_drill_dept?.length || 0, 'rows (dc_drill_dept), fallback:', RAW_DATA.by_dept?.length || 0, 'rows (by_dept)');
+        if (deptSource) {
+            DC_DRILL_DATA.dept.current = aggregate(deptSource, r => `${r.SBU}|${r.department}`, latestWeek.WM_YEAR, latestWeek.WM_WEEK);
+            DC_DRILL_DATA.dept.priorWoW = aggregate(deptSource, r => `${r.SBU}|${r.department}`, priorWoWYear, priorWoWWeek);
+            DC_DRILL_DATA.dept.priorYoY = aggregate(deptSource, r => `${r.SBU}|${r.department}`, priorYoYYear, priorYoYWeek);
         }
 
-        // Category level (from by_catg)
-        if (RAW_DATA.by_catg && RAW_DATA.by_catg.length > 0) {
-            DC_DRILL_DATA.catg.current = aggregate(RAW_DATA.by_catg, r => `${r.SBU}|${r.department}|${r.category}`, latestWeek.WM_YEAR, latestWeek.WM_WEEK);
-            DC_DRILL_DATA.catg.priorWoW = aggregate(RAW_DATA.by_catg, r => `${r.SBU}|${r.department}|${r.category}`, priorWoWYear, priorWoWWeek);
-            DC_DRILL_DATA.catg.priorYoY = aggregate(RAW_DATA.by_catg, r => `${r.SBU}|${r.department}|${r.category}`, priorYoYYear, priorYoYWeek);
+        // Category level - prefer dc_drill_catg, fallback to by_catg
+        const catgSource = (RAW_DATA.dc_drill_catg && RAW_DATA.dc_drill_catg.length > 0) ? RAW_DATA.dc_drill_catg : RAW_DATA.by_catg;
+        console.log('DC Drilldown Catg source:', RAW_DATA.dc_drill_catg?.length || 0, 'rows (dc_drill_catg), fallback:', RAW_DATA.by_catg?.length || 0, 'rows (by_catg)');
+        if (catgSource && catgSource.length > 0) {
+            // Debug: Check what weeks are in category data
+            const catgWeeks = {};
+            catgSource.forEach(r => {
+                const key = `${r.WM_YEAR}-WK${r.WM_WEEK}`;
+                catgWeeks[key] = (catgWeeks[key] || 0) + 1;
+            });
+            console.log('Category data weeks available:', Object.keys(catgWeeks).slice(-5), 'Looking for:', `${latestWeek.WM_YEAR}-WK${latestWeek.WM_WEEK}`);
+            console.log('Sample category row:', catgSource[0]);
+
+            DC_DRILL_DATA.catg.current = aggregate(catgSource, r => `${r.SBU}|${r.department}|${r.category}`, latestWeek.WM_YEAR, latestWeek.WM_WEEK);
+            DC_DRILL_DATA.catg.priorWoW = aggregate(catgSource, r => `${r.SBU}|${r.department}|${r.category}`, priorWoWYear, priorWoWWeek);
+            DC_DRILL_DATA.catg.priorYoY = aggregate(catgSource, r => `${r.SBU}|${r.department}|${r.category}`, priorYoYYear, priorYoYWeek);
+
+            console.log('Category aggregation result:', Object.keys(DC_DRILL_DATA.catg.current).length, 'rows');
+        } else {
+            console.log('WARNING: No category data available for DC Drilldown!');
         }
 
         // DC Type level - aggregate by DC type (Regional, Grocery, Fashion, Imports)
@@ -2334,8 +2359,20 @@
             dept: Object.keys(DC_DRILL_DATA.dept.current).length,
             catg: Object.keys(DC_DRILL_DATA.catg.current).length,
             dctype: Object.keys(DC_DRILL_DATA.dctype.current).length,
-            week: `WK${latestWeek.WM_WEEK} FY${latestWeek.WM_YEAR}`
+            week: `WK${latestWeek.WM_WEEK} FY${latestWeek.WM_YEAR}`,
+            raw_by_sbu: RAW_DATA.by_sbu ? RAW_DATA.by_sbu.length : 0,
+            raw_by_dept: RAW_DATA.by_dept ? RAW_DATA.by_dept.length : 0,
+            raw_by_catg: RAW_DATA.by_catg ? RAW_DATA.by_catg.length : 0
         });
+        // Debug: Show sample data from each level
+        if (Object.keys(DC_DRILL_DATA.sbu.current).length > 0) {
+            const sampleKey = Object.keys(DC_DRILL_DATA.sbu.current)[0];
+            console.log('DC Drilldown sample SBU data:', DC_DRILL_DATA.sbu.current[sampleKey]);
+        }
+        if (Object.keys(DC_DRILL_DATA.catg.current).length > 0) {
+            const sampleKey = Object.keys(DC_DRILL_DATA.catg.current)[0];
+            console.log('DC Drilldown sample Category data:', DC_DRILL_DATA.catg.current[sampleKey]);
+        }
 
         // Populate SBU filter
         const sbuFilter = document.getElementById('dc-drill-sbu-filter');
@@ -2433,7 +2470,10 @@
     }
 
     function renderDCDrilldown() {
-        if (!DC_DRILL_DATA.sbu.current) return;
+        if (!DC_DRILL_DATA.sbu.current) {
+            console.log('renderDCDrilldown: No SBU current data');
+            return;
+        }
 
         const channel = document.getElementById('dc-drill-channel-filter').value;
         const compareMode = document.getElementById('dc-drill-compare-filter').value;
@@ -2449,6 +2489,13 @@
         const dataSet = DC_DRILL_DATA[viewMode] || DC_DRILL_DATA.sbu;
         const current = dataSet.current;
         const prior = compareMode === 'wow' ? dataSet.priorWoW : dataSet.priorYoY;
+
+        console.log('renderDCDrilldown:', {
+            viewMode, channel, compareMode, sbuFilter, deptFilter,
+            selectedDCTypes,
+            currentKeys: current ? Object.keys(current).length : 0,
+            priorKeys: prior ? Object.keys(prior).length : 0
+        });
         const compareLabel = compareMode === 'wow' ? 'WoW' : 'YoY';
         const viewLabel = viewMode === 'sbu' ? 'SBU' : viewMode === 'dept' ? 'Department' : 'Category';
 

@@ -970,9 +970,28 @@
         const prev = weeks.length > 1 ? weeks[weeks.length - 2] : null;
         const lyWeek = findYoYWeek(weeks, latest);
 
+        // FC and On Yard come from enterprise data (not SBU-level aggregation)
+        // because they don't break down by SBU properly in HIST_COMBINED
+        const entWeeks = RAW_DATA.enterprise || [];
+        const entLatest = entWeeks.find(r => r.BUS_DT === latest.BUS_DT) || {};
+        const entPrev = prev ? (entWeeks.find(r => r.BUS_DT === prev.BUS_DT) || {}) : null;
+        const entLyWeek = lyWeek ? (entWeeks.find(r => r.WM_YEAR === lyWeek.WM_YEAR && r.WM_WEEK === lyWeek.WM_WEEK) || {}) : null;
+
+        // Override FC and On Yard values from enterprise data
+        latest.fc_oh = entLatest.fc_oh || 0;
+        latest.on_yard = entLatest.on_yard || 0;
+        if (prev) {
+            prev.fc_oh = entPrev?.fc_oh || 0;
+            prev.on_yard = entPrev?.on_yard || 0;
+        }
+        if (lyWeek) {
+            lyWeek.fc_oh = entLyWeek?.fc_oh || 0;
+            lyWeek.on_yard = entLyWeek?.on_yard || 0;
+        }
+
         // DEBUG: Log FC and On Yard values
         console.log('🔍 KPI DEBUG - Latest week:', latest.BUS_DT, 'WK' + latest.WM_WEEK);
-        console.log('🔍 fc_oh:', latest.fc_oh, '| on_yard:', latest.on_yard);
+        console.log('🔍 fc_oh:', latest.fc_oh, '(from enterprise:', entLatest.fc_oh, ') | on_yard:', latest.on_yard, '(from enterprise:', entLatest.on_yard, ')');
         console.log('🔍 dc_oh:', latest.dc_oh, '| in_transit:', latest.in_transit);
 
         setKPI('kpi-total', adjTotal(latest), prev ? adjTotal(prev) : null, 'kpi-total-wow',
@@ -2248,7 +2267,8 @@
         // Aggregate helper function - stores DC type breakdown for filtering
         function aggregate(data, keyFn, year, week) {
             const agg = {};
-            data.filter(r => r.WM_YEAR === year && r.WM_WEEK === week)
+            // Use == for type-coerced comparison (handles string vs number mismatch)
+            data.filter(r => Number(r.WM_YEAR) === Number(year) && Number(r.WM_WEEK) === Number(week))
                 .filter(r => !HIDDEN_SBUS.includes(r.SBU))
                 .forEach(r => {
                     const key = keyFn(r);
@@ -2333,6 +2353,15 @@
             DC_DRILL_DATA.catg.priorYoY = aggregate(catgSource, r => `${r.SBU}|${r.department}|${r.category}`, priorYoYYear, priorYoYWeek);
 
             console.log('Category aggregation result:', Object.keys(DC_DRILL_DATA.catg.current).length, 'rows');
+            // Debug: if no results, show why
+            if (Object.keys(DC_DRILL_DATA.catg.current).length === 0) {
+                console.log('⚠️ Category current is empty! Checking filter match...');
+                const matchingRows = catgSource.filter(r => Number(r.WM_YEAR) === Number(latestWeek.WM_YEAR) && Number(r.WM_WEEK) === Number(latestWeek.WM_WEEK));
+                console.log('Rows matching latest week:', matchingRows.length);
+                if (matchingRows.length > 0) {
+                    console.log('First matching row:', matchingRows[0]);
+                }
+            }
         } else {
             console.log('WARNING: No category data available for DC Drilldown!');
         }

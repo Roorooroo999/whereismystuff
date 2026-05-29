@@ -700,7 +700,12 @@ class HistoricalCache:
         self.is_loading = True
         self._cached_response = None  # Clear cache on reload
         t0 = time.time()
-        client = self._get_client()
+        try:
+            client = self._get_client()
+        except Exception as e:
+            print(f"[HIST] Failed to get BigQuery client: {e}", flush=True)
+            self.is_loading = False
+            return
 
         # Historical metrics - use COALESCE for columns that may not exist in older data
         # Includes ALL DC Type breakdown columns needed by DC Drilldown filtering
@@ -927,13 +932,14 @@ class HistoricalCache:
 
         # Convert date columns to strings for JSON serialization
         for df in [self.enterprise_df, self.sbu_df, self.dept_df, self.catg_df]:
-            if "BUS_DT" in df.columns:
+            if df is not None and "BUS_DT" in df.columns:
                 df["BUS_DT"] = df["BUS_DT"].astype(str)
 
         self.loaded_at = time.time()
         self.loaded_date = datetime.now().strftime("%Y-%m-%d")
         self.load_time_sec = round(time.time() - t0, 1)
         self.is_loading = False
+        print(f"[HIST] Load complete. is_ready={self.is_ready}", flush=True)
 
         dc_drill_rows = (len(self.dc_drill_sbu_df) if self.dc_drill_sbu_df is not None else 0) + \
                         (len(self.dc_drill_dept_df) if self.dc_drill_dept_df is not None else 0) + \

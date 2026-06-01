@@ -1467,13 +1467,34 @@ async def search_items(
 @app.get("/api/health")
 async def health_check():
     hist_rows = 0
+    hist_debug = {}
     if hist_cache.is_ready:
         catg_len = len(hist_cache.catg_df) if hist_cache.catg_df is not None else 0
         hist_rows = len(hist_cache.enterprise_df) + len(hist_cache.sbu_df) + len(hist_cache.dept_df) + catg_len
+
+        # Debug: Check fc_oh and on_yard in enterprise_df
+        ent = hist_cache.enterprise_df
+        if ent is not None and not ent.empty:
+            hist_debug["enterprise_columns"] = list(ent.columns)
+            hist_debug["fc_oh_exists"] = "fc_oh" in ent.columns
+            hist_debug["on_yard_exists"] = "on_yard" in ent.columns
+            if "fc_oh" in ent.columns:
+                hist_debug["fc_oh_sum"] = int(ent["fc_oh"].sum())
+                hist_debug["fc_oh_latest"] = int(ent.iloc[-1]["fc_oh"]) if len(ent) > 0 else 0
+            if "on_yard" in ent.columns:
+                hist_debug["on_yard_sum"] = int(ent["on_yard"].sum())
+                hist_debug["on_yard_latest"] = int(ent.iloc[-1]["on_yard"]) if len(ent) > 0 else 0
+            if len(ent) > 0:
+                hist_debug["latest_week"] = {
+                    "BUS_DT": str(ent.iloc[-1].get("BUS_DT", "N/A")),
+                    "WM_YEAR": int(ent.iloc[-1].get("WM_YEAR", 0)),
+                    "WM_WEEK": int(ent.iloc[-1].get("WM_WEEK", 0))
+                }
+
     return {
         "status": "healthy",
         "service": "Where's My Stuff API",
-        "version": "3.0.0",
+        "version": "3.0.1",
         "cache": {
             "ready": cache.is_ready,
             "rows": cache.row_count,
@@ -1487,6 +1508,7 @@ async def health_check():
             "loaded_at": hist_cache.loaded_date,
             "load_time_sec": hist_cache.load_time_sec,
             "loading": hist_cache.is_loading,
+            "debug": hist_debug
         }
     }
 

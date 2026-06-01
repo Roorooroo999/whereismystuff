@@ -2391,25 +2391,73 @@
         }
 
         // ============================================================
-        // DC Drilldown uses SEPARATE dc_drill_* data from DC_HIST_TABLE
-        // This provides full DC Type breakdown columns
-        // Falls back to by_sbu/by_dept/by_catg if dc_drill_* not available
+        // DC Drilldown uses SEPARATE dc_drill_* data from DC_HIST_TABLE (DC_LEVEL)
+        // IMPORTANT: DC_LEVEL table may lag behind HIST_COMBINED by 1 week
+        // So we need to find the latest week AVAILABLE in each data source
         // ============================================================
+
+        // Helper: Find latest week in a data source
+        function findLatestWeekInSource(source) {
+            if (!source || source.length === 0) return null;
+            const weekMap = {};
+            source.forEach(r => {
+                const key = Number(r.WM_YEAR) * 100 + Number(r.WM_WEEK);
+                if (!weekMap[key]) weekMap[key] = { WM_YEAR: Number(r.WM_YEAR), WM_WEEK: Number(r.WM_WEEK) };
+            });
+            const sorted = Object.values(weekMap).sort((a, b) => (b.WM_YEAR * 100 + b.WM_WEEK) - (a.WM_YEAR * 100 + a.WM_WEEK));
+            return sorted[0];
+        }
+
+        // Helper: Get effective week (use source's latest if main latestWeek not available)
+        function getEffectiveWeeks(source, mainLatest) {
+            const sourceLatest = findLatestWeekInSource(source);
+            if (!sourceLatest) return { latest: mainLatest, priorWoW: { year: priorWoWYear, week: priorWoWWeek }, priorYoY: { year: priorYoYYear, week: priorYoYWeek } };
+
+            const mainKey = mainLatest.WM_YEAR * 100 + mainLatest.WM_WEEK;
+            const sourceKey = sourceLatest.WM_YEAR * 100 + sourceLatest.WM_WEEK;
+
+            // Check if main week exists in source
+            const sourceWeekMap = {};
+            source.forEach(r => { sourceWeekMap[Number(r.WM_YEAR) * 100 + Number(r.WM_WEEK)] = true; });
+
+            if (sourceWeekMap[mainKey]) {
+                return { latest: mainLatest, priorWoW: { year: priorWoWYear, week: priorWoWWeek }, priorYoY: { year: priorYoYYear, week: priorYoYWeek }, usedSource: false };
+            }
+
+            // Use source's latest week
+            let effPriorWoWWeek = sourceLatest.WM_WEEK - 1;
+            let effPriorWoWYear = sourceLatest.WM_YEAR;
+            if (effPriorWoWWeek < 1) { effPriorWoWWeek = 52; effPriorWoWYear--; }
+            return {
+                latest: sourceLatest,
+                priorWoW: { year: effPriorWoWYear, week: effPriorWoWWeek },
+                priorYoY: { year: sourceLatest.WM_YEAR - 1, week: sourceLatest.WM_WEEK },
+                usedSource: true
+            };
+        }
 
         // SBU level - prefer dc_drill_sbu, fallback to by_sbu
         const sbuSource = (RAW_DATA.dc_drill_sbu && RAW_DATA.dc_drill_sbu.length > 0) ? RAW_DATA.dc_drill_sbu : RAW_DATA.by_sbu;
-        console.log('DC Drilldown SBU source:', RAW_DATA.dc_drill_sbu?.length || 0, 'rows (dc_drill_sbu), fallback:', RAW_DATA.by_sbu?.length || 0, 'rows (by_sbu)');
-        DC_DRILL_DATA.sbu.current = aggregate(sbuSource, r => r.SBU, latestWeek.WM_YEAR, latestWeek.WM_WEEK);
-        DC_DRILL_DATA.sbu.priorWoW = aggregate(sbuSource, r => r.SBU, priorWoWYear, priorWoWWeek);
-        DC_DRILL_DATA.sbu.priorYoY = aggregate(sbuSource, r => r.SBU, priorYoYYear, priorYoYWeek);
+        const sbuSourceName = (RAW_DATA.dc_drill_sbu && RAW_DATA.dc_drill_sbu.length > 0) ? 'dc_drill_sbu (DC_LEVEL)' : 'by_sbu (HIST_COMBINED)';
+        const sbuWeeks = getEffectiveWeeks(sbuSource, latestWeek);
+        console.log('DC Drilldown SBU source:', sbuSourceName, '| effective week:', sbuWeeks.latest.WM_YEAR + '-WK' + sbuWeeks.latest.WM_WEEK,
+                    sbuWeeks.usedSource ? '(adjusted from DC_LEVEL)' : '(matches HIST_COMBINED)');
+        DC_DRILL_DATA.sbu.current = aggregate(sbuSource, r => r.SBU, sbuWeeks.latest.WM_YEAR, sbuWeeks.latest.WM_WEEK);
+        DC_DRILL_DATA.sbu.priorWoW = aggregate(sbuSource, r => r.SBU, sbuWeeks.priorWoW.year, sbuWeeks.priorWoW.week);
+        DC_DRILL_DATA.sbu.priorYoY = aggregate(sbuSource, r => r.SBU, sbuWeeks.priorYoY.year, sbuWeeks.priorYoY.week);
+        DC_DRILL_DATA.sbuEffectiveWeek = sbuWeeks.latest;
 
         // Dept level - prefer dc_drill_dept, fallback to by_dept
         const deptSource = (RAW_DATA.dc_drill_dept && RAW_DATA.dc_drill_dept.length > 0) ? RAW_DATA.dc_drill_dept : RAW_DATA.by_dept;
-        console.log('DC Drilldown Dept source:', RAW_DATA.dc_drill_dept?.length || 0, 'rows (dc_drill_dept), fallback:', RAW_DATA.by_dept?.length || 0, 'rows (by_dept)');
+        const deptSourceName = (RAW_DATA.dc_drill_dept && RAW_DATA.dc_drill_dept.length > 0) ? 'dc_drill_dept (DC_LEVEL)' : 'by_dept (HIST_COMBINED)';
         if (deptSource) {
-            DC_DRILL_DATA.dept.current = aggregate(deptSource, r => `${r.SBU}|${r.department}`, latestWeek.WM_YEAR, latestWeek.WM_WEEK);
-            DC_DRILL_DATA.dept.priorWoW = aggregate(deptSource, r => `${r.SBU}|${r.department}`, priorWoWYear, priorWoWWeek);
-            DC_DRILL_DATA.dept.priorYoY = aggregate(deptSource, r => `${r.SBU}|${r.department}`, priorYoYYear, priorYoYWeek);
+            const deptWeeks = getEffectiveWeeks(deptSource, latestWeek);
+            console.log('DC Drilldown Dept source:', deptSourceName, '| effective week:', deptWeeks.latest.WM_YEAR + '-WK' + deptWeeks.latest.WM_WEEK,
+                        deptWeeks.usedSource ? '(adjusted from DC_LEVEL)' : '(matches HIST_COMBINED)');
+            DC_DRILL_DATA.dept.current = aggregate(deptSource, r => `${r.SBU}|${r.department}`, deptWeeks.latest.WM_YEAR, deptWeeks.latest.WM_WEEK);
+            DC_DRILL_DATA.dept.priorWoW = aggregate(deptSource, r => `${r.SBU}|${r.department}`, deptWeeks.priorWoW.year, deptWeeks.priorWoW.week);
+            DC_DRILL_DATA.dept.priorYoY = aggregate(deptSource, r => `${r.SBU}|${r.department}`, deptWeeks.priorYoY.year, deptWeeks.priorYoY.week);
+            DC_DRILL_DATA.deptEffectiveWeek = deptWeeks.latest;
         }
 
         // Category level - prefer dc_drill_catg, fallback to by_catg
@@ -2432,26 +2480,44 @@
         }
 
         if (catgSource && catgSource.length > 0) {
-            // Debug: Check what weeks are in category data
-            const catgWeeks = {};
+            // CRITICAL FIX: Find the latest week available IN THE CATEGORY DATA
+            // DC_LEVEL table may lag behind HIST_COMBINED by a week
+            const catgWeekMap = {};
             catgSource.forEach(r => {
-                const key = `${r.WM_YEAR}-WK${r.WM_WEEK}`;
-                catgWeeks[key] = (catgWeeks[key] || 0) + 1;
+                const key = Number(r.WM_YEAR) * 100 + Number(r.WM_WEEK);
+                if (!catgWeekMap[key]) catgWeekMap[key] = { WM_YEAR: Number(r.WM_YEAR), WM_WEEK: Number(r.WM_WEEK) };
             });
-            const availableWeeks = Object.keys(catgWeeks).sort();
-            console.log('Category data weeks available:', availableWeeks.slice(-5), 'Looking for:', `${latestWeek.WM_YEAR}-WK${latestWeek.WM_WEEK}`);
+            const catgSortedWeeks = Object.values(catgWeekMap).sort((a, b) => (b.WM_YEAR * 100 + b.WM_WEEK) - (a.WM_YEAR * 100 + a.WM_WEEK));
+            const catgLatestWeek = catgSortedWeeks[0];
 
-            // Check if latest week exists in category data
-            const latestWeekKey = `${latestWeek.WM_YEAR}-WK${latestWeek.WM_WEEK}`;
-            if (!catgWeeks[latestWeekKey]) {
-                console.warn('⚠️ Latest week', latestWeekKey, 'not found in category data! Available:', availableWeeks.slice(-3).join(', '));
-                // Try to find the closest available week
-                const closestWeek = availableWeeks[availableWeeks.length - 1];
-                if (closestWeek) {
-                    const [y, w] = closestWeek.split('-WK');
-                    console.log('📊 Using closest available category week:', closestWeek);
+            // Check if the main latestWeek exists in category data
+            const mainWeekKey = latestWeek.WM_YEAR * 100 + latestWeek.WM_WEEK;
+            const catgLatestKey = catgLatestWeek.WM_YEAR * 100 + catgLatestWeek.WM_WEEK;
+
+            // Use category's latest week if main latestWeek is not available
+            let effectiveLatestWeek = latestWeek;
+            let effectivePriorWoWYear = priorWoWYear;
+            let effectivePriorWoWWeek = priorWoWWeek;
+            let effectivePriorYoYYear = priorYoYYear;
+            let effectivePriorYoYWeek = priorYoYWeek;
+
+            if (!catgWeekMap[mainWeekKey] && catgLatestWeek) {
+                console.warn('⚠️ HIST_COMBINED week', latestWeek.WM_YEAR + '-WK' + latestWeek.WM_WEEK,
+                             'not in DC_LEVEL! Using DC_LEVEL latest:', catgLatestWeek.WM_YEAR + '-WK' + catgLatestWeek.WM_WEEK);
+                effectiveLatestWeek = catgLatestWeek;
+                // Recalculate prior weeks based on category's latest
+                effectivePriorWoWWeek = catgLatestWeek.WM_WEEK - 1;
+                effectivePriorWoWYear = catgLatestWeek.WM_YEAR;
+                if (effectivePriorWoWWeek < 1) {
+                    effectivePriorWoWWeek = 52;
+                    effectivePriorWoWYear = catgLatestWeek.WM_YEAR - 1;
                 }
+                effectivePriorYoYYear = catgLatestWeek.WM_YEAR - 1;
+                effectivePriorYoYWeek = catgLatestWeek.WM_WEEK;
             }
+
+            console.log('Category effective latest week:', effectiveLatestWeek.WM_YEAR + '-WK' + effectiveLatestWeek.WM_WEEK,
+                        '(main was:', latestWeek.WM_YEAR + '-WK' + latestWeek.WM_WEEK + ')');
             console.log('Sample category row from', catgSourceName + ':', catgSource[0]);
 
             // Safe aggregation function that handles null categories
@@ -2462,9 +2528,13 @@
                 return `${sbu}|${dept}|${catg}`;
             };
 
-            DC_DRILL_DATA.catg.current = aggregate(catgSource, safeCatgKeyFn, latestWeek.WM_YEAR, latestWeek.WM_WEEK);
-            DC_DRILL_DATA.catg.priorWoW = aggregate(catgSource, safeCatgKeyFn, priorWoWYear, priorWoWWeek);
-            DC_DRILL_DATA.catg.priorYoY = aggregate(catgSource, safeCatgKeyFn, priorYoYYear, priorYoYWeek);
+            // Use the EFFECTIVE week (from category data) for aggregation
+            DC_DRILL_DATA.catg.current = aggregate(catgSource, safeCatgKeyFn, effectiveLatestWeek.WM_YEAR, effectiveLatestWeek.WM_WEEK);
+            DC_DRILL_DATA.catg.priorWoW = aggregate(catgSource, safeCatgKeyFn, effectivePriorWoWYear, effectivePriorWoWWeek);
+            DC_DRILL_DATA.catg.priorYoY = aggregate(catgSource, safeCatgKeyFn, effectivePriorYoYYear, effectivePriorYoYWeek);
+
+            // Store effective week for display
+            DC_DRILL_DATA.catgEffectiveWeek = effectiveLatestWeek;
 
             console.log('Category aggregation result:', Object.keys(DC_DRILL_DATA.catg.current).length, 'rows');
 
@@ -2472,21 +2542,10 @@
             if (Object.keys(DC_DRILL_DATA.catg.current).length === 0) {
                 console.warn('⚠️ Category current is empty after aggregation!');
                 const matchingRows = catgSource.filter(r =>
-                    Number(r.WM_YEAR) === Number(latestWeek.WM_YEAR) &&
-                    Number(r.WM_WEEK) === Number(latestWeek.WM_WEEK)
+                    Number(r.WM_YEAR) === Number(effectiveLatestWeek.WM_YEAR) &&
+                    Number(r.WM_WEEK) === Number(effectiveLatestWeek.WM_WEEK)
                 );
-                console.log('Rows matching latest week (after Number coercion):', matchingRows.length);
-                if (matchingRows.length === 0) {
-                    // Show what weeks ARE available
-                    const sampleYears = [...new Set(catgSource.map(r => r.WM_YEAR))].slice(-3);
-                    const sampleWeeks = [...new Set(catgSource.map(r => r.WM_WEEK))].slice(-5);
-                    console.log('Sample WM_YEAR values:', sampleYears, '(types:', sampleYears.map(y => typeof y).join(','), ')');
-                    console.log('Sample WM_WEEK values:', sampleWeeks, '(types:', sampleWeeks.map(w => typeof w).join(','), ')');
-                    console.log('Looking for WM_YEAR:', latestWeek.WM_YEAR, '(type:', typeof latestWeek.WM_YEAR, ') WM_WEEK:', latestWeek.WM_WEEK, '(type:', typeof latestWeek.WM_WEEK, ')');
-                } else {
-                    console.log('First matching row:', matchingRows[0]);
-                    console.log('Key would be:', safeCatgKeyFn(matchingRows[0]));
-                }
+                console.log('Rows matching effective week:', matchingRows.length);
             }
         } else {
             console.warn('⚠️ WARNING: No category data available for DC Drilldown!');

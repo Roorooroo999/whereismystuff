@@ -972,26 +972,86 @@
 
         // FC and On Yard come from enterprise data (not SBU-level aggregation)
         // because they don't break down by SBU properly in HIST_COMBINED
+        // ROBUST MATCHING: Try BUS_DT first, then WM_YEAR+WM_WEEK, then fall back to last enterprise week
         const entWeeks = RAW_DATA.enterprise || [];
-        const entLatest = entWeeks.find(r => r.BUS_DT === latest.BUS_DT) || {};
-        const entPrev = prev ? (entWeeks.find(r => r.BUS_DT === prev.BUS_DT) || {}) : null;
-        const entLyWeek = lyWeek ? (entWeeks.find(r => r.WM_YEAR === lyWeek.WM_YEAR && r.WM_WEEK === lyWeek.WM_WEEK) || {}) : null;
 
-        // Override FC and On Yard values from enterprise data
-        latest.fc_oh = entLatest.fc_oh || 0;
-        latest.on_yard = entLatest.on_yard || 0;
+        // Helper to find enterprise week with multiple fallback strategies
+        function findEnterpriseWeek(targetWeek, weekArray) {
+            if (!targetWeek || !weekArray || weekArray.length === 0) return null;
+
+            // Strategy 1: Exact BUS_DT match
+            let match = weekArray.find(r => r.BUS_DT === targetWeek.BUS_DT);
+            if (match && (match.fc_oh !== undefined || match.on_yard !== undefined)) {
+                return { data: match, source: 'BUS_DT' };
+            }
+
+            // Strategy 2: WM_YEAR + WM_WEEK match (handles date format differences)
+            match = weekArray.find(r =>
+                Number(r.WM_YEAR) === Number(targetWeek.WM_YEAR) &&
+                Number(r.WM_WEEK) === Number(targetWeek.WM_WEEK)
+            );
+            if (match && (match.fc_oh !== undefined || match.on_yard !== undefined)) {
+                return { data: match, source: 'WM_YEAR+WM_WEEK' };
+            }
+
+            return null;
+        }
+
+        // Get enterprise data for current week
+        const entLatestMatch = findEnterpriseWeek(latest, entWeeks);
+        const entPrevMatch = prev ? findEnterpriseWeek(prev, entWeeks) : null;
+        const entLyMatch = lyWeek ? findEnterpriseWeek(lyWeek, entWeeks) : null;
+
+        // Extract fc_oh and on_yard with fallback to aggregated weeks data
+        // IMPORTANT: If enterprise data is unavailable, keep the values already computed in 'weeks'
+        // (which come from by_sbu aggregation and already include fc_oh/on_yard)
+        const originalFcOh = latest.fc_oh;
+        const originalOnYard = latest.on_yard;
+
+        if (entLatestMatch) {
+            latest.fc_oh = entLatestMatch.data.fc_oh ?? originalFcOh ?? 0;
+            latest.on_yard = entLatestMatch.data.on_yard ?? originalOnYard ?? 0;
+        } else if (entWeeks.length > 0) {
+            // Fallback: Use the most recent enterprise week if no exact match
+            const lastEnt = entWeeks[entWeeks.length - 1];
+            if (lastEnt.fc_oh !== undefined || lastEnt.on_yard !== undefined) {
+                console.warn('⚠️ KPI: Using last enterprise week as fallback (no exact match for', latest.BUS_DT, ')');
+                latest.fc_oh = lastEnt.fc_oh ?? originalFcOh ?? 0;
+                latest.on_yard = lastEnt.on_yard ?? originalOnYard ?? 0;
+            }
+            // else keep original values from aggregation
+        }
+        // If no enterprise data at all, keep original aggregated values
+
         if (prev) {
-            prev.fc_oh = entPrev?.fc_oh || 0;
-            prev.on_yard = entPrev?.on_yard || 0;
+            const origPrevFc = prev.fc_oh;
+            const origPrevYard = prev.on_yard;
+            if (entPrevMatch) {
+                prev.fc_oh = entPrevMatch.data.fc_oh ?? origPrevFc ?? 0;
+                prev.on_yard = entPrevMatch.data.on_yard ?? origPrevYard ?? 0;
+            }
+            // else keep original values
         }
         if (lyWeek) {
-            lyWeek.fc_oh = entLyWeek?.fc_oh || 0;
-            lyWeek.on_yard = entLyWeek?.on_yard || 0;
+            const origLyFc = lyWeek.fc_oh;
+            const origLyYard = lyWeek.on_yard;
+            if (entLyMatch) {
+                lyWeek.fc_oh = entLyMatch.data.fc_oh ?? origLyFc ?? 0;
+                lyWeek.on_yard = entLyMatch.data.on_yard ?? origLyYard ?? 0;
+            }
+            // else keep original values
         }
 
-        // DEBUG: Log FC and On Yard values
+        // DEBUG: Log FC and On Yard values with source info
         console.log('🔍 KPI DEBUG - Latest week:', latest.BUS_DT, 'WK' + latest.WM_WEEK);
-        console.log('🔍 fc_oh:', latest.fc_oh, '(from enterprise:', entLatest.fc_oh, ') | on_yard:', latest.on_yard, '(from enterprise:', entLatest.on_yard, ')');
+        console.log('🔍 fc_oh:', latest.fc_oh,
+            '(enterprise source:', entLatestMatch?.source || 'FALLBACK',
+            ', raw enterprise:', entLatestMatch?.data?.fc_oh,
+            ', original aggregated:', originalFcOh, ')');
+        console.log('🔍 on_yard:', latest.on_yard,
+            '(enterprise source:', entLatestMatch?.source || 'FALLBACK',
+            ', raw enterprise:', entLatestMatch?.data?.on_yard,
+            ', original aggregated:', originalOnYard, ')');
         console.log('🔍 dc_oh:', latest.dc_oh, '| in_transit:', latest.in_transit);
 
         setKPI('kpi-total', adjTotal(latest), prev ? adjTotal(prev) : null, 'kpi-total-wow',
@@ -2265,15 +2325,36 @@
         const priorYoYWeek = latestWeek.WM_WEEK;
 
         // Aggregate helper function - stores DC type breakdown for filtering
+        // ROBUST: Uses Number() coercion for year/week comparison to handle string vs number mismatch
         function aggregate(data, keyFn, year, week) {
+            if (!data || !Array.isArray(data) || data.length === 0) {
+                return {};
+            }
+
+            const targetYear = Number(year);
+            const targetWeek = Number(week);
+
+            // Validate year/week
+            if (isNaN(targetYear) || isNaN(targetWeek)) {
+                console.warn('⚠️ aggregate: Invalid year/week:', year, week);
+                return {};
+            }
+
             const agg = {};
-            // Use == for type-coerced comparison (handles string vs number mismatch)
-            data.filter(r => Number(r.WM_YEAR) === Number(year) && Number(r.WM_WEEK) === Number(week))
-                .filter(r => !HIDDEN_SBUS.includes(r.SBU))
-                .forEach(r => {
+            const filtered = data.filter(r => {
+                const rYear = Number(r.WM_YEAR);
+                const rWeek = Number(r.WM_WEEK);
+                return rYear === targetYear && rWeek === targetWeek && !HIDDEN_SBUS.includes(r.SBU);
+            });
+
+            filtered.forEach(r => {
                     const key = keyFn(r);
+                    // Skip if key is invalid (contains undefined/null)
+                    if (!key || key.includes('undefined') || key.includes('null')) {
+                        return;
+                    }
                     if (!agg[key]) agg[key] = {
-                        key, SBU: r.SBU, dept: r.department, catg: r.category,
+                        key, SBU: r.SBU || '', dept: r.department || '', catg: r.category || '',
                         dc_oh: 0, dc_labeled: 0, dc_unlabeled: 0, sto_to_dc: 0, on_yard: 0,
                         // DC Type breakdown for filtering
                         dc_oh_regional: 0, dc_oh_grocery: 0, dc_oh_fashion: 0, dc_oh_imports: 0,
@@ -2336,8 +2417,24 @@
         }
 
         // Category level - prefer dc_drill_catg, fallback to by_catg
-        const catgSource = (RAW_DATA.dc_drill_catg && RAW_DATA.dc_drill_catg.length > 0) ? RAW_DATA.dc_drill_catg : RAW_DATA.by_catg;
-        console.log('DC Drilldown Catg source:', RAW_DATA.dc_drill_catg?.length || 0, 'rows (dc_drill_catg), fallback:', RAW_DATA.by_catg?.length || 0, 'rows (by_catg)');
+        // IMPORTANT: Filter out rows with null/undefined/empty category to prevent malformed keys
+        let catgSource = null;
+        let catgSourceName = 'none';
+
+        if (RAW_DATA.dc_drill_catg && RAW_DATA.dc_drill_catg.length > 0) {
+            // Filter out null categories from dc_drill_catg
+            catgSource = RAW_DATA.dc_drill_catg.filter(r => r.category && r.category.trim() !== '');
+            catgSourceName = 'dc_drill_catg';
+            console.log('DC Drilldown Catg source: dc_drill_catg', RAW_DATA.dc_drill_catg.length, 'raw rows,', catgSource.length, 'valid category rows');
+        } else if (RAW_DATA.by_catg && RAW_DATA.by_catg.length > 0) {
+            // Filter out null categories from by_catg
+            catgSource = RAW_DATA.by_catg.filter(r => r.category && r.category.trim() !== '');
+            catgSourceName = 'by_catg';
+            console.log('DC Drilldown Catg source: by_catg fallback', RAW_DATA.by_catg.length, 'raw rows,', catgSource.length, 'valid category rows');
+        } else {
+            console.log('DC Drilldown Catg source: NONE AVAILABLE - dc_drill_catg:', RAW_DATA.dc_drill_catg?.length || 0, ', by_catg:', RAW_DATA.by_catg?.length || 0);
+        }
+
         if (catgSource && catgSource.length > 0) {
             // Debug: Check what weeks are in category data
             const catgWeeks = {};
@@ -2345,25 +2442,62 @@
                 const key = `${r.WM_YEAR}-WK${r.WM_WEEK}`;
                 catgWeeks[key] = (catgWeeks[key] || 0) + 1;
             });
-            console.log('Category data weeks available:', Object.keys(catgWeeks).slice(-5), 'Looking for:', `${latestWeek.WM_YEAR}-WK${latestWeek.WM_WEEK}`);
-            console.log('Sample category row:', catgSource[0]);
+            const availableWeeks = Object.keys(catgWeeks).sort();
+            console.log('Category data weeks available:', availableWeeks.slice(-5), 'Looking for:', `${latestWeek.WM_YEAR}-WK${latestWeek.WM_WEEK}`);
 
-            DC_DRILL_DATA.catg.current = aggregate(catgSource, r => `${r.SBU}|${r.department}|${r.category}`, latestWeek.WM_YEAR, latestWeek.WM_WEEK);
-            DC_DRILL_DATA.catg.priorWoW = aggregate(catgSource, r => `${r.SBU}|${r.department}|${r.category}`, priorWoWYear, priorWoWWeek);
-            DC_DRILL_DATA.catg.priorYoY = aggregate(catgSource, r => `${r.SBU}|${r.department}|${r.category}`, priorYoYYear, priorYoYWeek);
+            // Check if latest week exists in category data
+            const latestWeekKey = `${latestWeek.WM_YEAR}-WK${latestWeek.WM_WEEK}`;
+            if (!catgWeeks[latestWeekKey]) {
+                console.warn('⚠️ Latest week', latestWeekKey, 'not found in category data! Available:', availableWeeks.slice(-3).join(', '));
+                // Try to find the closest available week
+                const closestWeek = availableWeeks[availableWeeks.length - 1];
+                if (closestWeek) {
+                    const [y, w] = closestWeek.split('-WK');
+                    console.log('📊 Using closest available category week:', closestWeek);
+                }
+            }
+            console.log('Sample category row from', catgSourceName + ':', catgSource[0]);
+
+            // Safe aggregation function that handles null categories
+            const safeCatgKeyFn = r => {
+                const sbu = r.SBU || 'UNKNOWN';
+                const dept = r.department || 'UNKNOWN';
+                const catg = r.category || 'UNKNOWN';
+                return `${sbu}|${dept}|${catg}`;
+            };
+
+            DC_DRILL_DATA.catg.current = aggregate(catgSource, safeCatgKeyFn, latestWeek.WM_YEAR, latestWeek.WM_WEEK);
+            DC_DRILL_DATA.catg.priorWoW = aggregate(catgSource, safeCatgKeyFn, priorWoWYear, priorWoWWeek);
+            DC_DRILL_DATA.catg.priorYoY = aggregate(catgSource, safeCatgKeyFn, priorYoYYear, priorYoYWeek);
 
             console.log('Category aggregation result:', Object.keys(DC_DRILL_DATA.catg.current).length, 'rows');
-            // Debug: if no results, show why
+
+            // Debug: if no results, diagnose the issue
             if (Object.keys(DC_DRILL_DATA.catg.current).length === 0) {
-                console.log('⚠️ Category current is empty! Checking filter match...');
-                const matchingRows = catgSource.filter(r => Number(r.WM_YEAR) === Number(latestWeek.WM_YEAR) && Number(r.WM_WEEK) === Number(latestWeek.WM_WEEK));
-                console.log('Rows matching latest week:', matchingRows.length);
-                if (matchingRows.length > 0) {
+                console.warn('⚠️ Category current is empty after aggregation!');
+                const matchingRows = catgSource.filter(r =>
+                    Number(r.WM_YEAR) === Number(latestWeek.WM_YEAR) &&
+                    Number(r.WM_WEEK) === Number(latestWeek.WM_WEEK)
+                );
+                console.log('Rows matching latest week (after Number coercion):', matchingRows.length);
+                if (matchingRows.length === 0) {
+                    // Show what weeks ARE available
+                    const sampleYears = [...new Set(catgSource.map(r => r.WM_YEAR))].slice(-3);
+                    const sampleWeeks = [...new Set(catgSource.map(r => r.WM_WEEK))].slice(-5);
+                    console.log('Sample WM_YEAR values:', sampleYears, '(types:', sampleYears.map(y => typeof y).join(','), ')');
+                    console.log('Sample WM_WEEK values:', sampleWeeks, '(types:', sampleWeeks.map(w => typeof w).join(','), ')');
+                    console.log('Looking for WM_YEAR:', latestWeek.WM_YEAR, '(type:', typeof latestWeek.WM_YEAR, ') WM_WEEK:', latestWeek.WM_WEEK, '(type:', typeof latestWeek.WM_WEEK, ')');
+                } else {
                     console.log('First matching row:', matchingRows[0]);
+                    console.log('Key would be:', safeCatgKeyFn(matchingRows[0]));
                 }
             }
         } else {
-            console.log('WARNING: No category data available for DC Drilldown!');
+            console.warn('⚠️ WARNING: No category data available for DC Drilldown!');
+            // Initialize empty to prevent errors
+            DC_DRILL_DATA.catg.current = {};
+            DC_DRILL_DATA.catg.priorWoW = {};
+            DC_DRILL_DATA.catg.priorYoY = {};
         }
 
         // DC Type level - aggregate by DC type (Regional, Grocery, Fashion, Imports)

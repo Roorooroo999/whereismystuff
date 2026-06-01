@@ -834,10 +834,35 @@ class HistoricalCache:
         try:
             self.enterprise_df = client.query(q1).to_dataframe()
             print(f"[HIST] Enterprise: {len(self.enterprise_df):,} rows", flush=True)
+            print(f"[HIST] Enterprise columns: {list(self.enterprise_df.columns)}", flush=True)
+
+            # Validate critical columns for FC and On Yard KPIs
+            critical_cols = ['fc_oh', 'on_yard', 'sto_to_dc', 'dc_labeled', 'dc_unlabeled']
+            missing_cols = [c for c in critical_cols if c not in self.enterprise_df.columns]
+            if missing_cols:
+                print(f"[HIST] ⚠️ WARNING: Missing critical columns in enterprise_df: {missing_cols}", flush=True)
+
+            # Log values for debugging FC/On Yard issues
             if 'fc_oh' in self.enterprise_df.columns:
-                print(f"[HIST] Enterprise fc_oh sum: {self.enterprise_df['fc_oh'].sum()}", flush=True)
+                fc_sum = self.enterprise_df['fc_oh'].sum()
+                fc_nonzero = (self.enterprise_df['fc_oh'] > 0).sum()
+                print(f"[HIST] Enterprise fc_oh: sum={fc_sum:,.0f}, non-zero rows={fc_nonzero}", flush=True)
+            else:
+                print(f"[HIST] ⚠️ CRITICAL: fc_oh column MISSING from enterprise query!", flush=True)
+
             if 'on_yard' in self.enterprise_df.columns:
-                print(f"[HIST] Enterprise on_yard sum: {self.enterprise_df['on_yard'].sum()}", flush=True)
+                yard_sum = self.enterprise_df['on_yard'].sum()
+                yard_nonzero = (self.enterprise_df['on_yard'] > 0).sum()
+                print(f"[HIST] Enterprise on_yard: sum={yard_sum:,.0f}, non-zero rows={yard_nonzero}", flush=True)
+            else:
+                print(f"[HIST] ⚠️ CRITICAL: on_yard column MISSING from enterprise query!", flush=True)
+
+            # Log latest week data for debugging
+            if len(self.enterprise_df) > 0:
+                latest = self.enterprise_df.iloc[-1]
+                print(f"[HIST] Latest enterprise week: BUS_DT={latest.get('BUS_DT')}, "
+                      f"fc_oh={latest.get('fc_oh', 'N/A')}, on_yard={latest.get('on_yard', 'N/A')}, "
+                      f"dc_oh={latest.get('dc_oh', 'N/A')}", flush=True)
         except Exception as e:
             print(f"[HIST] Enterprise query FAILED: {e}", flush=True)
             raise
@@ -924,26 +949,48 @@ class HistoricalCache:
 
         # DC Drilldown - Category level
         # CRITICAL: Uses CATEGORY column (not OMNI_CATG_DESC) and OMNI_CATG_NBR for category ID
-        # NO WHERE clause - include all rows, filter NULLs in frontend if needed
+        # Filter WHERE CATEGORY IS NOT NULL to prevent malformed keys in frontend
         try:
             dc_q3 = f"""SELECT BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU,
                                OMNI_DEPT_NBR AS dept_nbr, DEPARTMENT AS department,
                                OMNI_CATG_NBR AS catg_nbr, CATEGORY AS category, {dc_drill_metric_sql}
                         FROM {dc_fqn}
+                        WHERE CATEGORY IS NOT NULL AND TRIM(CATEGORY) != ''
                         GROUP BY BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU, dept_nbr, department, catg_nbr, category
                         ORDER BY BUS_DT, SBU, dept_nbr, catg_nbr"""
             print(f"[HIST] Executing DC Category query...", flush=True)
             self.dc_drill_catg_df = client.query(dc_q3).to_dataframe()
             print(f"[HIST] DC Drilldown Category: {len(self.dc_drill_catg_df):,} rows", flush=True)
-            # Debug: Print column names to verify case
+
+            # Debug: Comprehensive validation for category data
             if self.dc_drill_catg_df is not None and len(self.dc_drill_catg_df) > 0:
                 print(f"[HIST] DC Drilldown Category columns: {list(self.dc_drill_catg_df.columns)}", flush=True)
-                print(f"[HIST] DC Drilldown Category sample row: {self.dc_drill_catg_df.iloc[0].to_dict()}", flush=True)
-                # Check for unique weeks to verify data coverage
+
+                # Check for null categories that slipped through
+                null_catg = self.dc_drill_catg_df['category'].isna().sum()
+                empty_catg = (self.dc_drill_catg_df['category'] == '').sum()
+                if null_catg > 0 or empty_catg > 0:
+                    print(f"[HIST] ⚠️ DC Category has {null_catg} NULL and {empty_catg} empty categories!", flush=True)
+
+                # Check WM_YEAR and WM_WEEK types (must be numeric for frontend Number() coercion)
+                sample_row = self.dc_drill_catg_df.iloc[0]
+                print(f"[HIST] DC Category sample: WM_YEAR={sample_row['WM_YEAR']} (type={type(sample_row['WM_YEAR']).__name__}), "
+                      f"WM_WEEK={sample_row['WM_WEEK']} (type={type(sample_row['WM_WEEK']).__name__})", flush=True)
+                print(f"[HIST] DC Category sample row: {sample_row.to_dict()}", flush=True)
+
+                # Check unique weeks to verify data coverage
                 unique_weeks = self.dc_drill_catg_df[['WM_YEAR', 'WM_WEEK']].drop_duplicates()
-                print(f"[HIST] DC Category weeks available: {len(unique_weeks)} weeks, latest: {unique_weeks.iloc[-1].to_dict()}", flush=True)
+                latest_week = unique_weeks.iloc[-1].to_dict()
+                print(f"[HIST] DC Category weeks available: {len(unique_weeks)} weeks, latest: {latest_week}", flush=True)
+
+                # Verify latest week matches enterprise data
+                if self.enterprise_df is not None and len(self.enterprise_df) > 0:
+                    ent_latest = self.enterprise_df.iloc[-1]
+                    if latest_week['WM_YEAR'] != ent_latest['WM_YEAR'] or latest_week['WM_WEEK'] != ent_latest['WM_WEEK']:
+                        print(f"[HIST] ⚠️ DC Category latest week ({latest_week}) differs from Enterprise "
+                              f"({ent_latest['WM_YEAR']}, {ent_latest['WM_WEEK']})!", flush=True)
             else:
-                print(f"[HIST] DC Drilldown Category WARNING: Empty dataframe returned!", flush=True)
+                print(f"[HIST] ⚠️ DC Drilldown Category WARNING: Empty dataframe returned!", flush=True)
         except Exception as e:
             print(f"[HIST] DC Drilldown Category FAILED: {e}", flush=True)
             import traceback

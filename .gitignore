@@ -42,3 +42,4 @@ Wheres_My_Stuff_Dashboard.html
 # Large generated data files
 dashboard/historical_data.json
 dashboard/historical_data.json
+api/.cache/

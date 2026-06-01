@@ -672,7 +672,8 @@ class HistoricalCache:
     ]
 
     # Cache directory for parquet files (instant load on restart)
-    CACHE_DIR = Path(tempfile.gettempdir()) / "wmus_hist_cache"
+    # Use app directory instead of /tmp so cache persists on Posit Connect
+    CACHE_DIR = Path(__file__).parent / ".cache"
 
     def __init__(self):
         self.enterprise_df: Optional[pd.DataFrame] = None

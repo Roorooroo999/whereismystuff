@@ -1002,56 +1002,52 @@
         const entPrevMatch = prev ? findEnterpriseWeek(prev, entWeeks) : null;
         const entLyMatch = lyWeek ? findEnterpriseWeek(lyWeek, entWeeks) : null;
 
-        // Extract fc_oh and on_yard with fallback to aggregated weeks data
-        // IMPORTANT: If enterprise data is unavailable, keep the values already computed in 'weeks'
-        // (which come from by_sbu aggregation and already include fc_oh/on_yard)
+        // Extract fc_oh and on_yard - PRIORITIZE original aggregated data (from by_sbu)
+        // Only override with enterprise data if we have a CONFIDENT match (BUS_DT or WM_YEAR+WM_WEEK)
+        // This ensures we never pull wrong week's data
         const originalFcOh = latest.fc_oh;
         const originalOnYard = latest.on_yard;
 
-        if (entLatestMatch) {
-            latest.fc_oh = entLatestMatch.data.fc_oh ?? originalFcOh ?? 0;
-            latest.on_yard = entLatestMatch.data.on_yard ?? originalOnYard ?? 0;
-        } else if (entWeeks.length > 0) {
-            // Fallback: Use the most recent enterprise week if no exact match
-            const lastEnt = entWeeks[entWeeks.length - 1];
-            if (lastEnt.fc_oh !== undefined || lastEnt.on_yard !== undefined) {
-                console.warn('⚠️ KPI: Using last enterprise week as fallback (no exact match for', latest.BUS_DT, ')');
-                latest.fc_oh = lastEnt.fc_oh ?? originalFcOh ?? 0;
-                latest.on_yard = lastEnt.on_yard ?? originalOnYard ?? 0;
-            }
-            // else keep original values from aggregation
+        // Only override if enterprise match is found AND has valid data
+        // Otherwise, keep the original aggregated values (which are correct for this week)
+        if (entLatestMatch && entLatestMatch.data) {
+            // Use enterprise value if it exists and is > 0, otherwise keep original
+            const entFc = entLatestMatch.data.fc_oh;
+            const entYard = entLatestMatch.data.on_yard;
+            latest.fc_oh = (entFc !== undefined && entFc !== null) ? entFc : (originalFcOh || 0);
+            latest.on_yard = (entYard !== undefined && entYard !== null) ? entYard : (originalOnYard || 0);
         }
-        // If no enterprise data at all, keep original aggregated values
+        // NO fallback to "last enterprise week" - that could pull wrong week's data
+        // If no match, the original aggregated values (from by_sbu) are already correct
 
-        if (prev) {
+        if (prev && entPrevMatch && entPrevMatch.data) {
             const origPrevFc = prev.fc_oh;
             const origPrevYard = prev.on_yard;
-            if (entPrevMatch) {
-                prev.fc_oh = entPrevMatch.data.fc_oh ?? origPrevFc ?? 0;
-                prev.on_yard = entPrevMatch.data.on_yard ?? origPrevYard ?? 0;
-            }
-            // else keep original values
+            const entFc = entPrevMatch.data.fc_oh;
+            const entYard = entPrevMatch.data.on_yard;
+            prev.fc_oh = (entFc !== undefined && entFc !== null) ? entFc : (origPrevFc || 0);
+            prev.on_yard = (entYard !== undefined && entYard !== null) ? entYard : (origPrevYard || 0);
         }
-        if (lyWeek) {
+        if (lyWeek && entLyMatch && entLyMatch.data) {
             const origLyFc = lyWeek.fc_oh;
             const origLyYard = lyWeek.on_yard;
-            if (entLyMatch) {
-                lyWeek.fc_oh = entLyMatch.data.fc_oh ?? origLyFc ?? 0;
-                lyWeek.on_yard = entLyMatch.data.on_yard ?? origLyYard ?? 0;
-            }
-            // else keep original values
+            const entFc = entLyMatch.data.fc_oh;
+            const entYard = entLyMatch.data.on_yard;
+            lyWeek.fc_oh = (entFc !== undefined && entFc !== null) ? entFc : (origLyFc || 0);
+            lyWeek.on_yard = (entYard !== undefined && entYard !== null) ? entYard : (origLyYard || 0);
         }
 
         // DEBUG: Log FC and On Yard values with source info
+        const source = entLatestMatch ? entLatestMatch.source : 'AGGREGATED';
         console.log('🔍 KPI DEBUG - Latest week:', latest.BUS_DT, 'WK' + latest.WM_WEEK);
         console.log('🔍 fc_oh:', latest.fc_oh,
-            '(enterprise source:', entLatestMatch?.source || 'FALLBACK',
-            ', raw enterprise:', entLatestMatch?.data?.fc_oh,
-            ', original aggregated:', originalFcOh, ')');
+            '(source:', source,
+            ', enterprise:', entLatestMatch?.data?.fc_oh ?? 'N/A',
+            ', aggregated:', originalFcOh, ')');
         console.log('🔍 on_yard:', latest.on_yard,
-            '(enterprise source:', entLatestMatch?.source || 'FALLBACK',
-            ', raw enterprise:', entLatestMatch?.data?.on_yard,
-            ', original aggregated:', originalOnYard, ')');
+            '(source:', source,
+            ', enterprise:', entLatestMatch?.data?.on_yard ?? 'N/A',
+            ', aggregated:', originalOnYard, ')');
         console.log('🔍 dc_oh:', latest.dc_oh, '| in_transit:', latest.in_transit);
 
         setKPI('kpi-total', adjTotal(latest), prev ? adjTotal(prev) : null, 'kpi-total-wow',

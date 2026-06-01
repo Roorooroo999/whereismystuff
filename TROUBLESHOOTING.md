@@ -167,6 +167,57 @@ SELECT * FROM staging WHERE (SELECT COUNT(*) FROM staging) > 0
 
 ---
 
+### Issue 5: Race Condition - Data Shows 0 on First Load, Works on Refresh
+
+**Symptoms:**
+- FC (eComm), On Yard, or DC Drilldown Category show 0 on first page load
+- User refreshes the page → data appears correctly
+- Intermittent: sometimes works, sometimes doesn't
+
+**Root Cause (CRITICAL - discovered June 2026):**
+
+The `is_ready` property was **incomplete**. It only checked 4 DataFrames:
+```python
+# OLD (BUGGY):
+return (
+    self.enterprise_df is not None
+    and self.sbu_df is not None
+    and self.dept_df is not None
+    and self.catg_df is not None
+    and not self.is_loading
+)
+```
+
+**Missing:** `dc_drill_sbu_df`, `dc_drill_dept_df`, `dc_drill_catg_df`
+
+**Timeline:**
+1. Cache starts loading → `is_loading = True`
+2. Enterprise, SBU, Dept, Category queries run (~25-30 seconds)
+3. `is_loading = False`, all 4 main DFs populated → `is_ready = True` ❌
+4. User requests `/api/historical` → Gets 200 OK (not 503)
+5. BUT DC Drilldown queries are **still running** → DFs are `None`
+6. Response includes empty DC Drilldown data → Frontend shows 0
+
+**Fix (Applied June 2026):**
+```python
+# NEW (CORRECT):
+return (
+    self.enterprise_df is not None and not self.enterprise_df.empty
+    and self.sbu_df is not None
+    and self.dept_df is not None
+    and self.catg_df is not None
+    # CRITICAL: Also check DC Drilldown DataFrames!
+    and self.dc_drill_sbu_df is not None
+    and self.dc_drill_dept_df is not None
+    and self.dc_drill_catg_df is not None
+    and not self.is_loading
+)
+```
+
+Now `/api/historical` returns 503 until ALL data (including DC Drilldown) is loaded.
+
+---
+
 ## Debugging Checklist
 
 ### When FC/On Yard = 0:

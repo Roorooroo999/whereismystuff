@@ -689,13 +689,19 @@ class HistoricalCache:
 
     @property
     def is_ready(self) -> bool:
-        # Must check ALL required dataframes, not just enterprise_df
+        # Must check ALL required dataframes, including DC Drilldown DFs
         # Otherwise requests can come in while cache is partially loaded
+        # This was the root cause of intermittent FC/On Yard=0 and DC Drilldown Category failures
         return (
             self.enterprise_df is not None and not self.enterprise_df.empty
             and self.sbu_df is not None
             and self.dept_df is not None
             and self.catg_df is not None
+            # CRITICAL: Also check DC Drilldown DataFrames!
+            # These load AFTER the main DFs and take extra time
+            and self.dc_drill_sbu_df is not None
+            and self.dc_drill_dept_df is not None
+            and self.dc_drill_catg_df is not None
             and not self.is_loading  # Also check we're not mid-load
         )
 

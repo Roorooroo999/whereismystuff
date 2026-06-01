@@ -671,6 +671,9 @@ class HistoricalCache:
         "sto_to_gidc", "sto_to_msc", "sto_to_support", "sto_to_other",
     ]
 
+    # Cache directory for parquet files (instant load on restart)
+    CACHE_DIR = Path(tempfile.gettempdir()) / "wmus_hist_cache"
+
     def __init__(self):
         self.enterprise_df: Optional[pd.DataFrame] = None
         self.sbu_df: Optional[pd.DataFrame] = None
@@ -686,6 +689,72 @@ class HistoricalCache:
         self.is_loading: bool = False
         # Cached JSON response to avoid repeated DataFrame → dict conversion
         self._cached_response: Optional[dict] = None
+        # Ensure cache directory exists
+        self.CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+    def _save_to_disk(self):
+        """Save DataFrames to parquet for instant load on restart."""
+        try:
+            t0 = time.time()
+            self.enterprise_df.to_parquet(self.CACHE_DIR / "enterprise.parquet")
+            self.sbu_df.to_parquet(self.CACHE_DIR / "sbu.parquet")
+            self.dept_df.to_parquet(self.CACHE_DIR / "dept.parquet")
+            self.catg_df.to_parquet(self.CACHE_DIR / "catg.parquet")
+            if self.dc_drill_sbu_df is not None:
+                self.dc_drill_sbu_df.to_parquet(self.CACHE_DIR / "dc_drill_sbu.parquet")
+            if self.dc_drill_dept_df is not None:
+                self.dc_drill_dept_df.to_parquet(self.CACHE_DIR / "dc_drill_dept.parquet")
+            if self.dc_drill_catg_df is not None:
+                self.dc_drill_catg_df.to_parquet(self.CACHE_DIR / "dc_drill_catg.parquet")
+            # Save metadata
+            metadata = {"loaded_date": self.loaded_date, "loaded_at": self.loaded_at}
+            with open(self.CACHE_DIR / "metadata.json", "w") as f:
+                json.dump(metadata, f)
+            print(f"[HIST] 💾 Saved cache to disk in {round(time.time() - t0, 1)}s", flush=True)
+        except Exception as e:
+            print(f"[HIST] ⚠️ Failed to save cache to disk: {e}", flush=True)
+
+    def _load_from_disk(self) -> bool:
+        """Load DataFrames from parquet cache. Returns True if successful."""
+        try:
+            metadata_file = self.CACHE_DIR / "metadata.json"
+            if not metadata_file.exists():
+                print("[HIST] No disk cache found", flush=True)
+                return False
+
+            # Check if cache is from today (don't serve stale data)
+            with open(metadata_file) as f:
+                metadata = json.load(f)
+            cached_date = metadata.get("loaded_date")
+            today = datetime.now().strftime("%Y-%m-%d")
+            if cached_date != today:
+                print(f"[HIST] Disk cache is stale ({cached_date} vs {today}), will refresh", flush=True)
+                return False
+
+            t0 = time.time()
+            self.enterprise_df = pd.read_parquet(self.CACHE_DIR / "enterprise.parquet")
+            self.sbu_df = pd.read_parquet(self.CACHE_DIR / "sbu.parquet")
+            self.dept_df = pd.read_parquet(self.CACHE_DIR / "dept.parquet")
+            self.catg_df = pd.read_parquet(self.CACHE_DIR / "catg.parquet")
+            # DC Drilldown (optional - might not exist in old caches)
+            dc_sbu_file = self.CACHE_DIR / "dc_drill_sbu.parquet"
+            dc_dept_file = self.CACHE_DIR / "dc_drill_dept.parquet"
+            dc_catg_file = self.CACHE_DIR / "dc_drill_catg.parquet"
+            if dc_sbu_file.exists():
+                self.dc_drill_sbu_df = pd.read_parquet(dc_sbu_file)
+            if dc_dept_file.exists():
+                self.dc_drill_dept_df = pd.read_parquet(dc_dept_file)
+            if dc_catg_file.exists():
+                self.dc_drill_catg_df = pd.read_parquet(dc_catg_file)
+
+            self.loaded_date = cached_date
+            self.loaded_at = metadata.get("loaded_at")
+            elapsed = round(time.time() - t0, 1)
+            print(f"[HIST] ⚡ Loaded from disk cache in {elapsed}s (cached at {cached_date})", flush=True)
+            return True
+        except Exception as e:
+            print(f"[HIST] ⚠️ Failed to load from disk cache: {e}", flush=True)
+            return False
 
     @property
     def is_ready(self) -> bool:
@@ -713,11 +782,25 @@ class HistoricalCache:
             return bigquery.Client(project=CLIENT_PROJECT, credentials=credentials)
         return bigquery.Client(project=CLIENT_PROJECT)
 
-    def load(self):
-        """Load 3 aggregation levels from BigQuery in parallel-ish queries."""
+    def load(self, force_refresh: bool = False):
+        """Load historical data - from disk cache first, then BigQuery.
+
+        On restart: Loads from parquet cache in ~1s (instant user experience)
+        Then refreshes from BigQuery in background if cache is stale.
+        """
         self.is_loading = True
         self._cached_response = None  # Clear cache on reload
         t0 = time.time()
+
+        # STEP 1: Try loading from disk cache first (instant ~1s)
+        if not force_refresh and self._load_from_disk():
+            self.is_loading = False
+            self.load_time_sec = round(time.time() - t0, 1)
+            print(f"[HIST] ✅ Ready to serve from disk cache!", flush=True)
+            return  # Success! Data is ready to serve
+
+        # STEP 2: No cache or stale - load from BigQuery
+        print(f"[HIST] Loading fresh data from BigQuery...", flush=True)
         try:
             client = self._get_client()
         except Exception as e:
@@ -997,6 +1080,9 @@ class HistoricalCache:
                         (len(self.dc_drill_catg_df) if self.dc_drill_catg_df is not None else 0)
         total_rows = len(self.enterprise_df) + len(self.sbu_df) + len(self.dept_df) + len(self.catg_df) + dc_drill_rows
         logger.info(f"[HIST] Loaded {total_rows:,} total rows in {self.load_time_sec}s")
+
+        # STEP 3: Save to disk cache for instant load on next restart
+        self._save_to_disk()
 
     def to_response(self) -> dict:
         """Build the same JSON structure as historical_data.json. Uses caching for performance."""

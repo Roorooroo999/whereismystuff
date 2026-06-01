@@ -665,17 +665,12 @@
                     throw new Error(`API ${resp.status}`);
                 } catch (fetchErr) {
                     if (attempt === maxRetries) {
-                        // Final attempt failed - try static file as last resort (local dev only)
-                        console.warn('API failed after retries, trying static file fallback...');
-                        source = 'file';
-                        resp = await fetch('historical_data.json');
-                        if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
-                    } else if (!fetchErr.message.includes('503')) {
-                        // Non-503 error - try static file immediately
-                        source = 'file';
-                        resp = await fetch('historical_data.json');
-                        if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
-                        break;
+                        // All retries exhausted - show error (no static file fallback!)
+                        throw new Error('API unavailable after ' + maxRetries + ' retries. Please wait for cache to load and refresh.');
+                    }
+                    // For non-503 errors, throw immediately
+                    if (!fetchErr.message.includes('503')) {
+                        throw fetchErr;
                     }
                 }
             }

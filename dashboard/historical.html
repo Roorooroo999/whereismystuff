@@ -638,15 +638,46 @@
         try {
             // Try API endpoint first (Posit / FastAPI server)
             let resp;
-            try {
-                const apiUrl = window.location.pathname.replace(/\/dashboard\/.*$/, '') + '/api/historical';
-                resp = await fetch(apiUrl);
-                if (!resp.ok) throw new Error(`API ${resp.status}`);
-            } catch (_apiErr) {
-                // Fallback to static JSON file (local dev)
-                source = 'file';
-                resp = await fetch('historical_data.json');
-                if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+            const apiUrl = window.location.pathname.replace(/\/dashboard\/.*$/, '') + '/api/historical';
+
+            // Retry logic for 503 (cache loading) - wait up to 60 seconds
+            const maxRetries = 12;
+            const retryDelay = 5000; // 5 seconds between retries
+
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                try {
+                    resp = await fetch(apiUrl);
+                    if (resp.ok) break; // Success!
+
+                    if (resp.status === 503 && attempt < maxRetries) {
+                        // Cache is loading - show status and retry
+                        const waitMsg = `⏳ Cache loading... retry ${attempt}/${maxRetries} (waiting 5s)`;
+                        console.log(waitMsg);
+                        document.getElementById('loading').innerHTML = `
+                            <div class="text-center">
+                                <div class="spinner-border text-primary mb-3" role="status"></div>
+                                <p class="text-muted">${waitMsg}</p>
+                                <p class="text-muted" style="font-size:0.75rem;">Historical data is being loaded from BigQuery...</p>
+                            </div>`;
+                        await new Promise(r => setTimeout(r, retryDelay));
+                        continue;
+                    }
+                    throw new Error(`API ${resp.status}`);
+                } catch (fetchErr) {
+                    if (attempt === maxRetries) {
+                        // Final attempt failed - try static file as last resort (local dev only)
+                        console.warn('API failed after retries, trying static file fallback...');
+                        source = 'file';
+                        resp = await fetch('historical_data.json');
+                        if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+                    } else if (!fetchErr.message.includes('503')) {
+                        // Non-503 error - try static file immediately
+                        source = 'file';
+                        resp = await fetch('historical_data.json');
+                        if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+                        break;
+                    }
+                }
             }
             RAW_DATA = await resp.json();
 

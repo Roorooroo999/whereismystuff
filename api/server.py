@@ -137,6 +137,19 @@ class DataCache:
             self.is_loading = False
             return
 
+        # Wrap entire load in try/finally to ALWAYS reset is_loading
+        try:
+            self._do_load(client, t0)
+        except Exception as e:
+            print(f"[CACHE] Load failed with error: {e}", flush=True)
+            import traceback
+            print(f"[CACHE] Traceback: {traceback.format_exc()}", flush=True)
+        finally:
+            self.is_loading = False
+            print(f"[CACHE] Load finished. is_ready={self.is_ready}", flush=True)
+
+    def _do_load(self, client, t0):
+        """Internal load logic - called by load() with error handling."""
         # Main fact query: pre-aggregated at SBU × Dept × Category × Replen_Type grain
         # This enables category-level filtering in the dashboard
         # Uses MAX(BUS_DT) to always get the latest available data
@@ -208,8 +221,7 @@ class DataCache:
         except Exception as e:
             print(f"[CACHE] BigQuery query failed: {e}", flush=True)
             logger.error(f"[CACHE] BigQuery query failed: {e}")
-            self.is_loading = False
-            return
+            raise  # Re-raise to be caught by load()'s try/finally
 
         # Compute derived columns once (includes all channels)
         df["total_units"] = (
@@ -256,7 +268,7 @@ class DataCache:
         self.loaded_date = actual_bus_dt
         self.load_time_sec = round(time.time() - t0, 1)
         self.row_count = len(df)
-        self.is_loading = False
+        # Note: is_loading is set to False in the finally block of load()
 
         logger.info(f"[CACHE] Loaded {len(df):,} rows + {len(catg_df):,} category mappings in {self.load_time_sec}s (BUS_DT={actual_bus_dt})")
 
@@ -707,6 +719,19 @@ class HistoricalCache:
             self.is_loading = False
             return
 
+        # Wrap entire load in try/finally to ALWAYS reset is_loading
+        try:
+            self._do_load(client, t0)
+        except Exception as e:
+            print(f"[HIST] Load failed with error: {e}", flush=True)
+            import traceback
+            print(f"[HIST] Traceback: {traceback.format_exc()}", flush=True)
+        finally:
+            self.is_loading = False
+            print(f"[HIST] Load finished. is_ready={self.is_ready}", flush=True)
+
+    def _do_load(self, client, t0):
+        """Internal load logic - called by load() with error handling."""
         # Historical metrics - use COALESCE for columns that may not exist in older data
         # Includes ALL DC Type breakdown columns needed by DC Drilldown filtering
         metric_sql = """
@@ -938,8 +963,7 @@ class HistoricalCache:
         self.loaded_at = time.time()
         self.loaded_date = datetime.now().strftime("%Y-%m-%d")
         self.load_time_sec = round(time.time() - t0, 1)
-        self.is_loading = False
-        print(f"[HIST] Load complete. is_ready={self.is_ready}", flush=True)
+        # Note: is_loading is set to False in the finally block of load()
 
         dc_drill_rows = (len(self.dc_drill_sbu_df) if self.dc_drill_sbu_df is not None else 0) + \
                         (len(self.dc_drill_dept_df) if self.dc_drill_dept_df is not None else 0) + \

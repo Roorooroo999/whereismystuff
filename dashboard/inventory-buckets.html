@@ -73,20 +73,41 @@
         .tab-content > .tab-pane { display: none; }
         .tab-content > .tab-pane.active { display: block; }
         .tab-content > .tab-pane.show.active { display: block; opacity: 1; }
+        /* View Toggle - Centered (matches index.html) */
+        .view-toggle { display: inline-flex; gap: 4px; margin-left: 16px; }
+        .view-toggle .btn-view {
+            padding: 4px 14px; border-radius: 20px; font-size: 0.8rem; font-weight: 600;
+            border: 2px solid rgba(255,255,255,0.3); background: transparent; color: rgba(255,255,255,0.7);
+            cursor: pointer; transition: all 0.2s; text-decoration: none; display: inline-flex; align-items: center; gap: 5px;
+        }
+        .view-toggle .btn-view:hover { border-color: rgba(255,255,255,0.6); color: #fff; }
+        .view-toggle .btn-view.active {
+            background: rgba(255,255,255,0.2); border-color: #fff; color: #fff;
+        }
+        .view-toggle .btn-view .view-badge {
+            font-size: 0.55rem; padding: 1px 5px; border-radius: 8px; font-weight: 700; text-transform: uppercase;
+        }
+        .view-badge-live { background: #22c55e; color: #fff; }
+        .view-badge-weekly { background: #3b82f6; color: #fff; }
     </style>
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark" style="background: var(--walmart-blue);">
         <div class="container-fluid">
-            <a class="navbar-brand" href="#"><i class="bi bi-stack me-2"></i>Where's My Stuff — Inventory Buckets</a>
+            <a class="navbar-brand" href="#"><i class="bi bi-box-seam me-2"></i>Where's My Stuff</a>
+            <div class="view-toggle">
+                <a href="index.html" class="btn-view">
+                    <i class="bi bi-speedometer2"></i> Current <span class="view-badge view-badge-live">LIVE</span>
+                </a>
+                <a href="historical.html" class="btn-view">
+                    <i class="bi bi-graph-up"></i> Historical <span class="view-badge view-badge-weekly">WEEKLY</span>
+                </a>
+                <a href="inventory-buckets.html" class="btn-view active">
+                    <i class="bi bi-stack"></i> Buckets <span class="view-badge" style="background:#f59e0b;color:#000;">PIPELINE</span>
+                </a>
+            </div>
             <div class="d-flex align-items-center text-white">
                 <span class="status-badge me-2" id="data-status" style="background: rgba(0,0,0,0.2);"><i class="bi bi-hourglass-split me-1"></i>Loading...</span>
-                <!-- View Toggle Buttons -->
-                <div class="btn-group me-3" role="group">
-                    <a href="index.html" class="btn btn-outline-light btn-sm"><i class="bi bi-speedometer2 me-1"></i>Current <span class="badge bg-success ms-1">LIVE</span></a>
-                    <a href="historical.html" class="btn btn-outline-light btn-sm"><i class="bi bi-graph-up me-1"></i>Historical <span class="badge bg-info ms-1">WEEKLY</span></a>
-                    <a href="inventory-buckets.html" class="btn btn-light btn-sm text-dark"><i class="bi bi-stack me-1"></i>Buckets <span class="badge bg-warning text-dark ms-1">PIPELINE</span></a>
-                </div>
             </div>
         </div>
     </nav>

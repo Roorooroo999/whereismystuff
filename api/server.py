@@ -86,6 +86,8 @@ TABLE = os.environ.get("TABLE", "WHERES_MY_STUFF_ROLLUP")
 HIST_TABLE = os.environ.get("HIST_TABLE", "R0C0JUG_WMUS_HIST_COMBINED")
 # DC Drilldown uses a separate DC-level historical table with finer granularity
 DC_HIST_TABLE = os.environ.get("DC_HIST_TABLE", "R0C0JUG_WMUS_HIST_DC_LEVEL")
+# On-Order historical table for WOW trend analysis
+ONORDER_TABLE = os.environ.get("ONORDER_TABLE", "R0C0JUG_WMUS_HIST_ONORDER")
 REFRESH_INTERVAL = int(os.environ.get("CACHE_REFRESH_SECONDS", "3600"))  # 1 hour default
 
 
@@ -711,9 +713,9 @@ class HistoricalCache:
             metadata = {"loaded_date": self.loaded_date, "loaded_at": self.loaded_at}
             with open(self.CACHE_DIR / "metadata.json", "w") as f:
                 json.dump(metadata, f)
-            print(f"[HIST] 💾 Saved cache to disk in {round(time.time() - t0, 1)}s", flush=True)
+            print(f"[HIST] [DISK] Saved cache to disk in {round(time.time() - t0, 1)}s", flush=True)
         except Exception as e:
-            print(f"[HIST] ⚠️ Failed to save cache to disk: {e}", flush=True)
+            print(f"[HIST] [WARN] Failed to save cache to disk: {e}", flush=True)
 
     def _load_from_disk(self) -> bool:
         """Load DataFrames from parquet cache. Returns True if successful."""
@@ -751,10 +753,10 @@ class HistoricalCache:
             self.loaded_date = cached_date
             self.loaded_at = metadata.get("loaded_at")
             elapsed = round(time.time() - t0, 1)
-            print(f"[HIST] ⚡ Loaded from disk cache in {elapsed}s (cached at {cached_date})", flush=True)
+            print(f"[HIST] [FAST] Loaded from disk cache in {elapsed}s (cached at {cached_date})", flush=True)
             return True
         except Exception as e:
-            print(f"[HIST] ⚠️ Failed to load from disk cache: {e}", flush=True)
+            print(f"[HIST] [WARN] Failed to load from disk cache: {e}", flush=True)
             return False
 
     @property
@@ -797,7 +799,7 @@ class HistoricalCache:
         if not force_refresh and self._load_from_disk():
             self.is_loading = False
             self.load_time_sec = round(time.time() - t0, 1)
-            print(f"[HIST] ✅ Ready to serve from disk cache!", flush=True)
+            print(f"[HIST] [OK] Ready to serve from disk cache!", flush=True)
             return  # Success! Data is ready to serve
 
         # STEP 2: No cache or stale - load from BigQuery
@@ -891,7 +893,10 @@ class HistoricalCache:
         # DC_LABELED/UNLABELED type breakdowns are only available in DC_LEVEL table via CASE WHEN
         catg_metric_sql = """
             SUM(COALESCE(STORE_OH_UNITS, 0)) AS store_oh,
+            SUM(COALESCE(BACKROOM_UNITS, 0)) AS backroom,
+            SUM(COALESCE(ON_FLOOR_UNITS, 0)) AS on_floor,
             SUM(COALESCE(DC_OH_UNITS, 0)) AS dc_oh,
+            SUM(COALESCE(DC_RESERVED_UNITS, 0)) AS dc_reserved,
             SUM(COALESCE(DC_LABELED_UNITS, 0)) AS dc_labeled,
             SUM(COALESCE(DC_UNLABELED_UNITS, 0)) AS dc_unlabeled,
             SUM(COALESCE(STO_IN_TRANSIT_TO_DC_UNITS, 0)) AS sto_to_dc,
@@ -924,7 +929,7 @@ class HistoricalCache:
                  ORDER BY BUS_DT, SBU, dept_nbr, catg_nbr"""
 
         print(f"[HIST] Loading from table: {HIST_PROJECT_ID}.{DATASET}.{HIST_TABLE}", flush=True)
-        print(f"[HIST] ⚡ Using PARALLEL query execution for faster loading...", flush=True)
+        print(f"[HIST] [FAST] Using PARALLEL query execution for faster loading...", flush=True)
 
         # ============================================================
         # DC Drilldown - Build queries for DC_HIST_TABLE
@@ -1003,10 +1008,10 @@ class HistoricalCache:
                 t_start = time.time()
                 df = client.query(sql).to_dataframe()
                 elapsed = round(time.time() - t_start, 1)
-                print(f"[HIST] ✓ {name}: {len(df):,} rows in {elapsed}s", flush=True)
+                print(f"[HIST] [OK] {name}: {len(df):,} rows in {elapsed}s", flush=True)
                 return df
             except Exception as e:
-                print(f"[HIST] ✗ {name} FAILED: {e}", flush=True)
+                print(f"[HIST] [ERR] {name} FAILED: {e}", flush=True)
                 return None
 
         print(f"[HIST] Starting 7 queries in parallel...", flush=True)
@@ -1020,12 +1025,12 @@ class HistoricalCache:
                 try:
                     results[name] = future.result()
                 except Exception as e:
-                    print(f"[HIST] ✗ {name} exception: {e}", flush=True)
+                    print(f"[HIST] [ERR] {name} exception: {e}", flush=True)
                     errors[name] = str(e)
                     results[name] = None
 
         parallel_elapsed = round(time.time() - parallel_start, 1)
-        print(f"[HIST] ⚡ All 7 queries completed in {parallel_elapsed}s (parallel)", flush=True)
+        print(f"[HIST] [FAST] All 7 queries completed in {parallel_elapsed}s (parallel)", flush=True)
 
         # Assign results to instance variables
         self.enterprise_df = results.get('enterprise')
@@ -1036,13 +1041,39 @@ class HistoricalCache:
         self.dc_drill_dept_df = results.get('dc_drill_dept')
         self.dc_drill_catg_df = results.get('dc_drill_catg')
 
+        # Validate dept data
+        if self.dept_df is not None and len(self.dept_df) > 0:
+            print(f"[HIST] Dept records: {len(self.dept_df)}", flush=True)
+            print(f"[HIST] Dept columns: {list(self.dept_df.columns)}", flush=True)
+            unique_depts = self.dept_df['department'].nunique() if 'department' in self.dept_df.columns else 'N/A'
+            print(f"[HIST] Unique departments: {unique_depts}", flush=True)
+        else:
+            print(f"[HIST] [WARN] No dept data loaded!", flush=True)
+
+        # Validate category data - especially backroom/on_floor
+        if self.catg_df is not None and len(self.catg_df) > 0:
+            print(f"[HIST] Category records: {len(self.catg_df)}", flush=True)
+            print(f"[HIST] Category columns: {list(self.catg_df.columns)}", flush=True)
+            if 'backroom' in self.catg_df.columns:
+                backroom_sum = self.catg_df['backroom'].sum()
+                print(f"[HIST] Category backroom sum: {backroom_sum:,.0f}", flush=True)
+            else:
+                print(f"[HIST] [WARN] Category missing 'backroom' column!", flush=True)
+            if 'on_floor' in self.catg_df.columns:
+                on_floor_sum = self.catg_df['on_floor'].sum()
+                print(f"[HIST] Category on_floor sum: {on_floor_sum:,.0f}", flush=True)
+            else:
+                print(f"[HIST] [WARN] Category missing 'on_floor' column!", flush=True)
+        else:
+            print(f"[HIST] [WARN] No category data loaded!", flush=True)
+
         # Validate enterprise data (critical for FC/On Yard KPIs)
         if self.enterprise_df is not None and len(self.enterprise_df) > 0:
             print(f"[HIST] Enterprise columns: {list(self.enterprise_df.columns)}", flush=True)
             critical_cols = ['fc_oh', 'on_yard', 'sto_to_dc', 'dc_labeled', 'dc_unlabeled']
             missing_cols = [c for c in critical_cols if c not in self.enterprise_df.columns]
             if missing_cols:
-                print(f"[HIST] ⚠️ WARNING: Missing critical columns: {missing_cols}", flush=True)
+                print(f"[HIST] [WARN] WARNING: Missing critical columns: {missing_cols}", flush=True)
             if 'fc_oh' in self.enterprise_df.columns:
                 fc_sum = self.enterprise_df['fc_oh'].sum()
                 print(f"[HIST] Enterprise fc_oh: sum={fc_sum:,.0f}", flush=True)
@@ -1057,7 +1088,7 @@ class HistoricalCache:
         if self.dc_drill_catg_df is not None and len(self.dc_drill_catg_df) > 0:
             null_catg = self.dc_drill_catg_df['category'].isna().sum()
             if null_catg > 0:
-                print(f"[HIST] ⚠️ DC Category has {null_catg} NULL categories!", flush=True)
+                print(f"[HIST] [WARN] DC Category has {null_catg} NULL categories!", flush=True)
             unique_weeks = self.dc_drill_catg_df[['WM_YEAR', 'WM_WEEK']].drop_duplicates()
             print(f"[HIST] DC Category: {len(unique_weeks)} weeks available", flush=True)
 
@@ -1125,11 +1156,316 @@ hist_cache = HistoricalCache()
 
 
 # ============================================================
+# On-Order Historical Cache
+# ============================================================
+
+class OnOrderCache:
+    """
+    On-Order historical data from R0C0JUG_WMUS_HIST_ONORDER.
+    Shows units ordered, received, and open by WM Week with various dimensions.
+    Supports WOW trend analysis separate from inventory data.
+    """
+
+    # Cache directory (shared with historical cache)
+    CACHE_DIR = Path(__file__).parent / ".cache"
+
+    def __init__(self):
+        self.enterprise_df: Optional[pd.DataFrame] = None  # Total by week
+        self.sbu_df: Optional[pd.DataFrame] = None         # By SBU
+        self.dept_df: Optional[pd.DataFrame] = None        # By Department
+        self.catg_df: Optional[pd.DataFrame] = None        # By Category
+        self.loaded_at: Optional[float] = None
+        self.loaded_date: Optional[str] = None
+        self.load_time_sec: float = 0
+        self.is_loading: bool = False
+        self._cached_response: Optional[dict] = None
+        self.CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+    def _save_to_disk(self):
+        """Save DataFrames to parquet for instant load on restart."""
+        try:
+            t0 = time.time()
+            if self.enterprise_df is not None:
+                self.enterprise_df.to_parquet(self.CACHE_DIR / "onorder_enterprise.parquet")
+            if self.sbu_df is not None:
+                self.sbu_df.to_parquet(self.CACHE_DIR / "onorder_sbu.parquet")
+            if self.dept_df is not None:
+                self.dept_df.to_parquet(self.CACHE_DIR / "onorder_dept.parquet")
+            if self.catg_df is not None:
+                self.catg_df.to_parquet(self.CACHE_DIR / "onorder_catg.parquet")
+            # Save metadata
+            metadata = {"loaded_date": self.loaded_date, "loaded_at": self.loaded_at}
+            with open(self.CACHE_DIR / "onorder_metadata.json", "w") as f:
+                json.dump(metadata, f)
+            print(f"[ONORDER] [DISK] Saved cache to disk in {round(time.time() - t0, 1)}s", flush=True)
+        except Exception as e:
+            print(f"[ONORDER] [WARN] Failed to save cache to disk: {e}", flush=True)
+
+    def _load_from_disk(self) -> bool:
+        """Load DataFrames from parquet cache. Returns True if successful."""
+        try:
+            metadata_file = self.CACHE_DIR / "onorder_metadata.json"
+            if not metadata_file.exists():
+                print("[ONORDER] No disk cache found", flush=True)
+                return False
+
+            with open(metadata_file) as f:
+                metadata = json.load(f)
+            cached_date = metadata.get("loaded_date")
+            today = datetime.now().strftime("%Y-%m-%d")
+            if cached_date != today:
+                print(f"[ONORDER] Disk cache is stale ({cached_date} vs {today}), will refresh", flush=True)
+                return False
+
+            t0 = time.time()
+            self.enterprise_df = pd.read_parquet(self.CACHE_DIR / "onorder_enterprise.parquet")
+            self.sbu_df = pd.read_parquet(self.CACHE_DIR / "onorder_sbu.parquet")
+            self.dept_df = pd.read_parquet(self.CACHE_DIR / "onorder_dept.parquet")
+            self.catg_df = pd.read_parquet(self.CACHE_DIR / "onorder_catg.parquet")
+
+            self.loaded_date = cached_date
+            self.loaded_at = metadata.get("loaded_at")
+            elapsed = round(time.time() - t0, 1)
+            print(f"[ONORDER] [FAST] Loaded from disk cache in {elapsed}s (cached at {cached_date})", flush=True)
+            return True
+        except Exception as e:
+            print(f"[ONORDER] [WARN] Failed to load from disk cache: {e}", flush=True)
+            return False
+
+    @property
+    def is_ready(self) -> bool:
+        return (
+            self.enterprise_df is not None and not self.enterprise_df.empty
+            and self.sbu_df is not None
+            and self.dept_df is not None
+            and self.catg_df is not None
+            and not self.is_loading
+        )
+
+    def _get_client(self):
+        creds_json = os.environ.get("GOOGLE_CREDENTIALS", "")
+        if creds_json:
+            info = json.loads(creds_json)
+            credentials = service_account.Credentials.from_service_account_info(info)
+            return bigquery.Client(project=CLIENT_PROJECT, credentials=credentials)
+        return bigquery.Client(project=CLIENT_PROJECT)
+
+    def load(self, force_refresh: bool = False):
+        """Load on-order data - from disk cache first, then BigQuery."""
+        self.is_loading = True
+        self._cached_response = None
+        t0 = time.time()
+
+        # STEP 1: Try loading from disk cache first
+        if not force_refresh and self._load_from_disk():
+            self.is_loading = False
+            self.load_time_sec = round(time.time() - t0, 1)
+            print(f"[ONORDER] [OK] Ready to serve from disk cache!", flush=True)
+            return
+
+        # STEP 2: Load from BigQuery
+        print(f"[ONORDER] Loading fresh data from BigQuery...", flush=True)
+        try:
+            client = self._get_client()
+        except Exception as e:
+            print(f"[ONORDER] Failed to get BigQuery client: {e}", flush=True)
+            self.is_loading = False
+            return
+
+        try:
+            self._do_load(client, t0)
+        except Exception as e:
+            print(f"[ONORDER] Load failed with error: {e}", flush=True)
+            import traceback
+            print(f"[ONORDER] Traceback: {traceback.format_exc()}", flush=True)
+        finally:
+            self.is_loading = False
+            print(f"[ONORDER] Load finished. is_ready={self.is_ready}", flush=True)
+
+    def _do_load(self, client, t0):
+        """Internal load logic for On-Order data."""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        fqn = f"`{HIST_PROJECT_ID}.{DATASET}.{ONORDER_TABLE}`"
+
+        # Metrics to aggregate
+        metric_sql = """
+            SUM(COALESCE(vnpk_ordered, 0)) AS vnpk_ordered,
+            SUM(COALESCE(units_ordered, 0)) AS units_ordered,
+            SUM(COALESCE(vnpk_received, 0)) AS vnpk_received,
+            SUM(COALESCE(units_received, 0)) AS units_received,
+            SUM(COALESCE(vnpk_open, 0)) AS vnpk_open,
+            SUM(COALESCE(units_open, 0)) AS units_open
+        """
+
+        # Enterprise level - total by week with indicator breakdowns
+        # Filter: wm_week <= 12701 to exclude invalid future week values
+        q1 = f"""
+        SELECT
+            wm_week,
+            replen_ind,
+            channel_ind,
+            dsd_ind,
+            {metric_sql}
+        FROM {fqn}
+        WHERE wm_week <= 12701
+        GROUP BY wm_week, replen_ind, channel_ind, dsd_ind
+        ORDER BY wm_week
+        """
+
+        # SBU level
+        q2 = f"""
+        SELECT
+            wm_week,
+            sbu,
+            replen_ind,
+            channel_ind,
+            dsd_ind,
+            {metric_sql}
+        FROM {fqn}
+        WHERE wm_week <= 12701
+        GROUP BY wm_week, sbu, replen_ind, channel_ind, dsd_ind
+        ORDER BY wm_week, sbu
+        """
+
+        # Department level
+        q3 = f"""
+        SELECT
+            wm_week,
+            sbu,
+            OMNI_DEPT_NBR AS dept_nbr,
+            OMNI_DEPT_DESC AS department,
+            replen_ind,
+            channel_ind,
+            dsd_ind,
+            {metric_sql}
+        FROM {fqn}
+        WHERE wm_week <= 12701
+        GROUP BY wm_week, sbu, dept_nbr, department, replen_ind, channel_ind, dsd_ind
+        ORDER BY wm_week, sbu, dept_nbr
+        """
+
+        # Category level
+        q4 = f"""
+        SELECT
+            wm_week,
+            sbu,
+            OMNI_DEPT_NBR AS dept_nbr,
+            OMNI_DEPT_DESC AS department,
+            OMNI_CATG_NBR AS catg_nbr,
+            OMNI_CATG_DESC AS category,
+            replen_ind,
+            channel_ind,
+            dsd_ind,
+            {metric_sql}
+        FROM {fqn}
+        WHERE wm_week <= 12701 AND OMNI_CATG_NBR IS NOT NULL
+        GROUP BY wm_week, sbu, dept_nbr, department, catg_nbr, category, replen_ind, channel_ind, dsd_ind
+        ORDER BY wm_week, sbu, dept_nbr, catg_nbr
+        """
+
+        print(f"[ONORDER] Loading from table: {HIST_PROJECT_ID}.{DATASET}.{ONORDER_TABLE}", flush=True)
+        print(f"[ONORDER] [FAST] Using PARALLEL query execution...", flush=True)
+
+        queries = {
+            'enterprise': q1,
+            'sbu': q2,
+            'dept': q3,
+            'catg': q4,
+        }
+
+        results = {}
+
+        def run_query(name, sql):
+            try:
+                t_start = time.time()
+                df = client.query(sql).to_dataframe()
+                elapsed = round(time.time() - t_start, 1)
+                print(f"[ONORDER] [OK] {name}: {len(df):,} rows in {elapsed}s", flush=True)
+                return df
+            except Exception as e:
+                print(f"[ONORDER] [ERR] {name} FAILED: {e}", flush=True)
+                return None
+
+        parallel_start = time.time()
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = {executor.submit(run_query, name, sql): name for name, sql in queries.items()}
+            for future in as_completed(futures):
+                name = futures[future]
+                try:
+                    results[name] = future.result()
+                except Exception as e:
+                    print(f"[ONORDER] [ERR] {name} exception: {e}", flush=True)
+                    results[name] = None
+
+        parallel_elapsed = round(time.time() - parallel_start, 1)
+        print(f"[ONORDER] [FAST] All 4 queries completed in {parallel_elapsed}s (parallel)", flush=True)
+
+        self.enterprise_df = results.get('enterprise')
+        self.sbu_df = results.get('sbu')
+        self.dept_df = results.get('dept')
+        self.catg_df = results.get('catg')
+
+        # Validate enterprise data
+        if self.enterprise_df is not None and len(self.enterprise_df) > 0:
+            print(f"[ONORDER] Enterprise columns: {list(self.enterprise_df.columns)}", flush=True)
+            weeks = self.enterprise_df['wm_week'].nunique()
+            total_ordered = self.enterprise_df['units_ordered'].sum()
+            print(f"[ONORDER] {weeks} weeks, total units_ordered: {total_ordered:,.0f}", flush=True)
+
+        self.loaded_at = time.time()
+        self.loaded_date = datetime.now().strftime("%Y-%m-%d")
+        self.load_time_sec = round(time.time() - t0, 1)
+
+        total_rows = sum(len(df) for df in [self.enterprise_df, self.sbu_df, self.dept_df, self.catg_df] if df is not None)
+        logger.info(f"[ONORDER] Loaded {total_rows:,} total rows in {self.load_time_sec}s")
+
+        # Save to disk
+        self._save_to_disk()
+
+    def to_response(self) -> dict:
+        """Build JSON response for On-Order data."""
+        if self._cached_response is not None:
+            return self._cached_response
+
+        logger.info("[ONORDER] Building JSON response...")
+        t0 = time.time()
+
+        weeks = sorted(self.enterprise_df["wm_week"].unique()) if self.enterprise_df is not None else []
+        sbu_list = sorted(self.sbu_df["sbu"].unique()) if self.sbu_df is not None and "sbu" in self.sbu_df.columns else []
+
+        self._cached_response = {
+            "generated_at": datetime.now().isoformat(),
+            "week_range": {
+                "min": int(weeks[0]) if weeks else None,
+                "max": int(weeks[-1]) if weeks else None,
+                "count": len(weeks)
+            },
+            "sbu_list": list(sbu_list),
+            "filters": {
+                "replen_options": ["REPLEN", "NON-REPLEN"],
+                "channel_options": ["STORE", "ECOMM"],
+                "dsd_options": ["DSD", "NON-DSD"]
+            },
+            "enterprise": self.enterprise_df.to_dict(orient="records") if self.enterprise_df is not None else [],
+            "by_sbu": self.sbu_df.to_dict(orient="records") if self.sbu_df is not None else [],
+            "by_dept": self.dept_df.to_dict(orient="records") if self.dept_df is not None else [],
+            "by_catg": self.catg_df.to_dict(orient="records") if self.catg_df is not None else [],
+        }
+
+        logger.info(f"[ONORDER] JSON response built in {round(time.time() - t0, 2)}s")
+        return self._cached_response
+
+
+onorder_cache = OnOrderCache()
+
+
+# ============================================================
 # Background auto-refresh
 # ============================================================
 
 async def cache_refresh_loop():
-    """Background task: refresh both caches every REFRESH_INTERVAL seconds or when date changes."""
+    """Background task: refresh all caches every REFRESH_INTERVAL seconds or when date changes."""
     while True:
         try:
             await asyncio.sleep(REFRESH_INTERVAL)
@@ -1141,6 +1477,9 @@ async def cache_refresh_loop():
             if hist_cache.loaded_date != current_date or not hist_cache.is_ready:
                 logger.info(f"[HIST] Auto-refresh triggered (date={current_date}, last={hist_cache.loaded_date})")
                 await loop.run_in_executor(None, hist_cache.load)
+            if onorder_cache.loaded_date != current_date or not onorder_cache.is_ready:
+                logger.info(f"[ONORDER] Auto-refresh triggered (date={current_date}, last={onorder_cache.loaded_date})")
+                await loop.run_in_executor(None, onorder_cache.load)
         except Exception as e:
             logger.error(f"[CACHE] Auto-refresh failed: {e}")
 
@@ -1153,6 +1492,16 @@ async def _load_hist_cache_background():
         logger.info("[HIST] Background load complete")
     except Exception as e:
         logger.error(f"[HIST] Background load failed: {e}")
+
+
+async def _load_onorder_cache_background():
+    """Load on-order cache in background so it doesn't block server startup."""
+    loop = asyncio.get_event_loop()
+    try:
+        await loop.run_in_executor(None, onorder_cache.load)
+        logger.info("[ONORDER] Background load complete")
+    except Exception as e:
+        logger.error(f"[ONORDER] Background load failed: {e}")
 
 
 @app.on_event("startup")
@@ -1186,8 +1535,9 @@ async def startup_event():
         print(f"[CACHE] Initial load failed: {e}", flush=True)
         import traceback
         print(f"[CACHE] Traceback: {traceback.format_exc()}", flush=True)
-    # Load historical cache in background — don't block server startup
+    # Load historical and on-order caches in background — don't block server startup
     asyncio.create_task(_load_hist_cache_background())
+    asyncio.create_task(_load_onorder_cache_background())
     asyncio.create_task(cache_refresh_loop())
 
 
@@ -1558,10 +1908,20 @@ async def health_check():
                     "WM_WEEK": int(ent.iloc[-1].get("WM_WEEK", 0))
                 }
 
+    # On-Order cache info
+    onorder_rows = 0
+    if onorder_cache.is_ready:
+        onorder_rows = sum(len(df) for df in [
+            onorder_cache.enterprise_df,
+            onorder_cache.sbu_df,
+            onorder_cache.dept_df,
+            onorder_cache.catg_df
+        ] if df is not None)
+
     return {
         "status": "healthy",
         "service": "Where's My Stuff API",
-        "version": "3.0.1",
+        "version": "3.1.0",
         "cache": {
             "ready": cache.is_ready,
             "rows": cache.row_count,
@@ -1576,6 +1936,13 @@ async def health_check():
             "load_time_sec": hist_cache.load_time_sec,
             "loading": hist_cache.is_loading,
             "debug": hist_debug
+        },
+        "onorder_cache": {
+            "ready": onorder_cache.is_ready,
+            "rows": onorder_rows,
+            "loaded_at": onorder_cache.loaded_date,
+            "load_time_sec": onorder_cache.load_time_sec,
+            "loading": onorder_cache.is_loading,
         }
     }
 
@@ -1746,6 +2113,26 @@ async def get_historical_data():
     return SafeJSONResponse(content=hist_cache.to_response())
 
 
+@app.get("/api/on-order")
+async def get_onorder_data():
+    """Serve pre-aggregated on-order historical data from in-memory cache."""
+    if not onorder_cache.is_ready:
+        raise HTTPException(status_code=503, detail="On-Order data is loading, please retry in a few seconds")
+    return SafeJSONResponse(content=onorder_cache.to_response())
+
+
+@app.post("/api/cache/refresh-onorder")
+async def refresh_onorder_cache():
+    """Manual on-order cache refresh."""
+    try:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, onorder_cache.load)
+        return {"status": "success", "rows": len(onorder_cache.enterprise_df) if onorder_cache.enterprise_df is not None else 0}
+    except Exception as e:
+        logger.error(f"[ONORDER] Manual refresh failed: {e}")
+        return {"status": "error", "message": str(e)}
+
+
 @app.get("/dashboard/historical.html")
 async def serve_historical():
     """Serve the historical trends dashboard (loaded via iframe toggle)."""
@@ -1754,6 +2141,16 @@ async def serve_historical():
     if hist_file.exists():
         return FileResponse(hist_file, media_type="text/html")
     raise HTTPException(status_code=404, detail="Historical dashboard not found")
+
+
+@app.get("/dashboard/inventory-buckets.html")
+async def serve_inventory_buckets():
+    """Serve the inventory buckets pipeline dashboard (loaded via iframe toggle)."""
+    dashboard_dir = get_dashboard_path().parent
+    buckets_file = dashboard_dir / "inventory-buckets.html"
+    if buckets_file.exists():
+        return FileResponse(buckets_file, media_type="text/html")
+    raise HTTPException(status_code=404, detail="Inventory buckets dashboard not found")
 
 
 @app.get("/dashboard/historical_data.json")

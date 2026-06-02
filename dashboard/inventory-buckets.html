@@ -1,0 +1,2003 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Where's My Stuff - Inventory Buckets</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+    <style>
+        :root { --walmart-blue: #0071ce; --walmart-yellow: #ffc220; --bg-dark: #1a1a2e; --bg-card: #16213e; --bg-sidebar: #0f0f1a; --text-light: #e8e8e8; --text-muted: #a0a0a0; }
+        body { background-color: var(--bg-dark); font-family: 'Segoe UI', system-ui, sans-serif; color: var(--text-light); }
+        .sidebar { background: var(--bg-sidebar); min-height: calc(100vh - 56px); border-right: 1px solid #2a2a4a; padding: 15px; overflow-y: auto; }
+        .kpi-card { border-radius: 10px; padding: 10px 12px; color: white; margin-bottom: 0; box-shadow: 0 3px 6px rgba(0,0,0,0.3); min-width: 0; }
+        .kpi-card .value { font-size: 1.2rem; font-weight: 700; text-shadow: 1px 1px 2px rgba(0,0,0,0.3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .kpi-card .label { font-size: 0.75rem; font-weight: 600; }
+        .kpi-card .sub-value { font-size: 0.65rem; font-weight: 500; opacity: 0.85; }
+        .bg-onorder { background: linear-gradient(135deg, #0369a1, #0284c7); }
+        .bg-onyard { background: linear-gradient(135deg, #991b1b, #dc2626); }
+        .bg-intransit { background: linear-gradient(135deg, #0891b2, #06b6d4); }
+        .bg-indc { background: linear-gradient(135deg, #0069d9, #007bff); }
+        .bg-fcoh { background: linear-gradient(135deg, #4338ca, #6d28d9); }
+        .bg-backroom { background: linear-gradient(135deg, #856404, #c49a09); }
+        .bg-onfloor { background: linear-gradient(135deg, #2d6a4f, #40916c); }
+        .bg-total { background: linear-gradient(135deg, #1e3a5f, #2c5282); }
+        .chart-container { background: var(--bg-card); border-radius: 10px; padding: 15px; margin-bottom: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+        .chart-title { font-weight: 600; margin-bottom: 10px; color: var(--text-light); font-size: 0.95rem; }
+        .filter-section { margin-bottom: 12px; }
+        .filter-label { font-weight: 600; font-size: 0.8rem; margin-bottom: 3px; color: var(--text-muted); }
+        .form-select, .form-control { background-color: #1a1a2e; border-color: #2a2a4a; color: var(--text-light); }
+        .form-select:focus, .form-control:focus { background-color: #1a1a2e; border-color: var(--walmart-blue); color: var(--text-light); box-shadow: 0 0 0 0.2rem rgba(0,113,206,0.25); }
+        .form-select option { background-color: #1a1a2e; color: var(--text-light); }
+        .btn-outline-secondary { color: var(--text-muted); border-color: #2a2a4a; }
+        .btn-outline-secondary:hover { background-color: #2a2a4a; color: var(--text-light); }
+        .table-container { background: var(--bg-card); border-radius: 10px; padding: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+        .table { color: var(--text-light); font-size: 0.82rem; }
+        .table-dark { background-color: #0f0f1a; }
+        .table-striped > tbody > tr:nth-of-type(odd) { background-color: rgba(255,255,255,0.03); }
+        .table-hover > tbody > tr:hover { background-color: rgba(0,113,206,0.1); color: var(--text-light); }
+        .text-muted { color: var(--text-muted) !important; }
+        .loading-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(26,26,46,0.9); display: flex; justify-content: center; align-items: center; z-index: 9999; }
+        .loading-overlay.hide { display: none; }
+        .status-badge { font-size: 0.7rem; padding: 2px 6px; border-radius: 10px; }
+        .wow-positive { color: #4ade80; }
+        .wow-negative { color: #f87171; }
+        .wow-neutral { color: var(--text-muted); }
+        /* Clickable KPI cards */
+        .kpi-card { cursor: pointer; transition: all 0.2s ease; border: 2px solid transparent; }
+        .kpi-card:hover { transform: translateY(-2px); box-shadow: 0 5px 12px rgba(0,0,0,0.4); }
+        .kpi-card.selected { border-color: var(--walmart-yellow); box-shadow: 0 0 0 3px rgba(255,194,32,0.3), 0 5px 12px rgba(0,0,0,0.4); }
+        .kpi-card.dimmed { opacity: 0.4; }
+        /* Active filters bar */
+        .active-filters { background: rgba(255,194,32,0.1); border: 1px solid rgba(255,194,32,0.3); border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; display: none; }
+        .active-filters.show { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+        .filter-tag { background: rgba(255,194,32,0.2); color: var(--walmart-yellow); padding: 3px 10px; border-radius: 15px; font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+        .filter-tag .remove { cursor: pointer; opacity: 0.7; font-size: 0.85rem; }
+        .filter-tag .remove:hover { opacity: 1; }
+        .clear-all-filters { color: var(--text-muted); font-size: 0.7rem; cursor: pointer; margin-left: auto; }
+        .clear-all-filters:hover { color: var(--walmart-yellow); }
+        /* Tab styles */
+        .nav-tabs-buckets { border-bottom: 1px solid #2a2a4a; margin-bottom: 15px; }
+        .nav-tabs-buckets .nav-link { color: var(--text-muted); border: none; border-bottom: 2px solid transparent; padding: 8px 16px; font-size: 0.85rem; font-weight: 600; }
+        .nav-tabs-buckets .nav-link:hover { color: var(--text-light); border-bottom-color: #2a2a4a; }
+        .nav-tabs-buckets .nav-link.active { color: var(--walmart-yellow); border-bottom-color: var(--walmart-yellow); background: transparent; }
+        /* Change Analysis styles */
+        .drill-row { cursor: pointer; transition: background 0.15s; }
+        .drill-row:hover { background: rgba(0,113,206,0.15) !important; }
+        .pct-badge { font-size: 0.7rem; padding: 2px 6px; border-radius: 10px; font-weight: 600; }
+        .pct-badge.increase { background: rgba(239,68,68,0.2); color: #f87171; }
+        .pct-badge.decrease { background: rgba(34,197,94,0.2); color: #4ade80; }
+        /* Fix Bootstrap tab-pane visibility */
+        .tab-content > .tab-pane { display: none; }
+        .tab-content > .tab-pane.active { display: block; }
+        .tab-content > .tab-pane.show.active { display: block; opacity: 1; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark" style="background: var(--walmart-blue);">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#"><i class="bi bi-stack me-2"></i>Where's My Stuff — Inventory Buckets</a>
+            <div class="d-flex align-items-center text-white">
+                <span class="status-badge me-2" id="data-status" style="background: rgba(0,0,0,0.2);"><i class="bi bi-hourglass-split me-1"></i>Loading...</span>
+                <!-- View Toggle Buttons -->
+                <div class="btn-group me-3" role="group">
+                    <a href="index.html" class="btn btn-outline-light btn-sm"><i class="bi bi-speedometer2 me-1"></i>Current <span class="badge bg-success ms-1">LIVE</span></a>
+                    <a href="historical.html" class="btn btn-outline-light btn-sm"><i class="bi bi-graph-up me-1"></i>Historical <span class="badge bg-info ms-1">WEEKLY</span></a>
+                    <a href="inventory-buckets.html" class="btn btn-light btn-sm text-dark"><i class="bi bi-stack me-1"></i>Buckets <span class="badge bg-warning text-dark ms-1">PIPELINE</span></a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="loading-overlay" id="loading">
+        <div class="text-center">
+            <div class="spinner-border text-warning" style="width: 3rem; height: 3rem;"></div>
+            <p class="mt-3 text-muted">Loading inventory pipeline data...</p>
+        </div>
+    </div>
+
+    <div class="container-fluid">
+        <div class="row mt-2">
+            <!-- Sidebar Filters -->
+            <div class="col-lg-2 sidebar" style="min-height: auto; padding-top: 10px;">
+                <h6 class="text-uppercase text-muted mb-2" style="font-size:0.75rem;"><i class="bi bi-funnel me-1"></i>Filters</h6>
+
+                <div class="filter-section">
+                    <label class="filter-label">SBU (Division)</label>
+                    <select class="form-select form-select-sm" id="sbu-filter" multiple size="8" onchange="onSBUChange();">
+                    </select>
+                    <small class="text-muted" style="font-size:0.65rem;">Ctrl+click to multi-select</small>
+                </div>
+
+                <div class="filter-section">
+                    <label class="filter-label">Department</label>
+                    <select class="form-select form-select-sm" id="dept-filter" multiple size="5" onchange="onDeptChange();">
+                    </select>
+                    <small class="text-muted" style="font-size:0.55rem;">Filtered by SBU selection</small>
+                </div>
+
+                <div class="filter-section">
+                    <label class="filter-label">Category</label>
+                    <select class="form-select form-select-sm" id="catg-filter" multiple size="4" onchange="renderCharts(); updateFilterUI(); syncSidebarToChangeAnalysis();">
+                        <option value="">Select Dept first</option>
+                    </select>
+                    <small class="text-muted" style="font-size:0.55rem;">Requires Dept selection</small>
+                </div>
+
+                <button class="btn btn-outline-secondary btn-sm w-100 mt-2" onclick="resetFilters()"><i class="bi bi-x-circle me-1"></i>Reset Filters</button>
+
+                <div class="mt-3 p-2" style="background: rgba(245,158,11,0.1); border-radius: 8px; font-size: 0.7rem;">
+                    <strong style="color: #f59e0b;">Pipeline = Supply Chain Flow</strong><br>
+                    <span class="text-muted">On Order → On Yard → In DC → In Transit → FC (eComm) → Backroom → On Floor</span>
+                </div>
+
+                <div class="mt-2 p-2" style="background: rgba(0,113,206,0.1); border-radius: 8px; font-size: 0.65rem;">
+                    <strong style="color: #6cb2eb;"><i class="bi bi-lightbulb me-1"></i>Tip</strong><br>
+                    <span class="text-muted">Click KPI cards above to filter by bucket. Click "Total Pipeline" to clear.</span>
+                </div>
+            </div>
+
+            <!-- Main Content -->
+            <div class="col-lg-10 p-3">
+                <!-- KPI Cards (Clickable Filters) -->
+                <div class="row g-2 mb-2">
+                    <div class="col-6 col-lg">
+                        <div class="kpi-card bg-onorder" data-bucket="open_orders" onclick="toggleBucketFilter('open_orders')">
+                            <div class="value" id="kpi-onorder">-</div>
+                            <div class="label">On Order</div>
+                            <div class="sub-value" id="kpi-onorder-yoy"></div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-lg">
+                        <div class="kpi-card bg-onyard" data-bucket="on_yard" onclick="toggleBucketFilter('on_yard')">
+                            <div class="value" id="kpi-onyard">-</div>
+                            <div class="label">On Yard</div>
+                            <div class="sub-value" id="kpi-onyard-yoy"></div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-lg">
+                        <div class="kpi-card bg-indc" data-bucket="in_dc" onclick="toggleBucketFilter('in_dc')">
+                            <div class="value" id="kpi-indc">-</div>
+                            <div class="label">In DC</div>
+                            <div class="sub-value" id="kpi-indc-yoy"></div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-lg">
+                        <div class="kpi-card bg-intransit" data-bucket="in_transit" onclick="toggleBucketFilter('in_transit')">
+                            <div class="value" id="kpi-intransit">-</div>
+                            <div class="label">In Transit</div>
+                            <div class="sub-value" id="kpi-intransit-yoy"></div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-lg">
+                        <div class="kpi-card bg-fcoh" data-bucket="fc_oh" onclick="toggleBucketFilter('fc_oh')">
+                            <div class="value" id="kpi-fcoh">-</div>
+                            <div class="label">FC (eComm)</div>
+                            <div class="sub-value" id="kpi-fcoh-yoy"></div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-lg">
+                        <div class="kpi-card bg-backroom" data-bucket="backroom" onclick="toggleBucketFilter('backroom')">
+                            <div class="value" id="kpi-backroom">-</div>
+                            <div class="label">Backroom</div>
+                            <div class="sub-value" id="kpi-backroom-yoy"></div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-lg">
+                        <div class="kpi-card bg-onfloor" data-bucket="on_floor" onclick="toggleBucketFilter('on_floor')">
+                            <div class="value" id="kpi-onfloor">-</div>
+                            <div class="label">On Floor</div>
+                            <div class="sub-value" id="kpi-onfloor-yoy"></div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-lg">
+                        <div class="kpi-card bg-total" data-bucket="total" onclick="clearBucketFilters()">
+                            <div class="value" id="kpi-total">-</div>
+                            <div class="label">Total Pipeline</div>
+                            <div class="sub-value" id="kpi-total-yoy"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Active Filters Bar -->
+                <div class="active-filters" id="active-filters-bar">
+                    <span class="text-muted" style="font-size: 0.7rem; margin-right: 5px;"><i class="bi bi-funnel-fill me-1"></i>Active:</span>
+                    <div id="filter-tags"></div>
+                    <span class="clear-all-filters" onclick="clearAllFilters()"><i class="bi bi-x-circle me-1"></i>Clear All</span>
+                </div>
+
+                <!-- Tab Navigation -->
+                <ul class="nav nav-tabs-buckets">
+                    <li class="nav-item">
+                        <a class="nav-link active" data-bs-toggle="tab" href="#tab-pipeline"><i class="bi bi-stack me-1"></i>Pipeline View</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" data-bs-toggle="tab" href="#tab-change-analysis"><i class="bi bi-arrow-left-right me-1"></i>Change Analysis</a>
+                    </li>
+                </ul>
+
+                <div class="tab-content">
+                    <!-- Tab 1: Pipeline View (Original Content) -->
+                    <div class="tab-pane fade show active" id="tab-pipeline">
+
+                <!-- YoY Stacked Bar Chart -->
+                <div class="chart-container" style="height: 320px;">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div class="chart-title"><i class="bi bi-stack me-1"></i>Inventory Pipeline — <span id="stacked-chart-mode-label">YoY Stacked Comparison</span></div>
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="btn-group btn-group-sm" role="group">
+                                <button type="button" class="btn btn-outline-secondary active" id="btn-stacked" onclick="setStackedChartMode('stacked')">Stacked</button>
+                                <button type="button" class="btn btn-outline-secondary" id="btn-change" onclick="setStackedChartMode('change')">YoY Change</button>
+                            </div>
+                            <div class="text-muted" style="font-size:0.65rem;" id="stacked-legend">
+                                <span style="color:#0284c7;">■</span> On Order &nbsp;
+                                <span style="color:#dc2626;">■</span> On Yard &nbsp;
+                                <span style="color:#007bff;">■</span> In DC &nbsp;
+                                <span style="color:#06b6d4;">■</span> In Transit &nbsp;
+                                <span style="color:#6d28d9;">■</span> FC (eComm) &nbsp;
+                                <span style="color:#c49a09;">■</span> Backroom &nbsp;
+                                <span style="color:#40916c;">■</span> On Floor
+                            </div>
+                            <div class="text-muted" style="font-size:0.65rem;" id="stacked-subtitle">Solid = FY26 | Lighter = FY25</div>
+                        </div>
+                    </div>
+                    <canvas id="stackedChart"></canvas>
+                </div>
+
+                <!-- Individual Bucket Charts - 2 per row, same height as pipeline -->
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="chart-container" style="height: 320px;">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div class="chart-title"><i class="bi bi-truck me-1"></i>On Order — YoY</div>
+                                <div class="text-muted" style="font-size:0.65rem;"><span style="color:#6cb2eb;">●</span> FY25 &nbsp; <span style="color:#ffc220;">●</span> FY26</div>
+                            </div>
+                            <canvas id="onOrderChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="chart-container" style="height: 320px;">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div class="chart-title"><i class="bi bi-box-seam me-1"></i>On Yard — YoY</div>
+                                <div class="text-muted" style="font-size:0.65rem;"><span style="color:#6cb2eb;">●</span> FY25 &nbsp; <span style="color:#ffc220;">●</span> FY26</div>
+                            </div>
+                            <canvas id="onYardChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="chart-container" style="height: 320px;">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div class="chart-title"><i class="bi bi-building me-1"></i>In DC (OH+Reserved+Labeled+Unlabeled) — YoY</div>
+                                <div class="text-muted" style="font-size:0.65rem;"><span style="color:#6cb2eb;">●</span> FY25 &nbsp; <span style="color:#ffc220;">●</span> FY26</div>
+                            </div>
+                            <canvas id="inDCChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="chart-container" style="height: 320px;">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div class="chart-title"><i class="bi bi-arrow-right-circle me-1"></i>In Transit — YoY</div>
+                                <div class="text-muted" style="font-size:0.65rem;"><span style="color:#6cb2eb;">●</span> FY25 &nbsp; <span style="color:#ffc220;">●</span> FY26</div>
+                            </div>
+                            <canvas id="inTransitChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="chart-container" style="height: 320px;">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div class="chart-title"><i class="bi bi-box me-1"></i>FC (eComm) — YoY</div>
+                                <div class="text-muted" style="font-size:0.65rem;"><span style="color:#6cb2eb;">●</span> FY25 &nbsp; <span style="color:#ffc220;">●</span> FY26</div>
+                            </div>
+                            <canvas id="fcohChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="chart-container" style="height: 320px;">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div class="chart-title"><i class="bi bi-archive me-1"></i>Backroom — YoY</div>
+                                <div class="text-muted" style="font-size:0.65rem;"><span style="color:#6cb2eb;">●</span> FY25 &nbsp; <span style="color:#ffc220;">●</span> FY26</div>
+                            </div>
+                            <canvas id="backroomChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="chart-container" style="height: 320px;">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div class="chart-title"><i class="bi bi-shop me-1"></i>On Floor — YoY</div>
+                                <div class="text-muted" style="font-size:0.65rem;"><span style="color:#6cb2eb;">●</span> FY25 &nbsp; <span style="color:#ffc220;">●</span> FY26</div>
+                            </div>
+                            <canvas id="onFloorChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Data Table -->
+                <div class="table-container mt-2">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div class="chart-title mb-0"><i class="bi bi-table me-1"></i>Weekly Pipeline Data</div>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="exportCSV()"><i class="bi bi-download me-1"></i>Export CSV</button>
+                    </div>
+                    <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                        <table class="table table-dark table-striped table-hover table-sm">
+                            <thead style="position: sticky; top: 0; z-index: 1; background: #0f0f1a;">
+                                <tr>
+                                    <th>Week</th>
+                                    <th>FY</th>
+                                    <th class="text-end">On Order</th>
+                                    <th class="text-end">On Yard</th>
+                                    <th class="text-end">In DC</th>
+                                    <th class="text-end">In Transit</th>
+                                    <th class="text-end">FC (eComm)</th>
+                                    <th class="text-end">Backroom</th>
+                                    <th class="text-end">On Floor</th>
+                                    <th class="text-end" style="color: var(--walmart-yellow);">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody id="data-table-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                    </div><!-- End tab-pipeline -->
+
+                    <!-- Tab 2: Change Analysis -->
+                    <div class="tab-pane fade" id="tab-change-analysis">
+                        <!-- Hint tooltip -->
+                        <div id="bucket-drill-hint" class="alert alert-info alert-dismissible fade show mb-2" role="alert" style="font-size: 0.8rem; padding: 8px 12px; background: rgba(0,113,206,0.15); border-color: rgba(0,113,206,0.3); color: #6cb2eb;">
+                            <i class="bi bi-lightbulb me-1"></i>
+                            <strong>Tip:</strong> Click on any row to drill down. Use View Mode to switch between SBU/Dept/Category. Compare inventory positions WoW or YoY.
+                            <button type="button" class="btn-close btn-close-white" style="font-size: 0.6rem; padding: 10px;" data-bs-dismiss="alert"></button>
+                        </div>
+
+                        <!-- Filters -->
+                        <div class="chart-container mb-3" style="padding: 12px;">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div class="chart-title mb-0"><i class="bi bi-arrow-left-right me-1"></i>Inventory Change Analysis</div>
+                                <div id="bucket-drill-breadcrumb" style="font-size: 0.75rem; color: var(--text-muted);">
+                                    <span id="bucket-breadcrumb-path">
+                                        <a href="#" onclick="clearBucketDrillToLevel('enterprise'); return false;" style="color: #6cb2eb;"><i class="bi bi-building me-1"></i>Enterprise</a>
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="row g-2">
+                                <div class="col-md-2">
+                                    <label class="filter-label">Inventory Position</label>
+                                    <select class="form-select form-select-sm" id="bucket-drill-position" onchange="renderBucketDrilldown()">
+                                        <option value="total_pipeline">Total Pipeline</option>
+                                        <option value="on_yard">On Yard</option>
+                                        <option value="in_dc">In DC</option>
+                                        <option value="fc_oh">FC (eComm)</option>
+                                        <option value="backroom">Backroom</option>
+                                        <option value="on_floor">On Floor</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="filter-label">Compare Period</label>
+                                    <select class="form-select form-select-sm" id="bucket-drill-compare" onchange="renderBucketDrilldown()">
+                                        <option value="wow">Week over Week</option>
+                                        <option value="yoy">Year over Year</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="filter-label">SBU Filter</label>
+                                    <select class="form-select form-select-sm" id="bucket-drill-sbu" onchange="onBucketDrillSBUChange()">
+                                        <option value="">All SBUs</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="filter-label">Dept Filter</label>
+                                    <select class="form-select form-select-sm" id="bucket-drill-dept" onchange="onBucketDrillDeptChange()">
+                                        <option value="">All Departments</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="filter-label">View Mode</label>
+                                    <select class="form-select form-select-sm" id="bucket-drill-view" onchange="switchBucketDrillView()">
+                                        <option value="sbu">By SBU</option>
+                                        <option value="dept">By Department</option>
+                                        <option value="catg">By Category</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2 d-flex align-items-end">
+                                    <button class="btn btn-outline-secondary btn-sm me-2" onclick="resetBucketDrillFilters()"><i class="bi bi-x-circle me-1"></i>Reset</button>
+                                    <button class="btn btn-outline-secondary btn-sm" onclick="exportBucketDrillCSV()"><i class="bi bi-download me-1"></i>CSV</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Summary KPIs -->
+                        <div class="chart-container mb-3" style="padding: 10px;">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <span class="text-muted" style="font-size: 0.75rem;">Selected Position:</span>
+                                    <span id="bucket-drill-selected-position" style="font-weight: 600; color: var(--walmart-yellow); margin-left: 6px;">Total Pipeline</span>
+                                </div>
+                                <div class="d-flex gap-4">
+                                    <div class="text-center">
+                                        <div id="bucket-drill-kpi-current" style="font-size: 1.1rem; font-weight: 700; color: #007bff;">-</div>
+                                        <div style="font-size: 0.65rem; color: var(--text-muted);">Current</div>
+                                    </div>
+                                    <div class="text-center">
+                                        <div id="bucket-drill-kpi-prior" style="font-size: 1.1rem; font-weight: 600; color: var(--text-muted);">-</div>
+                                        <div style="font-size: 0.65rem; color: var(--text-muted);">Prior</div>
+                                    </div>
+                                    <div class="text-center">
+                                        <div id="bucket-drill-kpi-change" style="font-size: 1.1rem; font-weight: 700;">-</div>
+                                        <div style="font-size: 0.65rem; color: var(--text-muted);">Change</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Side-by-Side Increasing/Decreasing Tables -->
+                        <div class="row g-3">
+                            <!-- Left: Top INCREASING -->
+                            <div class="col-md-6">
+                                <div class="chart-container" style="padding: 10px;">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <div class="chart-title mb-0"><i class="bi bi-arrow-up-circle me-1" style="color: #f87171;"></i>Top INCREASING <span class="badge bg-danger ms-2" id="bucket-drill-inc-total">+0M</span></div>
+                                    </div>
+                                    <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                                        <table class="table table-dark table-hover table-sm" style="font-size: 0.78rem;">
+                                            <thead style="position: sticky; top: 0; z-index: 1; background: #0f0f1a;">
+                                                <tr>
+                                                    <th style="width: 25px;">#</th>
+                                                    <th>SBU / Dept</th>
+                                                    <th class="text-end" style="min-width: 70px;">Current</th>
+                                                    <th class="text-end" style="min-width: 70px;">Prior</th>
+                                                    <th class="text-end" style="min-width: 75px; color: #f87171;">Change</th>
+                                                    <th class="text-end" style="min-width: 50px;">%</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="bucket-drill-inc-tbody"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Right: Top DECREASING -->
+                            <div class="col-md-6">
+                                <div class="chart-container" style="padding: 10px;">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <div class="chart-title mb-0"><i class="bi bi-arrow-down-circle me-1" style="color: #4ade80;"></i>Top DECREASING <span class="badge bg-success ms-2" id="bucket-drill-dec-total">-0M</span></div>
+                                    </div>
+                                    <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                                        <table class="table table-dark table-hover table-sm" style="font-size: 0.78rem;">
+                                            <thead style="position: sticky; top: 0; z-index: 1; background: #0f0f1a;">
+                                                <tr>
+                                                    <th style="width: 25px;">#</th>
+                                                    <th>SBU / Dept</th>
+                                                    <th class="text-end" style="min-width: 70px;">Current</th>
+                                                    <th class="text-end" style="min-width: 70px;">Prior</th>
+                                                    <th class="text-end" style="min-width: 75px; color: #4ade80;">Change</th>
+                                                    <th class="text-end" style="min-width: 50px;">%</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="bucket-drill-dec-tbody"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Change Bar Chart -->
+                        <div class="row mt-2">
+                            <div class="col-12">
+                                <div class="chart-container" style="padding: 10px;">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <div class="chart-title mb-0"><i class="bi bi-bar-chart me-1"></i>Change by <span id="bucket-drill-chart-view">SBU</span> — <span id="bucket-drill-chart-position" style="color: var(--walmart-yellow);">Total Pipeline</span> <span id="bucket-drill-chart-compare" class="text-muted">(WoW)</span></div>
+                                        <div class="text-muted" style="font-size: 0.7rem;"><span style="color:#f87171;">■</span> Increase &nbsp;&nbsp;<span style="color:#4ade80;">■</span> Decrease</div>
+                                    </div>
+                                    <div style="height: 250px;">
+                                        <canvas id="bucketDrillChart"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div><!-- End tab-change-analysis -->
+
+                </div><!-- End tab-content -->
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+    // Global state
+    let HIST_DATA = null;
+    let ONORDER_DATA = null;
+    let CHARTS = {};
+    const HIDDEN_SBUS = ['OTHER', 'UNASSIGNED'];
+
+    // Bucket filter state
+    let SELECTED_BUCKETS = new Set();
+    let STACKED_CHART_MODE = 'stacked'; // 'stacked' or 'change'
+    const BUCKET_NAMES = {
+        open_orders: 'On Order',
+        on_yard: 'On Yard',
+        in_dc: 'In DC',
+        in_transit: 'In Transit',
+        fc_oh: 'FC (eComm)',
+        backroom: 'Backroom',
+        on_floor: 'On Floor'
+    };
+
+    // Toggle bucket filter
+    function toggleBucketFilter(bucket) {
+        if (SELECTED_BUCKETS.has(bucket)) {
+            SELECTED_BUCKETS.delete(bucket);
+        } else {
+            SELECTED_BUCKETS.add(bucket);
+        }
+        updateFilterUI();
+        renderCharts();
+    }
+
+    // Clear bucket filters
+    function clearBucketFilters() {
+        SELECTED_BUCKETS.clear();
+        updateFilterUI();
+        renderCharts();
+    }
+
+    // Clear ALL filters (buckets + sidebar)
+    function clearAllFilters() {
+        SELECTED_BUCKETS.clear();
+        resetFilters();
+    }
+
+    // Update filter UI
+    function updateFilterUI() {
+        const filtersBar = document.getElementById('active-filters-bar');
+        const tagsContainer = document.getElementById('filter-tags');
+
+        // Collect all active filters
+        const filters = getFilters();
+        const allFilters = [];
+
+        // Add bucket filters
+        SELECTED_BUCKETS.forEach(b => {
+            allFilters.push({ type: 'bucket', key: b, label: BUCKET_NAMES[b] });
+        });
+
+        // Add SBU filters
+        filters.sbus.forEach(s => {
+            allFilters.push({ type: 'sbu', key: s, label: s });
+        });
+
+        // Add Dept filters
+        filters.depts.forEach(d => {
+            allFilters.push({ type: 'dept', key: d, label: d });
+        });
+
+        // Add Category filters
+        filters.catgs.forEach(c => {
+            allFilters.push({ type: 'catg', key: c, label: c });
+        });
+
+        // Update filter bar visibility
+        if (allFilters.length > 0) {
+            filtersBar.classList.add('show');
+            tagsContainer.innerHTML = allFilters.map(f =>
+                `<span class="filter-tag" data-type="${f.type}" data-key="${f.key}">
+                    ${f.label}
+                    <span class="remove" onclick="removeFilter('${f.type}', '${f.key}')">&times;</span>
+                </span>`
+            ).join('');
+        } else {
+            filtersBar.classList.remove('show');
+            tagsContainer.innerHTML = '';
+        }
+
+        // Update KPI card visual states
+        document.querySelectorAll('.kpi-card[data-bucket]').forEach(card => {
+            const bucket = card.dataset.bucket;
+            if (SELECTED_BUCKETS.size === 0) {
+                card.classList.remove('selected', 'dimmed');
+            } else if (SELECTED_BUCKETS.has(bucket)) {
+                card.classList.add('selected');
+                card.classList.remove('dimmed');
+            } else {
+                card.classList.remove('selected');
+                card.classList.add('dimmed');
+            }
+        });
+    }
+
+    // Remove a single filter
+    function removeFilter(type, key) {
+        if (type === 'bucket') {
+            SELECTED_BUCKETS.delete(key);
+            updateFilterUI();
+            renderCharts();
+        } else if (type === 'sbu') {
+            const select = document.getElementById('sbu-filter');
+            Array.from(select.options).forEach(opt => {
+                if (opt.value === key) opt.selected = false;
+            });
+            onSBUChange();
+        } else if (type === 'dept') {
+            const select = document.getElementById('dept-filter');
+            Array.from(select.options).forEach(opt => {
+                if (opt.value === key) opt.selected = false;
+            });
+            onDeptChange();
+        } else if (type === 'catg') {
+            const select = document.getElementById('catg-filter');
+            Array.from(select.options).forEach(opt => {
+                if (opt.value === key) opt.selected = false;
+            });
+            renderCharts();
+            updateFilterUI();
+        }
+    }
+
+    // Format numbers
+    function fmtM(n) {
+        if (n == null || isNaN(n)) return '-';
+        if (Math.abs(n) >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+        if (Math.abs(n) >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+        if (Math.abs(n) >= 1e3) return (n / 1e3).toFixed(0) + 'K';
+        return n.toFixed(0);
+    }
+
+    // Load data from both APIs
+    async function loadData() {
+        const statusEl = document.getElementById('data-status');
+        try {
+            const apiBase = window.location.pathname.replace(/\/dashboard\/.*$/, '');
+
+            // Load historical and on-order data in parallel
+            const [histResp, onorderResp] = await Promise.all([
+                fetch(apiBase + '/api/historical'),
+                fetch(apiBase + '/api/on-order')
+            ]);
+
+            HIST_DATA = await histResp.json();
+            ONORDER_DATA = await onorderResp.json();
+
+            console.log('[BUCKETS] Historical data loaded:', HIST_DATA.by_sbu?.length || 0, 'SBU records');
+            console.log('[BUCKETS] sbu_list from API:', HIST_DATA.sbu_list);
+            console.log('[BUCKETS] HIST_DATA keys:', Object.keys(HIST_DATA));
+            console.log('[BUCKETS] by_dept records:', HIST_DATA.by_dept?.length || 0);
+            if (HIST_DATA.by_dept?.length > 0) {
+                console.log('[BUCKETS] by_dept sample record keys:', Object.keys(HIST_DATA.by_dept[0]));
+                console.log('[BUCKETS] by_dept sample:', HIST_DATA.by_dept[0]);
+            }
+
+            // Debug: Check FY25 vs FY26 in loaded data
+            const fy25InData = (HIST_DATA.by_sbu || []).filter(r => r.WM_YEAR === 2025).length;
+            const fy26InData = (HIST_DATA.by_sbu || []).filter(r => r.WM_YEAR === 2026).length;
+            console.log('[BUCKETS] API data breakdown - FY25:', fy25InData, 'FY26:', fy26InData);
+
+            console.log('[BUCKETS] On-order data loaded:', ONORDER_DATA.by_sbu?.length || 0, 'SBU records');
+
+            // Populate filters
+            populateFilters();
+
+            // Hide loading, show content
+            document.getElementById('loading').classList.add('hide');
+            statusEl.innerHTML = '<i class="bi bi-check-circle me-1"></i>Ready';
+            statusEl.style.background = 'rgba(34, 197, 94, 0.3)';
+
+            // Render charts
+            renderCharts();
+
+            // Pre-initialize Change Analysis tab (data ready, just render when shown)
+            initBucketDrillFilters();
+
+        } catch (err) {
+            console.error('[BUCKETS] Load failed:', err);
+            statusEl.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>Error';
+            statusEl.style.background = 'rgba(239, 68, 68, 0.3)';
+            document.getElementById('loading').innerHTML = '<div class="text-center text-danger"><p>Failed to load data</p><p class="small">' + err.message + '</p></div>';
+        }
+    }
+
+    function populateFilters() {
+        // Populate SBU filter
+        const sbuSelect = document.getElementById('sbu-filter');
+        sbuSelect.innerHTML = '';
+        if (HIST_DATA && HIST_DATA.sbu_list) {
+            HIST_DATA.sbu_list.filter(s => !HIDDEN_SBUS.includes(s)).forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s; opt.textContent = s;
+                sbuSelect.appendChild(opt);
+            });
+        }
+
+        // Preload ALL departments (aligned with Historical view)
+        populateDeptFilter();
+    }
+
+    // Populate department filter - shows all depts, filtered by SBU if selected
+    function populateDeptFilter() {
+        const deptSelect = document.getElementById('dept-filter');
+        const selectedSBUs = Array.from(document.getElementById('sbu-filter').selectedOptions).map(o => o.value);
+
+        // Remember currently selected departments
+        const previouslySelected = [...deptSelect.selectedOptions].map(o => o.value);
+
+        deptSelect.innerHTML = '';
+
+        if (HIST_DATA && HIST_DATA.by_dept) {
+            let deptData = HIST_DATA.by_dept.filter(r => !HIDDEN_SBUS.includes(r.SBU));
+
+            // Filter by selected SBUs if any are selected
+            if (selectedSBUs.length > 0) {
+                deptData = deptData.filter(r => selectedSBUs.includes(r.SBU));
+            }
+
+            const depts = [...new Set(deptData.map(r => r.department))].filter(d => d).sort();
+            depts.forEach(d => {
+                const opt = document.createElement('option');
+                opt.value = d;
+                opt.textContent = d;
+                // Restore previous selection if still valid
+                if (previouslySelected.includes(d)) opt.selected = true;
+                deptSelect.appendChild(opt);
+            });
+        }
+    }
+
+    function onSBUChange() {
+        // Update dept filter based on SBU selection (preloaded, just filter)
+        populateDeptFilter();
+
+        // Clear category filter
+        document.getElementById('catg-filter').innerHTML = '<option value="">Select Dept first</option>';
+
+        renderCharts();
+        updateFilterUI();
+
+        // Sync sidebar filters to Change Analysis and re-render
+        syncSidebarToChangeAnalysis();
+    }
+
+    function onDeptChange() {
+        // Update category filter based on dept selection
+        const deptSelect = document.getElementById('dept-filter');
+        const selectedDepts = Array.from(deptSelect.selectedOptions).map(o => o.value);
+
+        const catgSelect = document.getElementById('catg-filter');
+        catgSelect.innerHTML = '';
+
+        if (HIST_DATA && HIST_DATA.by_catg && selectedDepts.length > 0) {
+            const catgs = [...new Set(
+                HIST_DATA.by_catg
+                    .filter(r => selectedDepts.includes(r.department))
+                    .map(r => r.category)
+                    .filter(Boolean)
+            )].sort();
+            catgs.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c; opt.textContent = c;
+                catgSelect.appendChild(opt);
+            });
+        }
+
+        renderCharts();
+        updateFilterUI();
+
+        // Sync sidebar filters to Change Analysis and re-render
+        syncSidebarToChangeAnalysis();
+    }
+
+    function resetFilters() {
+        document.getElementById('sbu-filter').selectedIndex = -1;
+        // Clear dept selection BEFORE repopulating to prevent it from being re-selected
+        const deptFilter = document.getElementById('dept-filter');
+        Array.from(deptFilter.options).forEach(opt => opt.selected = false);
+        document.getElementById('catg-filter').innerHTML = '<option value="">Select Dept first</option>';
+        // Repopulate department filter with ALL depts (since no SBU selected)
+        populateDeptFilter();
+        SELECTED_BUCKETS.clear();
+        renderCharts();
+        updateFilterUI();
+
+        // Reset Change Analysis filters too
+        resetBucketDrillFilters();
+    }
+
+    // Sync sidebar filters to Change Analysis inline filters
+    function syncSidebarToChangeAnalysis() {
+        const sbuSelect = document.getElementById('sbu-filter');
+        const deptSelect = document.getElementById('dept-filter');
+        const catgSelect = document.getElementById('catg-filter');
+
+        const selectedSBUs = Array.from(sbuSelect.selectedOptions).map(o => o.value);
+        const selectedDepts = Array.from(deptSelect.selectedOptions).map(o => o.value);
+        const selectedCatgs = Array.from(catgSelect.selectedOptions).map(o => o.value);
+
+        // Update Change Analysis SBU filter (single select - use first selected)
+        const drillSbuSelect = document.getElementById('bucket-drill-sbu');
+        if (drillSbuSelect) {
+            drillSbuSelect.value = selectedSBUs.length > 0 ? selectedSBUs[0] : '';
+        }
+
+        // Update Change Analysis Dept filter
+        const drillDeptSelect = document.getElementById('bucket-drill-dept');
+        if (drillDeptSelect && selectedDepts.length > 0) {
+            // Repopulate dept dropdown first (filtered by selected SBU if any)
+            onBucketDrillSBUChange();
+            // Then select the dept
+            drillDeptSelect.value = selectedDepts[0];
+        }
+
+        // Update view mode based on selection level
+        if (selectedCatgs.length > 0 || selectedDepts.length > 0) {
+            document.getElementById('bucket-drill-view').value = 'catg';
+            BUCKET_DRILL_VIEW = 'catg';
+        } else if (selectedSBUs.length > 0) {
+            document.getElementById('bucket-drill-view').value = 'dept';
+            BUCKET_DRILL_VIEW = 'dept';
+        } else {
+            document.getElementById('bucket-drill-view').value = 'sbu';
+            BUCKET_DRILL_VIEW = 'sbu';
+        }
+
+        // Re-render Change Analysis with synced filters
+        renderBucketDrilldown();
+    }
+
+    function getFilters() {
+        return {
+            sbus: Array.from(document.getElementById('sbu-filter').selectedOptions).map(o => o.value),
+            depts: Array.from(document.getElementById('dept-filter').selectedOptions).map(o => o.value),
+            catgs: Array.from(document.getElementById('catg-filter').selectedOptions).map(o => o.value)
+        };
+    }
+
+    function buildBucketsData(filters) {
+        // Build weekly buckets data from historical + on-order
+        const weeklyData = {};
+
+        console.log('[BUCKETS] Filters:', filters);
+
+        // Process historical data - select appropriate dataset based on filter level
+        // Note: Historical uses lowercase column names: department, category, SBU
+        let histSource;
+        if (filters.catgs.length > 0) {
+            // Category filter - use by_catg data
+            histSource = (HIST_DATA?.by_catg || []).filter(r => filters.catgs.includes(r.category));
+            if (filters.depts.length > 0) {
+                histSource = histSource.filter(r => filters.depts.includes(r.department));
+            }
+            if (filters.sbus.length > 0) {
+                histSource = histSource.filter(r => filters.sbus.includes(r.SBU));
+            }
+        } else if (filters.depts.length > 0) {
+            // Department filter - use by_dept data
+            histSource = (HIST_DATA?.by_dept || []).filter(r => filters.depts.includes(r.department));
+            if (filters.sbus.length > 0) {
+                histSource = histSource.filter(r => filters.sbus.includes(r.SBU));
+            }
+        } else if (filters.sbus.length > 0) {
+            // SBU filter only - use by_sbu data
+            histSource = (HIST_DATA?.by_sbu || []).filter(r => filters.sbus.includes(r.SBU));
+        } else {
+            // No filters - use by_sbu (enterprise level would double count)
+            histSource = HIST_DATA?.by_sbu || [];
+        }
+
+        console.log('[BUCKETS] Historical source records:', histSource.length);
+
+        // Debug: Check FY25 vs FY26 records in source
+        const fy25Records = histSource.filter(r => r.WM_YEAR === 2025);
+        const fy26Records = histSource.filter(r => r.WM_YEAR === 2026);
+        console.log('[BUCKETS] Source breakdown - FY25:', fy25Records.length, 'FY26:', fy26Records.length);
+        if (fy26Records.length > 0) {
+            console.log('[BUCKETS] FY26 sample record:', fy26Records[0]);
+            console.log('[BUCKETS] FY26 sample - backroom:', fy26Records[0].backroom, 'on_floor:', fy26Records[0].on_floor);
+        }
+        if (fy25Records.length > 0) {
+            console.log('[BUCKETS] FY25 sample WM_YR_WK_NBR:', fy25Records[0].WM_YR_WK_NBR, 'on_floor:', fy25Records[0].on_floor);
+        }
+
+        histSource.forEach(r => {
+            const wk = r.WM_YR_WK_NBR;
+            if (!wk) return;
+
+            if (!weeklyData[wk]) {
+                weeklyData[wk] = { wm_week: wk, open_orders: 0, on_yard: 0, in_transit: 0, in_dc: 0, fc_oh: 0, backroom: 0, on_floor: 0 };
+            }
+
+            // In DC = DC OH + DC Reserved + DC Labeled + DC Unlabeled
+            const inDC = (r.dc_oh || 0) + (r.dc_reserved || 0) + (r.dc_labeled || 0) + (r.dc_unlabeled || 0);
+
+            weeklyData[wk].on_floor += r.on_floor || 0;
+            weeklyData[wk].backroom += r.backroom || 0;
+            weeklyData[wk].in_dc += inDC;
+            weeklyData[wk].fc_oh += r.fc_oh || 0;
+            weeklyData[wk].in_transit += r.in_transit || 0;
+            weeklyData[wk].on_yard += r.on_yard || 0;
+        });
+
+        // Add open orders from on-order data
+        // IMPORTANT: Create week entries even if no historical data exists (future weeks)
+        // Select appropriate on-order dataset based on filter level
+        let onorderSource;
+        if (filters.catgs.length > 0) {
+            // Category filter - use by_catg
+            onorderSource = (ONORDER_DATA?.by_catg || []).filter(r => filters.catgs.includes(r.category));
+            if (filters.depts.length > 0) {
+                onorderSource = onorderSource.filter(r => filters.depts.includes(r.department));
+            }
+            if (filters.sbus.length > 0) {
+                onorderSource = onorderSource.filter(r => filters.sbus.includes(r.sbu));
+            }
+        } else if (filters.depts.length > 0) {
+            // Department filter - use by_dept
+            onorderSource = (ONORDER_DATA?.by_dept || []).filter(r => filters.depts.includes(r.department));
+            if (filters.sbus.length > 0) {
+                onorderSource = onorderSource.filter(r => filters.sbus.includes(r.sbu));
+            }
+        } else if (filters.sbus.length > 0) {
+            // SBU filter only
+            onorderSource = (ONORDER_DATA?.by_sbu || []).filter(r => filters.sbus.includes(r.sbu));
+        } else {
+            // No filters
+            onorderSource = ONORDER_DATA?.by_sbu || [];
+        }
+
+        console.log('[BUCKETS] On-order source records:', onorderSource.length);
+
+        onorderSource.forEach(r => {
+            const onorderWk = r.wm_week;
+            const fy = parseInt(String(onorderWk).substring(0, 3));  // 125 or 126
+            const wkNum = parseInt(String(onorderWk).substring(3, 5));  // week 01-52
+
+            // Convert on-order week format to historical format
+            // On-order: 12618 = FY26 WK18 -> Historical: 202618
+            const histYear = fy === 126 ? 2026 : 2025;
+            const histWeekKey = histYear * 100 + wkNum;  // e.g., 202618
+
+            // Create week entry if it doesn't exist
+            if (!weeklyData[histWeekKey]) {
+                weeklyData[histWeekKey] = {
+                    wm_week: histWeekKey,
+                    open_orders: 0, on_yard: 0, in_transit: 0, in_dc: 0, fc_oh: 0, backroom: 0, on_floor: 0
+                };
+            }
+
+            weeklyData[histWeekKey].open_orders += r.units_ordered || 0;
+        });
+
+        console.log('[BUCKETS] Built data:', Object.keys(weeklyData).length, 'weeks');
+
+        return Object.values(weeklyData).sort((a, b) => a.wm_week - b.wm_week);
+    }
+
+    function renderCharts() {
+        if (!HIST_DATA) return;
+
+        const filters = getFilters();
+        const data = buildBucketsData(filters);
+
+        // Group by fiscal year
+        const byYear = { 2025: {}, 2026: {} };
+        console.log('[BUCKETS] Grouping', data.length, 'weekly records by year...');
+        data.forEach(r => {
+            const year = parseInt(String(r.wm_week).substring(0, 4));
+            const wkNum = parseInt(String(r.wm_week).slice(-2));
+            if (year === 2025 || year === 2026) {
+                byYear[year][wkNum] = r;
+            }
+        });
+        console.log('[BUCKETS] byYear[2025] weeks:', Object.keys(byYear[2025]).length);
+        console.log('[BUCKETS] byYear[2026] weeks:', Object.keys(byYear[2026]).length);
+        if (Object.keys(byYear[2025]).length === 0) {
+            console.warn('[BUCKETS] WARNING: No FY25 data in byYear! Sample data wm_week values:', data.slice(0, 5).map(r => r.wm_week));
+        }
+
+        // Debug: Log FY25/FY26 data
+        const fy25Total = Object.values(byYear[2025]).reduce((s, r) => s + (r.on_floor || 0), 0);
+        const fy26Total = Object.values(byYear[2026]).reduce((s, r) => s + (r.on_floor || 0), 0);
+        console.log('[BUCKETS] FY25 weeks:', Object.keys(byYear[2025]).length, 'on_floor total:', (fy25Total/1e9).toFixed(2) + 'B');
+        console.log('[BUCKETS] FY26 weeks:', Object.keys(byYear[2026]).length, 'on_floor total:', (fy26Total/1e9).toFixed(2) + 'B');
+
+        // Debug: Log ON_YARD specifically
+        const fy25YardTotal = Object.values(byYear[2025]).reduce((s, r) => s + (r.on_yard || 0), 0);
+        const fy26YardTotal = Object.values(byYear[2026]).reduce((s, r) => s + (r.on_yard || 0), 0);
+        console.log('[BUCKETS] ON_YARD - FY25 total:', (fy25YardTotal/1e6).toFixed(2) + 'M', '| FY26 total:', (fy26YardTotal/1e6).toFixed(2) + 'M');
+        const fy25YardWeeks = Object.entries(byYear[2025]).filter(([w, r]) => (r.on_yard || 0) > 0).map(([w, r]) => `WK${w}:${(r.on_yard/1e6).toFixed(1)}M`);
+        const fy26YardWeeks = Object.entries(byYear[2026]).filter(([w, r]) => (r.on_yard || 0) > 0).map(([w, r]) => `WK${w}:${(r.on_yard/1e6).toFixed(1)}M`);
+        console.log('[BUCKETS] ON_YARD FY25 weeks with data:', fy25YardWeeks.slice(0, 10).join(', '));
+        console.log('[BUCKETS] ON_YARD FY26 weeks with data:', fy26YardWeeks.join(', '));
+
+        // Find latest week with inventory data
+        const fy26Weeks = Object.keys(byYear[2026]).map(Number).filter(w => {
+            const d = byYear[2026][w];
+            return (d.on_floor || 0) + (d.in_dc || 0) + (d.backroom || 0) > 0;
+        }).sort((a, b) => b - a);
+        const latestWk = fy26Weeks[0] || 17;
+
+        console.log('[BUCKETS] FY26 weeks with inventory:', fy26Weeks.slice(0, 5), 'Latest:', latestWk);
+
+        const currentData = byYear[2026][latestWk] || {};
+        const yoyData = byYear[2025][latestWk] || {};
+
+        // Update KPIs
+        updateKPIs(currentData, yoyData);
+
+        // Render charts
+        renderStackedChart(byYear);
+        renderYoYChart('onOrderChart', byYear, 'open_orders', 'On Order');
+        renderYoYChart('onYardChart', byYear, 'on_yard', 'On Yard');
+        renderYoYChart('inDCChart', byYear, 'in_dc', 'In DC');
+        renderYoYChart('inTransitChart', byYear, 'in_transit', 'In Transit');
+        renderYoYChart('fcohChart', byYear, 'fc_oh', 'FC (eComm)');
+        renderYoYChart('backroomChart', byYear, 'backroom', 'Backroom');
+        renderYoYChart('onFloorChart', byYear, 'on_floor', 'On Floor');
+
+        // Render table
+        renderTable(byYear);
+    }
+
+    function updateKPIs(current, yoy) {
+        const yoyPct = (cur, pri) => {
+            if (!pri || pri === 0) return { text: '-', cls: 'wow-neutral' };
+            const pct = ((cur - pri) / pri * 100).toFixed(1);
+            const sign = pct > 0 ? '+' : '';
+            const cls = pct > 0 ? 'wow-negative' : pct < 0 ? 'wow-positive' : 'wow-neutral';
+            return { text: `YoY: ${sign}${pct}%`, cls };
+        };
+
+        document.getElementById('kpi-onorder').textContent = fmtM(current.open_orders || 0);
+        document.getElementById('kpi-onyard').textContent = fmtM(current.on_yard || 0);
+        document.getElementById('kpi-intransit').textContent = fmtM(current.in_transit || 0);
+        document.getElementById('kpi-indc').textContent = fmtM(current.in_dc || 0);
+        document.getElementById('kpi-fcoh').textContent = fmtM(current.fc_oh || 0);
+        document.getElementById('kpi-backroom').textContent = fmtM(current.backroom || 0);
+        document.getElementById('kpi-onfloor').textContent = fmtM(current.on_floor || 0);
+
+        const totalCur = (current.open_orders || 0) + (current.on_yard || 0) + (current.in_transit || 0) + (current.in_dc || 0) + (current.fc_oh || 0) + (current.backroom || 0) + (current.on_floor || 0);
+        const totalYoy = (yoy.open_orders || 0) + (yoy.on_yard || 0) + (yoy.in_transit || 0) + (yoy.in_dc || 0) + (yoy.fc_oh || 0) + (yoy.backroom || 0) + (yoy.on_floor || 0);
+        document.getElementById('kpi-total').textContent = fmtM(totalCur);
+
+        const setYoy = (id, cur, pri) => {
+            const y = yoyPct(cur, pri);
+            document.getElementById(id).innerHTML = `<span class="${y.cls}">${y.text}</span>`;
+        };
+
+        setYoy('kpi-onorder-yoy', current.open_orders, yoy.open_orders);
+        setYoy('kpi-onyard-yoy', current.on_yard, yoy.on_yard);
+        setYoy('kpi-intransit-yoy', current.in_transit, yoy.in_transit);
+        setYoy('kpi-indc-yoy', current.in_dc, yoy.in_dc);
+        setYoy('kpi-fcoh-yoy', current.fc_oh, yoy.fc_oh);
+        setYoy('kpi-backroom-yoy', current.backroom, yoy.backroom);
+        setYoy('kpi-onfloor-yoy', current.on_floor, yoy.on_floor);
+        setYoy('kpi-total-yoy', totalCur, totalYoy);
+    }
+
+    // Toggle stacked chart mode
+    function setStackedChartMode(mode) {
+        STACKED_CHART_MODE = mode;
+
+        // Update button states
+        document.getElementById('btn-stacked').classList.toggle('active', mode === 'stacked');
+        document.getElementById('btn-change').classList.toggle('active', mode === 'change');
+
+        // Update labels
+        if (mode === 'change') {
+            document.getElementById('stacked-chart-mode-label').textContent = 'YoY Change (FY26 - FY25)';
+            document.getElementById('stacked-subtitle').innerHTML = '<span style="color:#f87171;">▲</span> Increase (red) &nbsp; <span style="color:#4ade80;">▼</span> Decrease (green)';
+        } else {
+            document.getElementById('stacked-chart-mode-label').textContent = 'YoY Stacked Comparison';
+            document.getElementById('stacked-subtitle').textContent = 'Solid = FY26 | Lighter = FY25';
+        }
+
+        renderCharts();
+    }
+
+    function renderStackedChart(byYear) {
+        const ctx = document.getElementById('stackedChart').getContext('2d');
+        if (CHARTS.stacked) CHARTS.stacked.destroy();
+
+        const weeks = [];
+        for (let w = 1; w <= 52; w++) weeks.push(w);
+        const labels = weeks.map(w => `WK${String(w).padStart(2, '0')}`);
+
+        const buckets = ['open_orders', 'on_yard', 'in_dc', 'in_transit', 'fc_oh', 'backroom', 'on_floor'];
+        const colors = { open_orders: '#0284c7', on_yard: '#dc2626', in_dc: '#007bff', in_transit: '#06b6d4', fc_oh: '#6d28d9', backroom: '#c49a09', on_floor: '#40916c' };
+        const names = { open_orders: 'On Order', on_yard: 'On Yard', in_dc: 'In DC', in_transit: 'In Transit', fc_oh: 'FC (eComm)', backroom: 'Backroom', on_floor: 'On Floor' };
+
+        const datasets = [];
+
+        if (STACKED_CHART_MODE === 'change') {
+            // YoY CHANGE MODE: Show FY26 - FY25 difference
+            // Positive = increase (red/bad), Negative = decrease (green/good)
+            buckets.forEach(b => {
+                const isActive = SELECTED_BUCKETS.size === 0 || SELECTED_BUCKETS.has(b);
+                const changeData = weeks.map(w => {
+                    const fy26Val = byYear[2026]?.[w]?.[b] || 0;
+                    const fy25Val = byYear[2025]?.[w]?.[b] || 0;
+                    return fy26Val - fy25Val;
+                });
+
+                datasets.push({
+                    label: names[b],
+                    data: changeData,
+                    backgroundColor: changeData.map(v => {
+                        if (!isActive) return 'rgba(100,100,100,0.2)';
+                        return v >= 0 ? '#f87171' : '#4ade80'; // red for increase, green for decrease
+                    }),
+                    borderColor: changeData.map(v => {
+                        if (!isActive) return 'rgba(100,100,100,0.3)';
+                        return v >= 0 ? '#dc2626' : '#22c55e';
+                    }),
+                    borderWidth: 1
+                });
+            });
+
+            CHARTS.stacked = new Chart(ctx, {
+                type: 'bar',
+                data: { labels, datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { display: true, position: 'top', labels: { color: '#a0a0a0', boxWidth: 12, font: { size: 10 } } },
+                        datalabels: { display: false },
+                        tooltip: {
+                            backgroundColor: 'rgba(22, 33, 62, 0.95)',
+                            titleFont: { size: 14, weight: 'bold' },
+                            bodyFont: { size: 12 },
+                            padding: 12,
+                            callbacks: {
+                                label: ctx => {
+                                    const val = ctx.raw;
+                                    const sign = val >= 0 ? '+' : '';
+                                    const arrow = val > 0 ? '▲' : val < 0 ? '▼' : '';
+                                    return `${ctx.dataset.label}: ${arrow} ${sign}${fmtM(val)}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#a0a0a0', maxRotation: 45 } },
+                        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#a0a0a0', callback: v => fmtM(v) } }
+                    }
+                }
+            });
+        } else {
+            // STACKED MODE: Original behavior
+            // FY26 (solid) - only show active buckets, dim others
+            buckets.forEach(b => {
+                const isActive = SELECTED_BUCKETS.size === 0 || SELECTED_BUCKETS.has(b);
+                datasets.push({
+                    label: `FY26 ${names[b]}`,
+                    data: weeks.map(w => byYear[2026]?.[w]?.[b] || 0),
+                    backgroundColor: isActive ? colors[b] : colors[b] + '20',
+                    stack: 'FY26',
+                    hidden: false
+                });
+            });
+
+            // FY25 (lighter) - only show active buckets, dim others
+            buckets.forEach(b => {
+                const isActive = SELECTED_BUCKETS.size === 0 || SELECTED_BUCKETS.has(b);
+                datasets.push({
+                    label: `FY25 ${names[b]}`,
+                    data: weeks.map(w => byYear[2025]?.[w]?.[b] || 0),
+                    backgroundColor: isActive ? colors[b] + '60' : colors[b] + '10',
+                    stack: 'FY25',
+                    hidden: false
+                });
+            });
+
+            CHARTS.stacked = new Chart(ctx, {
+                type: 'bar',
+                data: { labels, datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { display: false },
+                        datalabels: { display: false },
+                        tooltip: {
+                            backgroundColor: 'rgba(22, 33, 62, 0.95)',
+                            titleFont: { size: 14, weight: 'bold' },
+                            bodyFont: { size: 12 },
+                            padding: 12,
+                            callbacks: {
+                                title: items => items.length ? items[0].label : '',
+                                label: ctx => null,
+                                afterBody: items => {
+                                    const fy26 = items.filter(i => i.dataset.stack === 'FY26').reduce((s, i) => s + (i.raw || 0), 0);
+                                    const fy25 = items.filter(i => i.dataset.stack === 'FY25').reduce((s, i) => s + (i.raw || 0), 0);
+                                    const lines = [];
+                                    lines.push(`FY26 Total: ${fmtM(fy26)}`);
+                                    lines.push(`FY25 Total: ${fmtM(fy25)}`);
+                                    if (fy25 > 0) {
+                                        const yoyPct = ((fy26 - fy25) / fy25 * 100).toFixed(1);
+                                        const arrow = yoyPct > 0 ? '▲' : yoyPct < 0 ? '▼' : '—';
+                                        lines.push(`YoY: ${arrow} ${Math.abs(yoyPct)}%`);
+                                    }
+                                    return lines;
+                                },
+                                footer: () => null
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { stacked: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#a0a0a0', maxRotation: 45 } },
+                        y: { stacked: true, min: 0, beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#a0a0a0', callback: v => fmtM(v) } }
+                    }
+                }
+            });
+        }
+    }
+
+    function renderYoYChart(canvasId, byYear, metric, label) {
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        const key = 'yoy_' + metric;
+        if (CHARTS[key]) CHARTS[key].destroy();
+
+        // Check if this bucket is selected/active
+        const isActive = SELECTED_BUCKETS.size === 0 || SELECTED_BUCKETS.has(metric);
+
+        // Dim the chart container if not active
+        const container = ctx.canvas.closest('.chart-container');
+        if (container) {
+            container.style.opacity = isActive ? '1' : '0.35';
+        }
+
+        const weeks = [];
+        for (let w = 1; w <= 52; w++) weeks.push(w);
+        const labels = weeks.map(w => `WK${String(w).padStart(2, '0')}`);
+
+        // Pre-compute data for tooltips
+        const fy25Data = weeks.map(w => byYear[2025]?.[w]?.[metric] ?? null);
+
+        // Debug: Log on_yard chart data specifically
+        if (metric === 'on_yard') {
+            const fy25NonNull = fy25Data.filter(v => v !== null && v > 0);
+            console.log('[CHART] on_yard FY25 data points with value:', fy25NonNull.length, 'of 52 weeks');
+            console.log('[CHART] on_yard FY25 sample:', fy25Data.slice(0, 10).map((v, i) => `WK${i+1}:${v === null ? 'null' : v}`).join(', '));
+            console.log('[CHART] on_yard byYear[2025] keys:', Object.keys(byYear[2025] || {}).length);
+            // Check week 21 specifically (should have highest value)
+            console.log('[CHART] on_yard byYear[2025][21]:', byYear[2025]?.[21]);
+        }
+        const fy26Data = weeks.map(w => byYear[2026]?.[w]?.[metric] || null);
+
+        CHARTS[key] = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [
+                    {
+                        label: 'FY25', data: fy25Data,
+                        borderColor: '#6cb2eb', borderWidth: 2, fill: false, tension: 0.3, pointRadius: 3, pointHoverRadius: 6, spanGaps: true
+                    },
+                    {
+                        label: 'FY26', data: fy26Data,
+                        borderColor: '#ffc220', borderWidth: 2, fill: false, tension: 0.3, pointRadius: 3, pointHoverRadius: 6, spanGaps: true
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false
+                },
+                plugins: {
+                    legend: { display: false },
+                    datalabels: { display: false },
+                    tooltip: {
+                        backgroundColor: 'rgba(22, 33, 62, 0.95)',
+                        titleColor: '#e8e8e8',
+                        titleFont: { size: 14, weight: 'bold' },
+                        bodyColor: '#e8e8e8',
+                        bodyFont: { size: 13 },
+                        borderColor: '#2a2a4a',
+                        borderWidth: 1,
+                        padding: 14,
+                        displayColors: true,
+                        boxWidth: 12,
+                        boxHeight: 12,
+                        callbacks: {
+                            title: (items) => {
+                                if (!items.length) return '';
+                                const wk = items[0].dataIndex + 1;
+                                return `WK${String(wk).padStart(2, '0')}`;
+                            },
+                            label: (ctx) => {
+                                const val = ctx.raw;
+                                if (val === null || val === undefined) return `${ctx.dataset.label}: No data`;
+                                return `${ctx.dataset.label}: ${fmtM(val)}`;
+                            },
+                            afterBody: (items) => {
+                                if (!items.length) return [];
+                                const wkIdx = items[0].dataIndex;
+                                const wk = wkIdx + 1;
+                                const lines = [];
+
+                                // Get current values
+                                const fy26Val = fy26Data[wkIdx];
+                                const fy25Val = fy25Data[wkIdx];
+
+                                // YoY Comparison (FY26 vs FY25 same week)
+                                if (fy26Val !== null && fy25Val !== null && fy25Val !== 0) {
+                                    const yoyPct = ((fy26Val - fy25Val) / fy25Val * 100).toFixed(1);
+                                    const arrow = yoyPct > 0 ? '▲' : yoyPct < 0 ? '▼' : '—';
+                                    const pctAbs = Math.abs(yoyPct);
+                                    lines.push('');
+                                    lines.push(`YoY: ${arrow} ${pctAbs}%`);
+                                }
+
+                                // WoW Comparison (FY26 this week vs FY26 last week)
+                                if (wk > 1 && fy26Val !== null) {
+                                    const fy26Prev = fy26Data[wkIdx - 1];
+                                    if (fy26Prev !== null && fy26Prev !== 0) {
+                                        const wowPct = ((fy26Val - fy26Prev) / fy26Prev * 100).toFixed(1);
+                                        const arrow = wowPct > 0 ? '▲' : wowPct < 0 ? '▼' : '—';
+                                        const pctAbs = Math.abs(wowPct);
+                                        lines.push(`WoW: ${arrow} ${pctAbs}%`);
+                                    }
+                                }
+
+                                return lines;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#a0a0a0', maxRotation: 45, font: { size: 9 } } },
+                    y: { min: 0, beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#a0a0a0', callback: v => fmtM(v) } }
+                }
+            }
+        });
+    }
+
+    function renderTable(byYear) {
+        const tbody = document.getElementById('data-table-body');
+        tbody.innerHTML = '';
+
+        for (let wk = 52; wk >= 1; wk--) {
+            const fy26 = byYear[2026]?.[wk];
+            const fy25 = byYear[2025]?.[wk];
+
+            if (fy26 && (fy26.on_floor > 0 || fy26.in_dc > 0)) {
+                const total = (fy26.open_orders || 0) + (fy26.on_yard || 0) + (fy26.in_dc || 0) + (fy26.in_transit || 0) + (fy26.fc_oh || 0) + (fy26.backroom || 0) + (fy26.on_floor || 0);
+                tbody.innerHTML += `<tr>
+                    <td>WK${String(wk).padStart(2, '0')}</td><td>FY26</td>
+                    <td class="text-end">${fmtM(fy26.open_orders)}</td>
+                    <td class="text-end">${fmtM(fy26.on_yard)}</td>
+                    <td class="text-end">${fmtM(fy26.in_dc)}</td>
+                    <td class="text-end">${fmtM(fy26.in_transit)}</td>
+                    <td class="text-end">${fmtM(fy26.fc_oh)}</td>
+                    <td class="text-end">${fmtM(fy26.backroom)}</td>
+                    <td class="text-end">${fmtM(fy26.on_floor)}</td>
+                    <td class="text-end" style="color:#ffc220;font-weight:600;">${fmtM(total)}</td>
+                </tr>`;
+            }
+            if (fy25 && (fy25.on_floor > 0 || fy25.in_dc > 0)) {
+                const total = (fy25.open_orders || 0) + (fy25.on_yard || 0) + (fy25.in_dc || 0) + (fy25.in_transit || 0) + (fy25.fc_oh || 0) + (fy25.backroom || 0) + (fy25.on_floor || 0);
+                tbody.innerHTML += `<tr style="opacity:0.7;">
+                    <td>WK${String(wk).padStart(2, '0')}</td><td>FY25</td>
+                    <td class="text-end">${fmtM(fy25.open_orders)}</td>
+                    <td class="text-end">${fmtM(fy25.on_yard)}</td>
+                    <td class="text-end">${fmtM(fy25.in_dc)}</td>
+                    <td class="text-end">${fmtM(fy25.in_transit)}</td>
+                    <td class="text-end">${fmtM(fy25.fc_oh)}</td>
+                    <td class="text-end">${fmtM(fy25.backroom)}</td>
+                    <td class="text-end">${fmtM(fy25.on_floor)}</td>
+                    <td class="text-end">${fmtM(total)}</td>
+                </tr>`;
+            }
+        }
+    }
+
+    function exportCSV() {
+        const filters = getFilters();
+        const data = buildBucketsData(filters);
+        let csv = 'Week,FY,On Order,On Yard,In DC,In Transit,FC (eComm),Backroom,On Floor,Total\n';
+        data.forEach(r => {
+            const year = parseInt(String(r.wm_week).substring(0, 4));
+            const wkNum = parseInt(String(r.wm_week).slice(-2));
+            const total = (r.open_orders || 0) + (r.on_yard || 0) + (r.in_dc || 0) + (r.in_transit || 0) + (r.fc_oh || 0) + (r.backroom || 0) + (r.on_floor || 0);
+            csv += `WK${String(wkNum).padStart(2, '0')},FY${year === 2026 ? '26' : '25'},${r.open_orders || 0},${r.on_yard || 0},${r.in_dc || 0},${r.in_transit || 0},${r.fc_oh || 0},${r.backroom || 0},${r.on_floor || 0},${total}\n`;
+        });
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'inventory_buckets.csv'; a.click();
+    }
+
+    // ============================================================
+    // CHANGE ANALYSIS TAB - Pre-aggregated data structure (like DC Drilldown)
+    // ============================================================
+    let BUCKET_DRILL_DATA = {
+        latestWeek: null,
+        sbu: { current: {}, priorWoW: {}, priorYoY: {} },
+        dept: { current: {}, priorWoW: {}, priorYoY: {} },
+        catg: { current: {}, priorWoW: {}, priorYoY: {} }
+    };
+    let BUCKET_DRILL_VIEW = 'sbu';
+
+    const POSITION_NAMES = {
+        total_pipeline: 'Total Pipeline',
+        on_yard: 'On Yard',
+        in_dc: 'In DC',
+        fc_oh: 'FC (eComm)',
+        backroom: 'Backroom',
+        on_floor: 'On Floor'
+    };
+
+    // Pre-load and aggregate bucket drill data (called once when data loads)
+    function loadBucketDrillData() {
+        console.log('[CHANGE] loadBucketDrillData starting...');
+        if (!HIST_DATA || !HIST_DATA.by_sbu) {
+            console.warn('[CHANGE] No HIST_DATA.by_sbu available');
+            return;
+        }
+
+        // Find latest week from FY26 data
+        const weekMap = {};
+        HIST_DATA.by_sbu.forEach(r => {
+            if (r.WM_YEAR === 2026 || Number(r.WM_YEAR) === 2026) {
+                const key = Number(r.WM_YEAR) * 100 + Number(r.WM_WEEK);
+                if (!weekMap[key]) weekMap[key] = { WM_YEAR: Number(r.WM_YEAR), WM_WEEK: Number(r.WM_WEEK) };
+            }
+        });
+        const sortedWeeks = Object.values(weekMap).sort((a, b) => (b.WM_YEAR * 100 + b.WM_WEEK) - (a.WM_YEAR * 100 + a.WM_WEEK));
+
+        if (sortedWeeks.length === 0) {
+            console.warn('[CHANGE] No FY26 weeks found in data');
+            return;
+        }
+
+        const latestWeek = sortedWeeks[0];
+        BUCKET_DRILL_DATA.latestWeek = latestWeek;
+        console.log('[CHANGE] Latest week:', latestWeek.WM_YEAR + '-WK' + latestWeek.WM_WEEK);
+
+        // Calculate prior weeks
+        let priorWoWWeek = latestWeek.WM_WEEK - 1;
+        let priorWoWYear = latestWeek.WM_YEAR;
+        if (priorWoWWeek < 1) { priorWoWWeek = 52; priorWoWYear--; }
+        const priorYoYYear = latestWeek.WM_YEAR - 1;
+        const priorYoYWeek = latestWeek.WM_WEEK;
+
+        console.log('[CHANGE] Prior WoW:', priorWoWYear + '-WK' + priorWoWWeek, '| Prior YoY:', priorYoYYear + '-WK' + priorYoYWeek);
+
+        // Aggregate helper - uses Number() coercion for robust comparison
+        function aggregate(data, keyFn, year, week) {
+            if (!data || !Array.isArray(data)) return {};
+            const targetYear = Number(year);
+            const targetWeek = Number(week);
+            const agg = {};
+
+            data.filter(r => {
+                return Number(r.WM_YEAR) === targetYear &&
+                       Number(r.WM_WEEK) === targetWeek &&
+                       !HIDDEN_SBUS.includes(r.SBU);
+            }).forEach(r => {
+                const key = keyFn(r);
+                if (!key) return;
+
+                if (!agg[key]) {
+                    agg[key] = {
+                        key, SBU: r.SBU || '', dept: r.department || '', catg: r.category || '',
+                        on_floor: 0, backroom: 0, store_oh: 0,
+                        dc_oh: 0, dc_reserved: 0, dc_labeled: 0, dc_unlabeled: 0,
+                        in_transit: 0, sto_to_dc: 0, on_yard: 0, fc_oh: 0,
+                        total_network: 0
+                    };
+                }
+                agg[key].on_floor += r.on_floor || 0;
+                agg[key].backroom += r.backroom || 0;
+                agg[key].store_oh += r.store_oh || 0;
+                agg[key].dc_oh += r.dc_oh || 0;
+                agg[key].dc_reserved += r.dc_reserved || 0;
+                agg[key].dc_labeled += r.dc_labeled || 0;
+                agg[key].dc_unlabeled += r.dc_unlabeled || 0;
+                agg[key].in_transit += r.in_transit || 0;
+                agg[key].sto_to_dc += r.sto_to_dc || 0;
+                agg[key].on_yard += r.on_yard || 0;
+                agg[key].fc_oh += r.fc_oh || 0;
+                agg[key].total_network += r.total_network || 0;
+            });
+            return agg;
+        }
+
+        // Aggregate SBU level
+        BUCKET_DRILL_DATA.sbu.current = aggregate(HIST_DATA.by_sbu, r => r.SBU, latestWeek.WM_YEAR, latestWeek.WM_WEEK);
+        BUCKET_DRILL_DATA.sbu.priorWoW = aggregate(HIST_DATA.by_sbu, r => r.SBU, priorWoWYear, priorWoWWeek);
+        BUCKET_DRILL_DATA.sbu.priorYoY = aggregate(HIST_DATA.by_sbu, r => r.SBU, priorYoYYear, priorYoYWeek);
+
+        console.log('[CHANGE] SBU aggregated:', Object.keys(BUCKET_DRILL_DATA.sbu.current).length, 'current,',
+                    Object.keys(BUCKET_DRILL_DATA.sbu.priorWoW).length, 'priorWoW,',
+                    Object.keys(BUCKET_DRILL_DATA.sbu.priorYoY).length, 'priorYoY');
+
+        // Aggregate Dept level
+        if (HIST_DATA.by_dept) {
+            BUCKET_DRILL_DATA.dept.current = aggregate(HIST_DATA.by_dept, r => r.department, latestWeek.WM_YEAR, latestWeek.WM_WEEK);
+            BUCKET_DRILL_DATA.dept.priorWoW = aggregate(HIST_DATA.by_dept, r => r.department, priorWoWYear, priorWoWWeek);
+            BUCKET_DRILL_DATA.dept.priorYoY = aggregate(HIST_DATA.by_dept, r => r.department, priorYoYYear, priorYoYWeek);
+            console.log('[CHANGE] Dept aggregated:', Object.keys(BUCKET_DRILL_DATA.dept.current).length, 'current');
+        }
+
+        // Aggregate Category level
+        if (HIST_DATA.by_catg) {
+            BUCKET_DRILL_DATA.catg.current = aggregate(HIST_DATA.by_catg, r => r.category, latestWeek.WM_YEAR, latestWeek.WM_WEEK);
+            BUCKET_DRILL_DATA.catg.priorWoW = aggregate(HIST_DATA.by_catg, r => r.category, priorWoWYear, priorWoWWeek);
+            BUCKET_DRILL_DATA.catg.priorYoY = aggregate(HIST_DATA.by_catg, r => r.category, priorYoYYear, priorYoYWeek);
+            console.log('[CHANGE] Category aggregated:', Object.keys(BUCKET_DRILL_DATA.catg.current).length, 'current');
+        }
+
+        console.log('[CHANGE] loadBucketDrillData complete!');
+    }
+
+    function initBucketDrillFilters() {
+        console.log('[CHANGE] initBucketDrillFilters called');
+        if (!HIST_DATA) {
+            console.warn('[CHANGE] No HIST_DATA in initBucketDrillFilters');
+            return;
+        }
+
+        // Load pre-aggregated data
+        loadBucketDrillData();
+
+        // Populate SBU filter
+        const sbuSelect = document.getElementById('bucket-drill-sbu');
+        sbuSelect.innerHTML = '<option value="">All SBUs</option>';
+
+        // Try sbu_list first, then fallback to extracting from by_sbu data
+        let sbus = HIST_DATA.sbu_list?.filter(s => !HIDDEN_SBUS.includes(s)) || [];
+        console.log('[CHANGE] sbu_list from API:', HIST_DATA.sbu_list);
+
+        if (sbus.length === 0 && HIST_DATA.by_sbu) {
+            // Fallback: extract unique SBUs from by_sbu data
+            sbus = [...new Set(HIST_DATA.by_sbu.map(r => r.SBU).filter(Boolean))]
+                .filter(s => !HIDDEN_SBUS.includes(s))
+                .sort();
+            console.log('[CHANGE] Extracted SBUs from by_sbu fallback:', sbus.length);
+        }
+
+        console.log('[CHANGE] Populating SBU dropdown with:', sbus);
+        sbus.forEach(s => {
+            const opt = document.createElement('option');
+            opt.value = s; opt.textContent = s;
+            sbuSelect.appendChild(opt);
+        });
+        console.log('[CHANGE] SBU dropdown now has', sbuSelect.options.length, 'options');
+
+        // Populate Dept filter with ALL departments by default
+        const deptSelect = document.getElementById('bucket-drill-dept');
+        deptSelect.innerHTML = '<option value="">All Departments</option>';
+
+        console.log('[CHANGE] by_dept available:', !!HIST_DATA?.by_dept, 'count:', HIST_DATA?.by_dept?.length);
+        if (HIST_DATA?.by_dept?.length > 0) {
+            console.log('[CHANGE] Sample by_dept record:', HIST_DATA.by_dept[0]);
+            const allDepts = [...new Set(
+                HIST_DATA.by_dept
+                    .filter(r => !HIDDEN_SBUS.includes(r.SBU))
+                    .map(r => r.department)
+                    .filter(Boolean)
+            )].sort();
+            console.log('[CHANGE] Unique departments found:', allDepts.length, allDepts.slice(0, 5));
+            allDepts.forEach(d => {
+                const opt = document.createElement('option');
+                opt.value = d; opt.textContent = d;
+                deptSelect.appendChild(opt);
+            });
+            console.log('[CHANGE] Dept dropdown now has', deptSelect.options.length, 'options');
+        } else {
+            console.warn('[CHANGE] No by_dept data available!');
+        }
+    }
+
+    function onBucketDrillSBUChange() {
+        const sbuVal = document.getElementById('bucket-drill-sbu').value;
+        const deptSelect = document.getElementById('bucket-drill-dept');
+        deptSelect.innerHTML = '<option value="">All Departments</option>';
+
+        console.log('[DRILL] onBucketDrillSBUChange - SBU:', sbuVal);
+        console.log('[DRILL] HIST_DATA.by_dept available:', !!HIST_DATA?.by_dept, 'count:', HIST_DATA?.by_dept?.length);
+
+        if (HIST_DATA?.by_dept) {
+            // Filter departments by selected SBU, or show all if no SBU selected
+            const depts = [...new Set(
+                HIST_DATA.by_dept
+                    .filter(r => !HIDDEN_SBUS.includes(r.SBU))
+                    .filter(r => !sbuVal || r.SBU === sbuVal)
+                    .map(r => r.department)
+                    .filter(Boolean)
+            )].sort();
+
+            console.log('[DRILL] Found', depts.length, 'departments for SBU:', sbuVal || 'All');
+
+            depts.forEach(d => {
+                const opt = document.createElement('option');
+                opt.value = d; opt.textContent = d;
+                deptSelect.appendChild(opt);
+            });
+        }
+
+        // Update view to dept level when SBU is selected
+        if (sbuVal) {
+            document.getElementById('bucket-drill-view').value = 'dept';
+            BUCKET_DRILL_VIEW = 'dept';
+        }
+
+        renderBucketDrilldown();
+    }
+
+    function onBucketDrillDeptChange() {
+        const deptVal = document.getElementById('bucket-drill-dept').value;
+
+        // Update view to category level when Dept is selected
+        if (deptVal) {
+            document.getElementById('bucket-drill-view').value = 'catg';
+            BUCKET_DRILL_VIEW = 'catg';
+        }
+
+        renderBucketDrilldown();
+    }
+
+    function switchBucketDrillView() {
+        BUCKET_DRILL_VIEW = document.getElementById('bucket-drill-view').value;
+        renderBucketDrilldown();
+    }
+
+    function resetBucketDrillFilters() {
+        document.getElementById('bucket-drill-position').value = 'total_pipeline';
+        document.getElementById('bucket-drill-compare').value = 'wow';
+        document.getElementById('bucket-drill-sbu').value = '';
+        document.getElementById('bucket-drill-dept').innerHTML = '<option value="">All Departments</option>';
+        document.getElementById('bucket-drill-view').value = 'sbu';
+        BUCKET_DRILL_VIEW = 'sbu';
+        renderBucketDrilldown();
+    }
+
+    function clearBucketDrillToLevel(level) {
+        if (level === 'enterprise') {
+            resetBucketDrillFilters();
+        }
+    }
+
+    function drillDownBucket(type, value) {
+        console.log('[DRILL] drillDownBucket called:', type, value);
+        if (type === 'sbu') {
+            const sbuSelect = document.getElementById('bucket-drill-sbu');
+            console.log('[DRILL] SBU dropdown options:', Array.from(sbuSelect.options).map(o => o.value));
+            sbuSelect.value = value;
+            console.log('[DRILL] SBU dropdown value after set:', sbuSelect.value);
+            onBucketDrillSBUChange();
+        } else if (type === 'dept') {
+            const deptSelect = document.getElementById('bucket-drill-dept');
+            console.log('[DRILL] Dept dropdown options:', Array.from(deptSelect.options).map(o => o.value));
+            deptSelect.value = value;
+            console.log('[DRILL] Dept dropdown value after set:', deptSelect.value);
+            onBucketDrillDeptChange();
+        }
+    }
+
+    function renderBucketDrilldown() {
+        console.log('[CHANGE] renderBucketDrilldown called');
+
+        // Check if pre-aggregated data is ready
+        if (!BUCKET_DRILL_DATA.latestWeek) {
+            console.warn('[CHANGE] BUCKET_DRILL_DATA not loaded yet, attempting to load...');
+            if (HIST_DATA) {
+                loadBucketDrillData();
+            } else {
+                console.warn('[CHANGE] No HIST_DATA available');
+                return;
+            }
+        }
+
+        if (!BUCKET_DRILL_DATA.sbu.current || Object.keys(BUCKET_DRILL_DATA.sbu.current).length === 0) {
+            console.warn('[CHANGE] No aggregated data available');
+            return;
+        }
+
+        try {
+            const position = document.getElementById('bucket-drill-position').value;
+            const compare = document.getElementById('bucket-drill-compare').value;
+            const sbuFilter = document.getElementById('bucket-drill-sbu').value;
+            const deptFilter = document.getElementById('bucket-drill-dept').value;
+            const view = BUCKET_DRILL_VIEW;
+
+            console.log('[CHANGE] Rendering with:', { position, compare, sbuFilter, deptFilter, view });
+
+            // Update labels
+            document.getElementById('bucket-drill-selected-position').textContent = POSITION_NAMES[position];
+            document.getElementById('bucket-drill-chart-position').textContent = POSITION_NAMES[position];
+            document.getElementById('bucket-drill-chart-compare').textContent = compare === 'wow' ? '(WoW)' : '(YoY)';
+            document.getElementById('bucket-drill-chart-view').textContent = view === 'sbu' ? 'SBU' : view === 'dept' ? 'Department' : 'Category';
+
+            // Update breadcrumb
+            let breadcrumb = '<a href="#" onclick="clearBucketDrillToLevel(\'enterprise\'); return false;" style="color: #6cb2eb;"><i class="bi bi-building me-1"></i>Enterprise</a>';
+            if (sbuFilter) {
+                breadcrumb += ` <i class="bi bi-chevron-right mx-1" style="font-size:0.6rem;"></i> <span style="color: var(--walmart-yellow);">${sbuFilter}</span>`;
+            }
+            if (deptFilter) {
+                breadcrumb += ` <i class="bi bi-chevron-right mx-1" style="font-size:0.6rem;"></i> <span style="color: var(--walmart-yellow);">${deptFilter}</span>`;
+            }
+            document.getElementById('bucket-breadcrumb-path').innerHTML = breadcrumb;
+
+            // Get pre-aggregated data for the selected view
+            const dataSet = BUCKET_DRILL_DATA[view];
+            const current = dataSet.current;
+            const prior = compare === 'wow' ? dataSet.priorWoW : dataSet.priorYoY;
+
+            console.log('[CHANGE] Using pre-aggregated data:', view, '| current:', Object.keys(current).length, '| prior:', Object.keys(prior).length);
+
+            // Helper to get position value from aggregated record
+            const getPositionValue = (rec) => {
+                if (!rec) return 0;
+                if (position === 'total_pipeline') {
+                    return (rec.on_floor || 0) + (rec.backroom || 0) + (rec.dc_oh || 0) + (rec.dc_reserved || 0) +
+                           (rec.dc_labeled || 0) + (rec.dc_unlabeled || 0) + (rec.fc_oh || 0) + (rec.on_yard || 0);
+                } else if (position === 'in_dc') {
+                    return (rec.dc_oh || 0) + (rec.dc_reserved || 0) + (rec.dc_labeled || 0) + (rec.dc_unlabeled || 0);
+                }
+                return rec[position] || 0;
+            };
+
+            // Filter and calculate changes
+            const changes = [];
+            const allKeys = new Set([...Object.keys(current), ...Object.keys(prior)]);
+
+            allKeys.forEach(key => {
+                const currRec = current[key];
+                const priorRec = prior[key];
+
+                // Apply SBU filter
+                if (sbuFilter && currRec?.SBU && currRec.SBU !== sbuFilter) return;
+                if (sbuFilter && priorRec?.SBU && priorRec.SBU !== sbuFilter) return;
+
+                // Apply Dept filter
+                if (deptFilter && view !== 'sbu') {
+                    if (currRec?.dept && currRec.dept !== deptFilter) return;
+                    if (priorRec?.dept && priorRec.dept !== deptFilter) return;
+                }
+
+                const currVal = getPositionValue(currRec);
+                const priorVal = getPositionValue(priorRec);
+                const change = currVal - priorVal;
+                const pct = priorVal !== 0 ? (change / priorVal * 100) : (currVal > 0 ? 100 : 0);
+
+                changes.push({ name: key, current: currVal, prior: priorVal, change, pct });
+            });
+
+            console.log('[CHANGE] Calculated changes:', changes.length);
+
+            // Sort by change
+            const increasing = changes.filter(c => c.change > 0).sort((a, b) => b.change - a.change).slice(0, 15);
+            const decreasing = changes.filter(c => c.change < 0).sort((a, b) => a.change - b.change).slice(0, 15);
+
+            console.log('[CHANGE] Top 15 increasing:', increasing.length, '| Top 15 decreasing:', decreasing.length);
+
+            // Calculate totals
+            const totalCurrent = changes.reduce((s, c) => s + c.current, 0);
+            const totalPrior = changes.reduce((s, c) => s + c.prior, 0);
+            const totalChange = totalCurrent - totalPrior;
+            const totalPct = totalPrior !== 0 ? (totalChange / totalPrior * 100) : 0;
+
+            // Update KPIs
+            document.getElementById('bucket-drill-kpi-current').textContent = fmtM(totalCurrent);
+            document.getElementById('bucket-drill-kpi-prior').textContent = fmtM(totalPrior);
+
+            const changeEl = document.getElementById('bucket-drill-kpi-change');
+            const changeColor = totalChange > 0 ? '#f87171' : totalChange < 0 ? '#4ade80' : 'var(--text-muted)';
+            const arrow = totalChange > 0 ? '▲' : totalChange < 0 ? '▼' : '';
+            changeEl.innerHTML = `<span style="color:${changeColor}">${arrow} ${fmtM(Math.abs(totalChange))} (${totalPct.toFixed(1)}%)</span>`;
+
+            // Update totals badges
+            const incTotal = increasing.reduce((s, c) => s + c.change, 0);
+            const decTotal = decreasing.reduce((s, c) => s + c.change, 0);
+            document.getElementById('bucket-drill-inc-total').textContent = '+' + fmtM(incTotal);
+            document.getElementById('bucket-drill-dec-total').textContent = fmtM(decTotal);
+
+            // Render tables
+            const drillAction = view === 'sbu' ? 'drillDownBucket(\'sbu\', \'' : view === 'dept' ? 'drillDownBucket(\'dept\', \'' : '';
+
+            const renderRow = (item, idx, isIncrease) => {
+                const pctClass = isIncrease ? 'increase' : 'decrease';
+                const rowColor = isIncrease ? '#f87171' : '#4ade80';
+                const clickable = view !== 'catg' ? `class="drill-row" onclick="${drillAction}${item.name}')"` : '';
+                const chevron = view !== 'catg' ? '<i class="bi bi-chevron-right ms-1" style="font-size:0.6rem;opacity:0.5;"></i>' : '';
+
+                return `<tr ${clickable}>
+                    <td>${idx + 1}</td>
+                    <td><span style="color:${rowColor};">●</span> ${item.name}${chevron}</td>
+                    <td class="text-end">${fmtM(item.current)}</td>
+                    <td class="text-end">${fmtM(item.prior)}</td>
+                    <td class="text-end" style="color:${rowColor};">${item.change >= 0 ? '+' : ''}${fmtM(item.change)}</td>
+                    <td class="text-end"><span class="pct-badge ${pctClass}">${item.pct >= 0 ? '+' : ''}${item.pct.toFixed(1)}%</span></td>
+                </tr>`;
+            };
+
+            // Get table elements and render
+            const incTbody = document.getElementById('bucket-drill-inc-tbody');
+            const decTbody = document.getElementById('bucket-drill-dec-tbody');
+
+            if (!incTbody || !decTbody) {
+                console.error('[CHANGE] Table tbody elements not found!');
+                return;
+            }
+
+            const incHtml = increasing.length > 0
+                ? increasing.map((c, i) => renderRow(c, i, true)).join('')
+                : '<tr><td colspan="6" class="text-center text-muted">No increases found</td></tr>';
+            const decHtml = decreasing.length > 0
+                ? decreasing.map((c, i) => renderRow(c, i, false)).join('')
+                : '<tr><td colspan="6" class="text-center text-muted">No decreases found</td></tr>';
+
+            incTbody.innerHTML = incHtml;
+            decTbody.innerHTML = decHtml;
+
+            console.log('[CHANGE] Tables rendered:', increasing.length, 'inc rows,', decreasing.length, 'dec rows');
+
+            // Render bar chart
+            renderBucketDrillChart(changes.sort((a, b) => b.change - a.change).slice(0, 20));
+
+            console.log('[CHANGE] Render complete!');
+        } catch (err) {
+            console.error('[CHANGE] Error in renderBucketDrilldown:', err);
+        }
+    }
+
+    function renderBucketDrillChart(changes) {
+        const ctx = document.getElementById('bucketDrillChart').getContext('2d');
+        if (CHARTS.bucketDrill) CHARTS.bucketDrill.destroy();
+
+        const labels = changes.map(c => c.name);
+        const data = changes.map(c => c.change);
+        const colors = changes.map(c => c.change >= 0 ? '#f87171' : '#4ade80');
+
+        CHARTS.bucketDrill = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [{
+                    label: 'Change',
+                    data,
+                    backgroundColor: colors,
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: {
+                    legend: { display: false },
+                    datalabels: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => {
+                                const val = ctx.raw;
+                                return `Change: ${val >= 0 ? '+' : ''}${fmtM(val)}`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { color: 'rgba(255,255,255,0.05)' },
+                        ticks: { color: '#a0a0a0', callback: v => fmtM(v) }
+                    },
+                    y: {
+                        grid: { display: false },
+                        ticks: { color: '#a0a0a0', font: { size: 11 } }
+                    }
+                }
+            }
+        });
+    }
+
+    function exportBucketDrillCSV() {
+        // Export change analysis data
+        const position = document.getElementById('bucket-drill-position').value;
+        const compare = document.getElementById('bucket-drill-compare').value;
+        const view = BUCKET_DRILL_VIEW;
+
+        let csv = `${view.toUpperCase()},Current,Prior,Change,Change %\n`;
+        // Re-calculate data for export (simplified)
+        const rows = document.querySelectorAll('#bucket-drill-inc-tbody tr, #bucket-drill-dec-tbody tr');
+        rows.forEach(row => {
+            const cells = row.querySelectorAll('td');
+            if (cells.length >= 6) {
+                csv += `${cells[1].textContent.trim()},${cells[2].textContent},${cells[3].textContent},${cells[4].textContent},${cells[5].textContent}\n`;
+            }
+        });
+
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+        a.download = `change_analysis_${position}_${compare}.csv`; a.click();
+    }
+
+    // Initialize Change Analysis when tab is shown
+    function initChangeAnalysisTab() {
+        console.log('[CHANGE] Initializing Change Analysis tab...');
+        initBucketDrillFilters();
+        renderBucketDrilldown();
+    }
+
+    // Load on page ready
+    window.addEventListener('DOMContentLoaded', function() {
+        loadData();
+
+        // Listen for tab changes - with aggressive visibility fix
+        const changeTab = document.querySelector('a[href="#tab-change-analysis"]');
+        const pipelineTab = document.querySelector('a[href="#tab-pipeline"]');
+
+        if (changeTab) {
+            changeTab.addEventListener('click', function(e) {
+                console.log('[CHANGE] Tab CLICKED');
+                const tabPane = document.getElementById('tab-change-analysis');
+                const pipelinePane = document.getElementById('tab-pipeline');
+
+                // Debug: Check if elements exist
+                console.log('[CHANGE] Tab pane found:', !!tabPane);
+                console.log('[CHANGE] Tab pane classes BEFORE:', tabPane?.className);
+
+                // Force visibility with inline styles as fallback
+                if (tabPane) {
+                    tabPane.style.display = 'block';
+                    tabPane.style.opacity = '1';
+                    tabPane.style.visibility = 'visible';
+                    tabPane.classList.add('show', 'active');
+                }
+                if (pipelinePane) {
+                    pipelinePane.style.display = 'none';
+                    pipelinePane.classList.remove('show', 'active');
+                }
+
+                console.log('[CHANGE] Tab pane classes AFTER:', tabPane?.className);
+                console.log('[CHANGE] Tab pane computed display:', tabPane ? getComputedStyle(tabPane).display : 'N/A');
+
+                // Render content
+                setTimeout(() => {
+                    console.log('[CHANGE] Rendering after click...');
+                    // Re-initialize filters if SBU dropdown is empty (only "All SBUs" option)
+                    const sbuSelect = document.getElementById('bucket-drill-sbu');
+                    if (sbuSelect && sbuSelect.options.length <= 1) {
+                        console.log('[CHANGE] SBU dropdown empty, re-initializing filters...');
+                        initBucketDrillFilters();
+                    }
+                    renderBucketDrilldown();
+
+                    // Debug: Check if tables have content
+                    const incTbody = document.getElementById('bucket-drill-inc-tbody');
+                    const decTbody = document.getElementById('bucket-drill-dec-tbody');
+                    console.log('[CHANGE] Inc tbody innerHTML length:', incTbody?.innerHTML?.length);
+                    console.log('[CHANGE] Dec tbody innerHTML length:', decTbody?.innerHTML?.length);
+                    console.log('[CHANGE] Inc tbody sample:', incTbody?.innerHTML?.substring(0, 200));
+                }, 150);
+            });
+        }
+
+        if (pipelineTab) {
+            pipelineTab.addEventListener('click', function() {
+                const tabPane = document.getElementById('tab-pipeline');
+                const changePane = document.getElementById('tab-change-analysis');
+
+                if (tabPane) {
+                    tabPane.style.display = 'block';
+                    tabPane.classList.add('show', 'active');
+                }
+                if (changePane) {
+                    changePane.style.display = 'none';
+                    changePane.classList.remove('show', 'active');
+                }
+            });
+        }
+    });
+    </script>
+</body>
+</html>

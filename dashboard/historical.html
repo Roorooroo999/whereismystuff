@@ -75,7 +75,12 @@
             <div class="d-flex align-items-center text-white">
                 <span class="status-badge status-file me-2" id="data-status"><i class="bi bi-file-earmark-bar-graph me-1"></i>Loading...</span>
                 <span class="me-2" style="font-size:0.85rem;">Range: <strong id="date-range">-</strong></span>
-                <a href="index.html" class="btn btn-outline-light btn-sm ms-2"><i class="bi bi-speedometer2 me-1"></i>Live Dashboard</a>
+                <!-- View Toggle Buttons -->
+                <div class="btn-group ms-3" role="group">
+                    <a href="index.html" class="btn btn-outline-light btn-sm"><i class="bi bi-speedometer2 me-1"></i>Current <span class="badge bg-success ms-1">LIVE</span></a>
+                    <a href="historical.html" class="btn btn-light btn-sm text-dark"><i class="bi bi-graph-up me-1"></i>Historical <span class="badge bg-info ms-1">WEEKLY</span></a>
+                    <a href="inventory-buckets.html" class="btn btn-outline-light btn-sm"><i class="bi bi-stack me-1"></i>Buckets <span class="badge bg-warning text-dark ms-1">PIPELINE</span></a>
+                </div>
             </div>
         </div>
     </nav>
@@ -554,6 +559,10 @@
     let FILTERED = null;       // Currently filtered/aggregated data
     let CHARTS = {};           // Chart.js instances
 
+    // On Order data (separate from inventory data)
+    let ONORDER_DATA = null;
+    let ONORDER_TABLE_VIEW = 'sbu';
+
     const COLORS = {
         store_oh:     '#28a745',
         backroom:     '#c49a09',
@@ -682,6 +691,9 @@
 
             // Pre-load DC Drilldown data so it's ready when tab is clicked
             loadDCDrilldownData();
+
+            // Pre-load On Order data
+            loadOnOrderData();
 
             const badge = source === 'api' ? '🟢 Live' : '📁 Static';
             document.getElementById('data-status').innerHTML = '<i class="bi bi-check-circle me-1"></i>' + RAW_DATA.date_range.weeks + ' weeks loaded (' + badge + ')';
@@ -1104,20 +1116,20 @@
 
     function setKPI(id, value, prevValue, wowId, lyValue, yoyId) {
         document.getElementById(id).textContent = fmtB(value);
-        // WoW
+        // WoW - Inventory convention: increase=red (bad), decrease=green (good)
         if (wowId && prevValue != null && prevValue > 0) {
             const pct = ((value - prevValue) / prevValue * 100).toFixed(1);
             const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '—';
-            const cls = pct > 0 ? 'wow-positive' : pct < 0 ? 'wow-negative' : 'wow-neutral';
+            const cls = pct > 0 ? 'wow-negative' : pct < 0 ? 'wow-positive' : 'wow-neutral';
             document.getElementById(wowId).innerHTML = `<span class="${cls}">WoW: ${arrow} ${Math.abs(pct)}%</span>`;
         } else if (wowId) {
             document.getElementById(wowId).textContent = '';
         }
-        // YoY
+        // YoY - Inventory convention: increase=red (bad), decrease=green (good)
         if (yoyId && lyValue != null && lyValue > 0) {
             const pct = ((value - lyValue) / lyValue * 100).toFixed(1);
             const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '—';
-            const cls = pct > 0 ? 'wow-positive' : pct < 0 ? 'wow-negative' : 'wow-neutral';
+            const cls = pct > 0 ? 'wow-negative' : pct < 0 ? 'wow-positive' : 'wow-neutral';
             document.getElementById(yoyId).innerHTML = `<span class="${cls}">YoY: ${arrow} ${Math.abs(pct)}% <span style="opacity:0.7">(LY: ${fmtB(lyValue)})</span></span>`;
         } else if (yoyId) {
             document.getElementById(yoyId).textContent = '';
@@ -3104,6 +3116,579 @@
     // ============================================================
     // Init
     // ============================================================
+    // ============================================================
+    // On Order Data Loading and Rendering
+    // ============================================================
+
+    async function loadOnOrderData() {
+        const statusEl = document.getElementById('onorder-status');
+        try {
+            const apiUrl = window.location.pathname.replace(/\/dashboard\/.*$/, '') + '/api/on-order';
+            let resp;
+
+            // Retry logic for 503
+            const maxRetries = 6;
+            const retryDelay = 3000;
+
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                try {
+                    resp = await fetch(apiUrl);
+                    if (resp.ok) break;
+
+                    if (resp.status === 503 && attempt < maxRetries) {
+                        statusEl.innerHTML = `<i class="bi bi-hourglass-split me-1"></i>Loading... (${attempt}/${maxRetries})`;
+                        await new Promise(r => setTimeout(r, retryDelay));
+                        continue;
+                    }
+                    throw new Error(`API ${resp.status}`);
+                } catch (fetchErr) {
+                    if (attempt >= maxRetries) throw fetchErr;
+                }
+            }
+
+            ONORDER_DATA = await resp.json();
+
+            // Count only FY25/FY26 weeks (exclude future MABD weeks)
+            const validWeekCount = new Set(
+                ONORDER_DATA.enterprise
+                    .map(r => r.wm_week)
+                    .filter(wk => {
+                        const fy = parseInt(String(wk).substring(0, 3));
+                        return fy === 125 || fy === 126;
+                    })
+            ).size;
+            console.log('[ONORDER] Loaded:', validWeekCount, 'FY25/FY26 weeks');
+
+            // Populate SBU filter
+            const sbuSelect = document.getElementById('onorder-sbu-filter');
+            sbuSelect.innerHTML = '<option value="">All SBUs</option>';
+            (ONORDER_DATA.sbu_list || []).filter(s => !HIDDEN_SBUS.includes(s)).forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s; opt.textContent = s;
+                sbuSelect.appendChild(opt);
+            });
+
+            statusEl.innerHTML = `<i class="bi bi-check-circle me-1"></i>${validWeekCount} weeks (FY25-26)`;
+            statusEl.style.background = 'rgba(34, 197, 94, 0.2)';
+            statusEl.style.color = '#4ade80';
+
+            renderOnOrderCharts();
+        } catch (err) {
+            console.error('[ONORDER] Load failed:', err);
+            statusEl.innerHTML = `<i class="bi bi-exclamation-triangle me-1"></i>Load failed`;
+            statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
+            statusEl.style.color = '#f87171';
+        }
+    }
+
+    function getOnOrderFilters() {
+        return {
+            metric: document.getElementById('onorder-metric-filter').value,
+            replen: document.getElementById('onorder-replen-filter').value,
+            channel: document.getElementById('onorder-channel-filter').value,
+            dsd: document.getElementById('onorder-dsd-filter').value,
+            sbu: document.getElementById('onorder-sbu-filter').value,
+        };
+    }
+
+    function filterOnOrderData(data, filters) {
+        let filtered = data;
+        if (filters.replen) filtered = filtered.filter(r => r.replen_ind === filters.replen);
+        if (filters.channel) filtered = filtered.filter(r => r.channel_ind === filters.channel);
+        if (filters.dsd) filtered = filtered.filter(r => r.dsd_ind === filters.dsd);
+        if (filters.sbu) filtered = filtered.filter(r => r.sbu === filters.sbu);
+        return filtered;
+    }
+
+    function aggregateOnOrderByWeek(data) {
+        const byWeek = {};
+        data.forEach(r => {
+            const wk = r.wm_week;
+            if (!byWeek[wk]) {
+                byWeek[wk] = { wm_week: wk, units_ordered: 0, units_received: 0, units_open: 0 };
+            }
+            byWeek[wk].units_ordered += r.units_ordered || 0;
+            byWeek[wk].units_received += r.units_received || 0;
+            byWeek[wk].units_open += r.units_open || 0;
+        });
+        return Object.values(byWeek).sort((a, b) => a.wm_week - b.wm_week);
+    }
+
+    function aggregateOnOrderBySBU(data) {
+        const bySBU = {};
+        data.forEach(r => {
+            const sbu = r.sbu;
+            if (!sbu || HIDDEN_SBUS.includes(sbu)) return;
+            if (!bySBU[sbu]) {
+                bySBU[sbu] = { sbu, units_ordered: 0, units_received: 0, units_open: 0 };
+            }
+            bySBU[sbu].units_ordered += r.units_ordered || 0;
+            bySBU[sbu].units_received += r.units_received || 0;
+            bySBU[sbu].units_open += r.units_open || 0;
+        });
+        return Object.values(bySBU).sort((a, b) => b.units_ordered - a.units_ordered);
+    }
+
+    function renderOnOrderCharts() {
+        if (!ONORDER_DATA) return;
+
+        const filters = getOnOrderFilters();
+        const metric = filters.metric;
+        const metricLabel = {
+            'units_ordered': 'Units Ordered',
+            'units_received': 'Units Received',
+            'units_open': 'Units Open'
+        }[metric] || 'Units';
+
+        // Update chart title with selected metric
+        document.getElementById('onorder-chart-metric').textContent = metricLabel;
+
+        // Use by_sbu data when SBU filter is applied (enterprise data doesn't have SBU column)
+        // Otherwise use enterprise data for better performance
+        const sourceData = filters.sbu ? ONORDER_DATA.by_sbu : ONORDER_DATA.enterprise;
+        const filtered = filterOnOrderData(sourceData, filters);
+        const byWeek = aggregateOnOrderByWeek(filtered);
+
+        console.log('[ONORDER DEBUG] Filters:', filters);
+        console.log('[ONORDER DEBUG] Source records:', sourceData.length, '→ Filtered:', filtered.length);
+        console.log('[ONORDER DEBUG] By week count:', byWeek.length);
+
+        // Filter to FY26 weeks with substantial data (>500M units = actual current weeks, not future MABD)
+        // Future weeks have <500M because orders haven't been placed yet
+        const fy26WeeksWithData = byWeek
+            .filter(w => {
+                const wkNum = parseInt(w.wm_week);
+                const fy = parseInt(String(wkNum).substring(0, 3));
+                // FY26 only AND has substantial order volume (>500M = real current data)
+                return fy === 126 && w.units_ordered > 500_000_000;
+            })
+            .sort((a, b) => parseInt(b.wm_week) - parseInt(a.wm_week));
+
+        // Get the most recent FY26 week with substantial data
+        const latestWeek = fy26WeeksWithData.length > 0 ? parseInt(fy26WeeksWithData[0].wm_week) : 12618;
+        const priorWeek = fy26WeeksWithData.length > 1 ? parseInt(fy26WeeksWithData[1].wm_week) : null;
+
+        console.log('[ONORDER DEBUG] FY26 weeks with >500M orders:', fy26WeeksWithData.length);
+        console.log('[ONORDER DEBUG] Top weeks:', fy26WeeksWithData.slice(0, 5).map(w => w.wm_week + ':' + (w.units_ordered/1e9).toFixed(2) + 'B'));
+        console.log('[ONORDER DEBUG] Selected latestWeek:', latestWeek);
+
+        // Calculate YoY week (same week number in FY25)
+        const latestStr = String(latestWeek).padStart(5, '0'); // Ensure 5 digits like "12618"
+        const currentFY = parseInt(latestStr.substring(0, 3)); // 126
+        const weekNum = latestStr.substring(3, 5); // "18"
+        const priorYearFY = currentFY - 1; // 125
+        const yoyWeek = parseInt(`${priorYearFY}${weekNum}`); // 12518
+
+        console.log('[ONORDER DEBUG] Week parsing: latestWeek=', latestWeek, 'str=', latestStr, 'FY=', currentFY, 'wk=', weekNum, 'yoyWeek=', yoyWeek);
+
+        const currentData = byWeek.find(w => parseInt(w.wm_week) === latestWeek) || {};
+        const yoyData = byWeek.find(w => parseInt(w.wm_week) === yoyWeek) || { units_ordered: 0, units_received: 0, units_open: 0 };
+
+        console.log('[ONORDER DEBUG] Current week:', latestWeek, 'Data:', JSON.stringify(currentData));
+        console.log('[ONORDER DEBUG] YoY week:', yoyWeek, 'Data:', JSON.stringify(yoyData));
+
+        // Update KPIs with YoY comparison
+        updateOnOrderKPIs(currentData, yoyData);
+
+        // Update charts (pass all byWeek data for trend, but latestWeek for SBU/table)
+        renderOnOrderTrendChart(byWeek, metric, metricLabel);
+        renderOnOrderSBUCharts(filters, metric, metricLabel, latestWeek, priorWeek);
+        renderOnOrderTable(filters, latestWeek, priorWeek);
+    }
+
+    function updateOnOrderKPIs(current, yoyData) {
+        const fmt = n => fmtM(n);
+        const yoyPct = (cur, pri) => {
+            if (!pri || pri === 0) return { text: '-', cls: 'wow-neutral' };
+            const pct = ((cur - pri) / pri * 100).toFixed(1);
+            const sign = pct > 0 ? '+' : '';
+            const cls = pct > 0 ? 'wow-negative' : pct < 0 ? 'wow-positive' : 'wow-neutral';
+            return { text: `YoY: ${sign}${pct}%`, cls };
+        };
+
+        document.getElementById('kpi-onorder-ordered').textContent = fmt(current.units_ordered || 0);
+        document.getElementById('kpi-onorder-received').textContent = fmt(current.units_received || 0);
+        document.getElementById('kpi-onorder-open').textContent = fmt(current.units_open || 0);
+
+        const fillRate = current.units_ordered > 0 ? ((current.units_received / current.units_ordered) * 100).toFixed(1) : 0;
+        document.getElementById('kpi-onorder-fill-rate').textContent = fillRate + '%';
+
+        const ordYoy = yoyPct(current.units_ordered, yoyData.units_ordered);
+        const recYoy = yoyPct(current.units_received, yoyData.units_received);
+        const openYoy = yoyPct(current.units_open, yoyData.units_open);
+
+        document.getElementById('kpi-onorder-ordered-wow').innerHTML = `<span class="${ordYoy.cls}">${ordYoy.text}</span>`;
+        document.getElementById('kpi-onorder-received-wow').innerHTML = `<span class="${recYoy.cls}">${recYoy.text}</span>`;
+        document.getElementById('kpi-onorder-open-wow').innerHTML = `<span class="${openYoy.cls}">${openYoy.text}</span>`;
+
+        const yoyFillRate = yoyData.units_ordered > 0 ? ((yoyData.units_received / yoyData.units_ordered) * 100) : 0;
+        const fillYoy = yoyPct(parseFloat(fillRate), yoyFillRate);
+        document.getElementById('kpi-onorder-fill-rate-wow').innerHTML = `<span class="${fillYoy.cls}">${fillYoy.text}</span>`;
+    }
+
+    function renderOnOrderTrendChart(data, metric, metricLabel) {
+        const ctx = document.getElementById('onorderTrendChart').getContext('2d');
+        if (CHARTS.onorderTrend) CHARTS.onorderTrend.destroy();
+
+        // Parse wm_week to get fiscal year and week number
+        // wm_week format: 12501 = FY25 Week 01, 12601 = FY26 Week 01
+        const parseWmWeek = (wk) => {
+            const s = String(wk);
+            const fy = parseInt(s.substring(0, 3)); // 125 = FY25, 126 = FY26
+            const week = parseInt(s.substring(3, 5));
+            return { fy, week };
+        };
+
+        // Only include FY25 (125) and FY26 (126) data
+        const filteredData = data.filter(r => {
+            const fy = parseInt(String(r.wm_week).substring(0, 3));
+            return fy === 125 || fy === 126;
+        });
+
+        // Group by fiscal year
+        const byYear = { 125: {}, 126: {} };
+        filteredData.forEach(r => {
+            const { fy, week } = parseWmWeek(r.wm_week);
+            if (!byYear[fy]) return;
+            if (!byYear[fy][week]) byYear[fy][week] = { units_ordered: 0, units_received: 0, units_open: 0 };
+            byYear[fy][week].units_ordered += r.units_ordered || 0;
+            byYear[fy][week].units_received += r.units_received || 0;
+            byYear[fy][week].units_open += r.units_open || 0;
+        });
+
+        // Create week labels (WK01-WK52)
+        const weeks = [];
+        for (let w = 1; w <= 52; w++) weeks.push(w);
+        const labels = weeks.map(w => `WK${String(w).padStart(2, '0')}`);
+
+        // Get data for FY25 and FY26
+        const fy25Data = weeks.map(w => byYear[125]?.[w]?.[metric] || null);
+        const fy26Data = weeks.map(w => byYear[126]?.[w]?.[metric] || null);
+
+        CHARTS.onorderTrend = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [
+                    {
+                        label: 'FY25',
+                        data: fy25Data,
+                        borderColor: '#6cb2eb',
+                        backgroundColor: 'rgba(108, 178, 235, 0.1)',
+                        borderWidth: 2,
+                        fill: false,
+                        tension: 0.3,
+                        pointRadius: 3,
+                        pointBackgroundColor: '#6cb2eb',
+                        spanGaps: true
+                    },
+                    {
+                        label: 'FY26',
+                        data: fy26Data,
+                        borderColor: '#ffc220',
+                        backgroundColor: 'rgba(255, 194, 32, 0.1)',
+                        borderWidth: 2,
+                        fill: false,
+                        tension: 0.3,
+                        pointRadius: 3,
+                        pointBackgroundColor: '#ffc220',
+                        spanGaps: true
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { position: 'top', labels: { color: '#a0a0a0', boxWidth: 15 } },
+                    datalabels: {
+                        display: (ctx) => ctx.dataIndex % 4 === 0, // Show every 4th label
+                        color: (ctx) => ctx.datasetIndex === 0 ? '#6cb2eb' : '#ffc220',
+                        font: { size: 9 },
+                        anchor: 'end',
+                        align: 'top',
+                        formatter: v => v ? fmtM(v) : ''
+                    },
+                    tooltip: {
+                        callbacks: {
+                            afterBody: function(context) {
+                                const idx = context[0].dataIndex;
+                                const fy26 = fy26Data[idx];
+                                const fy25 = fy25Data[idx];
+                                if (fy26 && fy25) {
+                                    const pct = ((fy26 - fy25) / fy25 * 100).toFixed(1);
+                                    return `YoY: ${pct >= 0 ? '+' : ''}${pct}%`;
+                                }
+                                return '';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#a0a0a0', maxRotation: 45 } },
+                    y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#a0a0a0', callback: v => fmtM(v) }, beginAtZero: false }
+                }
+            },
+            plugins: [ChartDataLabels]
+        });
+    }
+
+    function renderOnOrderSBUCharts(filters, metric, metricLabel, latestWeek, priorWeek) {
+        // Calculate YoY week (same week number in FY25)
+        // wm_week format: 12621 = FY26 WK21, so YoY comparison week would be 12521 (FY25 WK21)
+        const latestWeekInt = parseInt(latestWeek);
+        const latestStr = String(latestWeekInt).padStart(5, '0'); // Ensure 5 digits
+        const currentFY = parseInt(latestStr.substring(0, 3)); // 126
+        const weekNum = latestStr.substring(3, 5); // "21"
+        const priorYearFY = currentFY - 1; // 125
+        const yoyWeek = parseInt(`${priorYearFY}${weekNum}`); // 12521
+
+        console.log('[ONORDER SBU] Week parsing: latestWeek=', latestWeek, '→ int=', latestWeekInt, 'FY=', currentFY, 'wk=', weekNum);
+
+        // Update week label
+        const weekLabel = document.getElementById('onorder-sbu-week-label');
+        if (weekLabel) weekLabel.textContent = `WK${weekNum} FY${currentFY === 126 ? '26' : currentFY === 125 ? '25' : currentFY}`;
+
+        // Get SBU-level data for current and YoY week
+        const sbuData = filterOnOrderData(ONORDER_DATA.by_sbu, { ...filters, sbu: '' }); // Remove SBU filter for comparison
+
+        // Use latestWeekInt and yoyWeek (already integers) for comparison
+        const currentWeekRecords = sbuData.filter(r => parseInt(r.wm_week) === latestWeekInt);
+        const yoyWeekRecords = sbuData.filter(r => parseInt(r.wm_week) === yoyWeek);
+
+        console.log('[ONORDER SBU] latestWeekInt:', latestWeekInt, 'yoyWeek:', yoyWeek);
+        console.log('[ONORDER SBU] by_sbu total:', ONORDER_DATA.by_sbu.length, 'After filter:', sbuData.length);
+        console.log('[ONORDER SBU] Current week', latestWeekInt, 'records:', currentWeekRecords.length);
+
+        // Debug: Check what weeks exist in filtered data
+        const uniqueWeeks = [...new Set(sbuData.map(r => r.wm_week))].sort((a,b) => b-a).slice(0, 5);
+        console.log('[ONORDER SBU] Top 5 weeks in filtered data:', uniqueWeeks);
+
+        // Debug: Check sum for current week
+        const currentWeekSum = currentWeekRecords.reduce((s, r) => s + (r.units_ordered || 0), 0);
+        console.log('[ONORDER SBU] Current week total units:', currentWeekSum, '(' + (currentWeekSum/1e6).toFixed(1) + 'M)');
+
+        // Debug: Sample record to check structure
+        if (currentWeekRecords.length > 0) {
+            console.log('[ONORDER SBU] Sample record:', JSON.stringify(currentWeekRecords[0]));
+        } else {
+            // Show what weeks ARE in the data
+            const sampleWeeks = [...new Set(ONORDER_DATA.by_sbu.slice(0, 100).map(r => r.wm_week))];
+            console.log('[ONORDER SBU] NO records for week', latestWeekInt, '! Sample weeks in data:', sampleWeeks);
+        }
+
+        console.log('[ONORDER SBU] YoY week', yoyWeek, 'records:', yoyWeekRecords.length);
+
+        const currentSBUData = aggregateOnOrderBySBU(currentWeekRecords);
+        const yoySBUData = aggregateOnOrderBySBU(yoyWeekRecords);
+
+        console.log('[ONORDER SBU] Current SBUs:', currentSBUData.map(r => r.sbu + ':' + (r[metric]/1e6).toFixed(1) + 'M'));
+
+        const yoyMap = {};
+        yoySBUData.forEach(r => yoyMap[r.sbu] = r[metric] || 0);
+
+        // SBU Bar Chart
+        const ctx1 = document.getElementById('onorderSBUChart').getContext('2d');
+        if (CHARTS.onorderSBU) CHARTS.onorderSBU.destroy();
+
+        const sbuColors = {
+            'CONSUMABLES': '#0284c7',
+            'FRESH': '#22c55e',
+            'CAC': '#f59e0b',
+            'PANTRY': '#8b5cf6',
+            'FASHION': '#ec4899',
+            'ETS': '#06b6d4',
+            'HARDLINES': '#84cc16',
+            'HOME': '#f97316'
+        };
+
+        CHARTS.onorderSBU = new Chart(ctx1, {
+            type: 'bar',
+            data: {
+                labels: currentSBUData.map(r => r.sbu),
+                datasets: [{
+                    label: metricLabel,
+                    data: currentSBUData.map(r => r[metric]),
+                    backgroundColor: currentSBUData.map(r => sbuColors[r.sbu] || '#6b7280')
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    datalabels: {
+                        anchor: 'end',
+                        align: 'right',
+                        color: '#a0a0a0',
+                        font: { size: 10 },
+                        formatter: v => fmtM(v)
+                    }
+                },
+                scales: {
+                    x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#a0a0a0', callback: v => fmtM(v) } },
+                    y: { grid: { display: false }, ticks: { color: '#e8e8e8' } }
+                }
+            },
+            plugins: [ChartDataLabels]
+        });
+
+        // SBU YoY Change Chart
+        const ctx2 = document.getElementById('onorderSBUChangeChart').getContext('2d');
+        if (CHARTS.onorderSBUChange) CHARTS.onorderSBUChange.destroy();
+
+        const changeData = currentSBUData.map(r => {
+            const currentVal = r[metric] || 0;
+            const yoyVal = yoyMap[r.sbu] || 0;
+            const change = currentVal - yoyVal;
+            const pctChange = yoyVal > 0 ? ((change / yoyVal) * 100).toFixed(1) : 0;
+            return { sbu: r.sbu, change, pctChange, currentVal, yoyVal };
+        }).sort((a, b) => b.change - a.change);
+
+        CHARTS.onorderSBUChange = new Chart(ctx2, {
+            type: 'bar',
+            data: {
+                labels: changeData.map(r => r.sbu),
+                datasets: [{
+                    label: 'YoY Change',
+                    data: changeData.map(r => r.change),
+                    backgroundColor: changeData.map(r => r.change >= 0 ? '#d97706' : '#06b6d4')
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    datalabels: {
+                        anchor: 'end',
+                        align: v => v.raw >= 0 ? 'right' : 'left',
+                        color: '#a0a0a0',
+                        font: { size: 10 },
+                        formatter: v => (v >= 0 ? '+' : '') + fmtM(v)
+                    },
+                    tooltip: {
+                        callbacks: {
+                            afterLabel: function(context) {
+                                const d = changeData[context.dataIndex];
+                                return `FY26: ${fmtM(d.currentVal)} | FY25: ${fmtM(d.yoyVal)} (${d.pctChange >= 0 ? '+' : ''}${d.pctChange}%)`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#a0a0a0', callback: v => fmtM(v) } },
+                    y: { grid: { display: false }, ticks: { color: '#e8e8e8' } }
+                }
+            },
+            plugins: [ChartDataLabels]
+        });
+    }
+
+    function setOnOrderTableView(view) {
+        ONORDER_TABLE_VIEW = view;
+        document.getElementById('onorder-table-view').textContent = view === 'sbu' ? 'By SBU' : 'By Department';
+
+        // Update button states
+        document.querySelectorAll('#tab-onorder .btn-group .btn').forEach(btn => {
+            btn.classList.remove('active');
+            if (btn.textContent.toLowerCase().includes(view)) btn.classList.add('active');
+        });
+
+        renderOnOrderCharts();
+    }
+
+    function renderOnOrderTable(filters, latestWeek, priorWeek) {
+        const tbody = document.getElementById('onorder-table-tbody');
+        tbody.innerHTML = '';
+
+        // Calculate YoY week (same week number in FY25)
+        const latestStr = String(latestWeek);
+        const currentFY = parseInt(latestStr.substring(0, 3)); // 126
+        const weekNum = latestStr.substring(3, 5); // "21"
+        const priorYearFY = currentFY - 1; // 125
+        const yoyWeek = parseInt(`${priorYearFY}${weekNum}`); // 12521
+
+        let data, labelField;
+        if (ONORDER_TABLE_VIEW === 'sbu') {
+            data = filterOnOrderData(ONORDER_DATA.by_sbu, { ...filters, sbu: '' });
+            labelField = 'sbu';
+        } else {
+            data = filterOnOrderData(ONORDER_DATA.by_dept, filters);
+            labelField = 'department';
+        }
+
+        // Aggregate current and YoY
+        const currentAgg = {};
+        const yoyAgg = {};
+
+        // Ensure numeric comparison
+        const latestWeekNum = parseInt(latestWeek);
+        const yoyWeekNum = parseInt(yoyWeek);
+
+        data.forEach(r => {
+            const key = r[labelField];
+            if (!key || HIDDEN_SBUS.includes(key)) return;
+            const rWeek = parseInt(r.wm_week);
+            if (rWeek === latestWeekNum) {
+                if (!currentAgg[key]) currentAgg[key] = { label: key, units_ordered: 0, units_received: 0, units_open: 0 };
+                currentAgg[key].units_ordered += r.units_ordered || 0;
+                currentAgg[key].units_received += r.units_received || 0;
+                currentAgg[key].units_open += r.units_open || 0;
+            } else if (rWeek === yoyWeekNum) {
+                if (!yoyAgg[key]) yoyAgg[key] = { units_ordered: 0 };
+                yoyAgg[key].units_ordered += r.units_ordered || 0;
+            }
+        });
+
+        const rows = Object.values(currentAgg).sort((a, b) => b.units_ordered - a.units_ordered);
+
+        rows.forEach(row => {
+            const yoyData = yoyAgg[row.label] || { units_ordered: 0 };
+            const change = row.units_ordered - yoyData.units_ordered;
+            const fillRate = row.units_ordered > 0 ? ((row.units_received / row.units_ordered) * 100).toFixed(1) : '0.0';
+            const changeClass = change > 0 ? 'wow-negative' : change < 0 ? 'wow-positive' : 'wow-neutral';
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${row.label}</td>
+                <td class="text-end">${fmtM(row.units_ordered)}</td>
+                <td class="text-end">${fmtM(row.units_received)}</td>
+                <td class="text-end">${fmtM(row.units_open)}</td>
+                <td class="text-end">${fillRate}%</td>
+                <td class="text-end ${changeClass}">${change >= 0 ? '+' : ''}${fmtM(change)}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function formatWmWeek(wk) {
+        // Convert wm_week like 12501 to "WK01 FY25" format
+        const wkStr = String(wk);
+        if (wkStr.length >= 5) {
+            const year = wkStr.substring(0, 3);
+            const week = wkStr.substring(3, 5);
+            return `WK${week}`;
+        }
+        return `WK${wk}`;
+    }
+
+    // ============================================================
+    // Tab switch handler for On Order
+    // ============================================================
+    document.addEventListener('shown.bs.tab', function(e) {
+        if (e.target.getAttribute('href') === '#tab-onorder') {
+            if (ONORDER_DATA) {
+                renderOnOrderCharts();
+            } else {
+                loadOnOrderData();
+            }
+        }
+    });
+
     window.addEventListener('DOMContentLoaded', loadData);
     </script>
 </body>

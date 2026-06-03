@@ -96,9 +96,12 @@
     <!-- Immediately hide navbar if loaded in iframe (runs before body renders) -->
     <script>
         (function() {
-            var isIframe = window.location.search.indexOf('iframe=1') !== -1;
+            var search = window.location.search || '';
+            var isIframe = search.indexOf('iframe=1') !== -1 || window.self !== window.top;
+            console.log('[BUCKETS] URL search:', search, '| isIframe:', isIframe);
             if (isIframe) {
                 document.write('<style>#main-navbar{display:none!important}.sidebar{min-height:calc(100vh - 10px)!important}</style>');
+                console.log('[BUCKETS] Navbar hidden via CSS injection');
             }
         })();
     </script>

@@ -596,10 +596,13 @@
                     // Lazy-load iframe
                     if (!bucketsLoaded) {
                         const iframe = document.getElementById('buckets-iframe');
-                        const path = window.location.pathname;
+                        let path = window.location.pathname;
+                        // Remove trailing slash to avoid double-slash in URL
+                        if (path.endsWith('/')) path = path.slice(0, -1);
                         const bucketsUrl = (path.endsWith('.html') || path.endsWith('.htm')
                             ? path.replace(/[^\/]+$/, 'inventory-buckets.html')
                             : path + '/inventory-buckets.html') + '?iframe=1';
+                        console.log('[BUCKETS] Loading iframe URL:', bucketsUrl);
                         iframe.src = bucketsUrl;
                         bucketsLoaded = true;
                     }

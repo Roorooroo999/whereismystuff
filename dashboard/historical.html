@@ -93,8 +93,9 @@
     </div>
 
     <div class="container-fluid">
-        <!-- Top KPI Cards (like current view) -->
+        <!-- Top KPI Cards - Grouped: Store metrics | DC metrics | Other -->
         <div class="row g-2 mt-2 px-2">
+            <!-- Store Metrics -->
             <div class="col-6 col-md-4 col-lg-2">
                 <div class="kpi-card bg-floor">
                     <div class="value" id="kpi-floor">-</div>
@@ -119,20 +120,13 @@
                     <div class="sub-value" id="kpi-store-yoy"></div>
                 </div>
             </div>
+            <!-- DC Metrics Grouped Together -->
             <div class="col-6 col-md-4 col-lg-2">
                 <div class="kpi-card bg-dc-oh">
                     <div class="value" id="kpi-dcoh">-</div>
                     <div class="label">DC On-Hand</div>
                     <div class="sub-value" id="kpi-dcoh-wow"></div>
                     <div class="sub-value" id="kpi-dcoh-yoy"></div>
-                </div>
-            </div>
-            <div class="col-6 col-md-4 col-lg-2">
-                <div class="kpi-card bg-transit">
-                    <div class="value" id="kpi-transit">-</div>
-                    <div class="label">In-Transit</div>
-                    <div class="sub-value" id="kpi-transit-wow"></div>
-                    <div class="sub-value" id="kpi-transit-yoy"></div>
                 </div>
             </div>
             <div class="col-6 col-md-4 col-lg-2">
@@ -143,8 +137,6 @@
                     <div class="sub-value" id="kpi-reserved-yoy"></div>
                 </div>
             </div>
-        </div>
-        <div class="row g-2 mt-1 px-2">
             <div class="col-6 col-md-4 col-lg-2">
                 <div class="kpi-card bg-dc-labeled">
                     <div class="value" id="kpi-labeled">-</div>
@@ -153,6 +145,8 @@
                     <div class="sub-value" id="kpi-labeled-yoy"></div>
                 </div>
             </div>
+        </div>
+        <div class="row g-2 mt-1 px-2">
             <div class="col-6 col-md-4 col-lg-2">
                 <div class="kpi-card bg-dc-unlabeled">
                     <div class="value" id="kpi-unlabeled">-</div>
@@ -161,12 +155,13 @@
                     <div class="sub-value" id="kpi-unlabeled-yoy"></div>
                 </div>
             </div>
+            <!-- Other Metrics -->
             <div class="col-6 col-md-4 col-lg-2">
-                <div class="kpi-card bg-sto">
-                    <div class="value" id="kpi-sto">-</div>
-                    <div class="label">STO to DC</div>
-                    <div class="sub-value" id="kpi-sto-wow"></div>
-                    <div class="sub-value" id="kpi-sto-yoy"></div>
+                <div class="kpi-card bg-transit">
+                    <div class="value" id="kpi-transit">-</div>
+                    <div class="label">In-Transit</div>
+                    <div class="sub-value" id="kpi-transit-wow"></div>
+                    <div class="sub-value" id="kpi-transit-yoy"></div>
                 </div>
             </div>
             <div class="col-6 col-md-4 col-lg-2">
@@ -243,7 +238,7 @@
                     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-dctype">DC Type Trend</a></li>
                     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-sto">STO to DC</a></li>
                     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-table">Data Table</a></li>
-                    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-dc-drilldown"><i class="bi bi-diagram-3 me-1"></i>DC Drilldown</a></li>
+                    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-dc-drilldown"><i class="bi bi-arrow-left-right me-1"></i>Change Analysis</a></li>
                 </ul>
 
                 <div class="tab-content">
@@ -387,13 +382,13 @@
                         <!-- First-time hint tooltip -->
                         <div id="drill-hint" class="alert alert-info alert-dismissible fade show mb-2" role="alert" style="font-size: 0.8rem; padding: 8px 12px; background: rgba(0,113,206,0.15); border-color: rgba(0,113,206,0.3); color: #6cb2eb;">
                             <i class="bi bi-lightbulb me-1"></i>
-                            <strong>Tip:</strong> Click on any row to drill down. Use View Mode to switch between SBU/Dept/Category hierarchy. Use DC Type Filter to analyze specific DC types (GDC/RDC/FDC/Imports) within any view.
+                            <strong>Tip:</strong> Select an inventory position to analyze WoW or YoY changes. Click any row to drill down. Use View Mode to switch between SBU/Dept/Category hierarchy.
                             <button type="button" class="btn-close btn-close-white" style="font-size: 0.6rem; padding: 10px;" onclick="dismissDrillHint()"></button>
                         </div>
                         <!-- Filters in a chart-container to match other tab styling -->
                         <div class="chart-container mb-3" style="padding: 12px;">
                             <div class="d-flex justify-content-between align-items-center mb-2">
-                                <div class="chart-title mb-0"><i class="bi bi-diagram-3 me-1"></i>DC Inventory Change Analysis</div>
+                                <div class="chart-title mb-0"><i class="bi bi-arrow-left-right me-1"></i>Inventory Change Analysis</div>
                                 <div id="drill-breadcrumb" style="font-size: 0.75rem; color: var(--text-muted);">
                                     <span id="breadcrumb-path">
                                         <a href="#" onclick="clearDrillToLevel('enterprise'); return false;" style="color: #6cb2eb;">📊 Enterprise</a>
@@ -404,10 +399,16 @@
                                 <div class="col-md-2">
                                     <label class="filter-label">Inventory Position</label>
                                     <select class="form-select form-select-sm" id="dc-drill-channel-filter" onchange="renderDCDrilldown()">
+                                        <option value="total_network">Total Network</option>
+                                        <option value="store_oh">Store OH (Total)</option>
+                                        <option value="on_floor">On Floor</option>
+                                        <option value="backroom">Backroom</option>
                                         <option value="dc_oh">DC On-Hand</option>
+                                        <option value="dc_reserved">DC Reserved</option>
                                         <option value="dc_labeled">DC Labeled</option>
                                         <option value="dc_unlabeled">DC Unlabeled</option>
-                                        <option value="sto_to_dc">STO to DC</option>
+                                        <option value="in_transit">In-Transit</option>
+                                        <option value="fc_oh">FC (eComm)</option>
                                         <option value="on_yard">On Yard</option>
                                     </select>
                                 </div>
@@ -438,7 +439,8 @@
                                         <option value="catg">By Category</option>
                                     </select>
                                 </div>
-                                <div class="col-md-2">
+                                <!-- DC Type Filter - hidden for general Change Analysis, shown only for DC positions -->
+                                <div class="col-md-2" id="dc-type-filter-container" style="display: none;">
                                     <label class="filter-label">DC Type Filter</label>
                                     <select class="form-select form-select-sm" id="dc-drill-dctype-filter" multiple size="1" onchange="renderDCDrilldown()" style="height: 31px;">
                                         <option value="Grocery" selected>GDC (Grocery)</option>
@@ -1106,8 +1108,9 @@
                lyWeek ? (lyWeek.dc_labeled || 0) : null, 'kpi-labeled-yoy');
         setKPI('kpi-unlabeled', latest.dc_unlabeled || 0, prev ? (prev.dc_unlabeled || 0) : null, 'kpi-unlabeled-wow',
                lyWeek ? (lyWeek.dc_unlabeled || 0) : null, 'kpi-unlabeled-yoy');
-        setKPI('kpi-sto', latest.sto_to_dc, prev?.sto_to_dc, 'kpi-sto-wow',
-               lyWeek?.sto_to_dc, 'kpi-sto-yoy');
+        // STO KPI hidden per leadership direction
+        // setKPI('kpi-sto', latest.sto_to_dc, prev?.sto_to_dc, 'kpi-sto-wow',
+        //        lyWeek?.sto_to_dc, 'kpi-sto-yoy');
         setKPI('kpi-fc', latest.fc_oh || 0, prev ? (prev.fc_oh || 0) : null, 'kpi-fc-wow',
                lyWeek ? (lyWeek.fc_oh || 0) : null, 'kpi-fc-yoy');
         setKPI('kpi-onyard', latest.on_yard || 0, prev ? (prev.on_yard || 0) : null, 'kpi-onyard-wow',
@@ -1115,24 +1118,28 @@
     }
 
     function setKPI(id, value, prevValue, wowId, lyValue, yoyId) {
-        document.getElementById(id).textContent = fmtB(value);
+        const el = document.getElementById(id);
+        if (!el) return; // Skip if element doesn't exist
+        el.textContent = fmtB(value);
         // WoW - Inventory convention: increase=red (bad), decrease=green (good)
-        if (wowId && prevValue != null && prevValue > 0) {
+        const wowEl = wowId ? document.getElementById(wowId) : null;
+        if (wowEl && prevValue != null && prevValue > 0) {
             const pct = ((value - prevValue) / prevValue * 100).toFixed(1);
             const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '—';
             const cls = pct > 0 ? 'wow-negative' : pct < 0 ? 'wow-positive' : 'wow-neutral';
-            document.getElementById(wowId).innerHTML = `<span class="${cls}">WoW: ${arrow} ${Math.abs(pct)}%</span>`;
-        } else if (wowId) {
-            document.getElementById(wowId).textContent = '';
+            wowEl.innerHTML = `<span class="${cls}">WoW: ${arrow} ${Math.abs(pct)}%</span>`;
+        } else if (wowEl) {
+            wowEl.textContent = '';
         }
         // YoY - Inventory convention: increase=red (bad), decrease=green (good)
-        if (yoyId && lyValue != null && lyValue > 0) {
+        const yoyEl = yoyId ? document.getElementById(yoyId) : null;
+        if (yoyEl && lyValue != null && lyValue > 0) {
             const pct = ((value - lyValue) / lyValue * 100).toFixed(1);
             const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '—';
             const cls = pct > 0 ? 'wow-negative' : pct < 0 ? 'wow-positive' : 'wow-neutral';
-            document.getElementById(yoyId).innerHTML = `<span class="${cls}">YoY: ${arrow} ${Math.abs(pct)}% <span style="opacity:0.7">(LY: ${fmtB(lyValue)})</span></span>`;
-        } else if (yoyId) {
-            document.getElementById(yoyId).textContent = '';
+            yoyEl.innerHTML = `<span class="${cls}">YoY: ${arrow} ${Math.abs(pct)}% <span style="opacity:0.7">(LY: ${fmtB(lyValue)})</span></span>`;
+        } else if (yoyEl) {
+            yoyEl.textContent = '';
         }
     }
 
@@ -2322,11 +2329,18 @@
 
     // Channel names mapping
     const CHANNEL_NAMES = {
+        total_network: 'Total Network',
+        store_oh: 'Store OH (Total)',
+        on_floor: 'On Floor',
+        backroom: 'Backroom',
         dc_oh: 'DC On-Hand',
+        dc_reserved: 'DC Reserved',
         dc_labeled: 'DC Labeled',
         dc_unlabeled: 'DC Unlabeled',
-        sto_to_dc: 'STO to DC',
-        on_yard: 'On Yard'
+        in_transit: 'In-Transit',
+        fc_oh: 'FC (eComm)',
+        on_yard: 'On Yard',
+        sto_to_dc: 'STO to DC'
     };
 
     // Load DC drilldown data with WoW/YoY comparison for all levels
@@ -2737,6 +2751,13 @@
         }
 
         const channel = document.getElementById('dc-drill-channel-filter').value;
+
+        // Show/hide DC Type Filter based on selected position (only show for DC-specific positions)
+        const dcTypeContainer = document.getElementById('dc-type-filter-container');
+        const dcPositions = ['dc_oh', 'dc_labeled', 'dc_unlabeled', 'dc_reserved'];
+        if (dcTypeContainer) {
+            dcTypeContainer.style.display = dcPositions.includes(channel) ? 'block' : 'none';
+        }
         const compareMode = document.getElementById('dc-drill-compare-filter').value;
         const viewMode = document.getElementById('dc-drill-view-filter').value;
         const sbuFilter = document.getElementById('dc-drill-sbu-filter').value;

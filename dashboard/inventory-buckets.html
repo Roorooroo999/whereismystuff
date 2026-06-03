@@ -89,10 +89,19 @@
         }
         .view-badge-live { background: #22c55e; color: #fff; }
         .view-badge-weekly { background: #3b82f6; color: #fff; }
+        /* Hide navbar when loaded in iframe */
+        body.in-iframe .navbar { display: none !important; }
+        body.in-iframe .sidebar { min-height: calc(100vh - 10px) !important; }
     </style>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark" style="background: var(--walmart-blue);">
+    <script>
+        // Detect if we're in an iframe and hide navbar
+        if (window.self !== window.top) {
+            document.body.classList.add('in-iframe');
+        }
+    </script>
+    <nav class="navbar navbar-expand-lg navbar-dark" id="main-navbar" style="background: var(--walmart-blue);">
         <div class="container-fluid">
             <a class="navbar-brand" href="#"><i class="bi bi-box-seam me-2"></i>Where's My Stuff</a>
             <div class="view-toggle">
@@ -168,6 +177,7 @@
                         <div class="kpi-card bg-onorder" data-bucket="open_orders" onclick="toggleBucketFilter('open_orders')">
                             <div class="value" id="kpi-onorder">-</div>
                             <div class="label">On Order</div>
+                            <div class="sub-value" id="kpi-onorder-wow"></div>
                             <div class="sub-value" id="kpi-onorder-yoy"></div>
                         </div>
                     </div>
@@ -175,6 +185,7 @@
                         <div class="kpi-card bg-onyard" data-bucket="on_yard" onclick="toggleBucketFilter('on_yard')">
                             <div class="value" id="kpi-onyard">-</div>
                             <div class="label">On Yard</div>
+                            <div class="sub-value" id="kpi-onyard-wow"></div>
                             <div class="sub-value" id="kpi-onyard-yoy"></div>
                         </div>
                     </div>
@@ -182,6 +193,7 @@
                         <div class="kpi-card bg-indc" data-bucket="in_dc" onclick="toggleBucketFilter('in_dc')">
                             <div class="value" id="kpi-indc">-</div>
                             <div class="label">In DC</div>
+                            <div class="sub-value" id="kpi-indc-wow"></div>
                             <div class="sub-value" id="kpi-indc-yoy"></div>
                         </div>
                     </div>
@@ -189,6 +201,7 @@
                         <div class="kpi-card bg-intransit" data-bucket="in_transit" onclick="toggleBucketFilter('in_transit')">
                             <div class="value" id="kpi-intransit">-</div>
                             <div class="label">In Transit</div>
+                            <div class="sub-value" id="kpi-intransit-wow"></div>
                             <div class="sub-value" id="kpi-intransit-yoy"></div>
                         </div>
                     </div>
@@ -196,6 +209,7 @@
                         <div class="kpi-card bg-fcoh" data-bucket="fc_oh" onclick="toggleBucketFilter('fc_oh')">
                             <div class="value" id="kpi-fcoh">-</div>
                             <div class="label">FC (eComm)</div>
+                            <div class="sub-value" id="kpi-fcoh-wow"></div>
                             <div class="sub-value" id="kpi-fcoh-yoy"></div>
                         </div>
                     </div>
@@ -203,6 +217,7 @@
                         <div class="kpi-card bg-backroom" data-bucket="backroom" onclick="toggleBucketFilter('backroom')">
                             <div class="value" id="kpi-backroom">-</div>
                             <div class="label">Backroom</div>
+                            <div class="sub-value" id="kpi-backroom-wow"></div>
                             <div class="sub-value" id="kpi-backroom-yoy"></div>
                         </div>
                     </div>
@@ -210,6 +225,7 @@
                         <div class="kpi-card bg-onfloor" data-bucket="on_floor" onclick="toggleBucketFilter('on_floor')">
                             <div class="value" id="kpi-onfloor">-</div>
                             <div class="label">On Floor</div>
+                            <div class="sub-value" id="kpi-onfloor-wow"></div>
                             <div class="sub-value" id="kpi-onfloor-yoy"></div>
                         </div>
                     </div>
@@ -217,6 +233,7 @@
                         <div class="kpi-card bg-total" data-bucket="total" onclick="clearBucketFilters()">
                             <div class="value" id="kpi-total">-</div>
                             <div class="label">Total Pipeline</div>
+                            <div class="sub-value" id="kpi-total-wow"></div>
                             <div class="sub-value" id="kpi-total-yoy"></div>
                         </div>
                     </div>
@@ -1045,9 +1062,11 @@
 
         const currentData = byYear[2026][latestWk] || {};
         const yoyData = byYear[2025][latestWk] || {};
+        const priorWk = latestWk > 1 ? latestWk - 1 : 52;
+        const wowData = byYear[2026][priorWk] || {};
 
-        // Update KPIs
-        updateKPIs(currentData, yoyData);
+        // Update KPIs with WoW and YoY
+        updateKPIs(currentData, wowData, yoyData);
 
         // Render charts
         renderStackedChart(byYear);
@@ -1063,13 +1082,13 @@
         renderTable(byYear);
     }
 
-    function updateKPIs(current, yoy) {
-        const yoyPct = (cur, pri) => {
+    function updateKPIs(current, wow, yoy) {
+        const calcPct = (cur, pri, label) => {
             if (!pri || pri === 0) return { text: '-', cls: 'wow-neutral' };
             const pct = ((cur - pri) / pri * 100).toFixed(1);
-            const sign = pct > 0 ? '+' : '';
+            const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '—';
             const cls = pct > 0 ? 'wow-negative' : pct < 0 ? 'wow-positive' : 'wow-neutral';
-            return { text: `YoY: ${sign}${pct}%`, cls };
+            return { text: `${label}: ${arrow} ${Math.abs(pct)}%`, cls };
         };
 
         document.getElementById('kpi-onorder').textContent = fmtM(current.open_orders || 0);
@@ -1081,22 +1100,27 @@
         document.getElementById('kpi-onfloor').textContent = fmtM(current.on_floor || 0);
 
         const totalCur = (current.open_orders || 0) + (current.on_yard || 0) + (current.in_transit || 0) + (current.in_dc || 0) + (current.fc_oh || 0) + (current.backroom || 0) + (current.on_floor || 0);
+        const totalWow = (wow.open_orders || 0) + (wow.on_yard || 0) + (wow.in_transit || 0) + (wow.in_dc || 0) + (wow.fc_oh || 0) + (wow.backroom || 0) + (wow.on_floor || 0);
         const totalYoy = (yoy.open_orders || 0) + (yoy.on_yard || 0) + (yoy.in_transit || 0) + (yoy.in_dc || 0) + (yoy.fc_oh || 0) + (yoy.backroom || 0) + (yoy.on_floor || 0);
         document.getElementById('kpi-total').textContent = fmtM(totalCur);
 
-        const setYoy = (id, cur, pri) => {
-            const y = yoyPct(cur, pri);
-            document.getElementById(id).innerHTML = `<span class="${y.cls}">${y.text}</span>`;
+        const setChange = (wowId, yoyId, cur, wowVal, yoyVal) => {
+            const w = calcPct(cur, wowVal, 'WoW');
+            const y = calcPct(cur, yoyVal, 'YoY');
+            const wowEl = document.getElementById(wowId);
+            const yoyEl = document.getElementById(yoyId);
+            if (wowEl) wowEl.innerHTML = `<span class="${w.cls}">${w.text}</span>`;
+            if (yoyEl) yoyEl.innerHTML = `<span class="${y.cls}">${y.text}</span>`;
         };
 
-        setYoy('kpi-onorder-yoy', current.open_orders, yoy.open_orders);
-        setYoy('kpi-onyard-yoy', current.on_yard, yoy.on_yard);
-        setYoy('kpi-intransit-yoy', current.in_transit, yoy.in_transit);
-        setYoy('kpi-indc-yoy', current.in_dc, yoy.in_dc);
-        setYoy('kpi-fcoh-yoy', current.fc_oh, yoy.fc_oh);
-        setYoy('kpi-backroom-yoy', current.backroom, yoy.backroom);
-        setYoy('kpi-onfloor-yoy', current.on_floor, yoy.on_floor);
-        setYoy('kpi-total-yoy', totalCur, totalYoy);
+        setChange('kpi-onorder-wow', 'kpi-onorder-yoy', current.open_orders, wow.open_orders, yoy.open_orders);
+        setChange('kpi-onyard-wow', 'kpi-onyard-yoy', current.on_yard, wow.on_yard, yoy.on_yard);
+        setChange('kpi-intransit-wow', 'kpi-intransit-yoy', current.in_transit, wow.in_transit, yoy.in_transit);
+        setChange('kpi-indc-wow', 'kpi-indc-yoy', current.in_dc, wow.in_dc, yoy.in_dc);
+        setChange('kpi-fcoh-wow', 'kpi-fcoh-yoy', current.fc_oh, wow.fc_oh, yoy.fc_oh);
+        setChange('kpi-backroom-wow', 'kpi-backroom-yoy', current.backroom, wow.backroom, yoy.backroom);
+        setChange('kpi-onfloor-wow', 'kpi-onfloor-yoy', current.on_floor, wow.on_floor, yoy.on_floor);
+        setChange('kpi-total-wow', 'kpi-total-yoy', totalCur, totalWow, totalYoy);
     }
 
     // Toggle stacked chart mode

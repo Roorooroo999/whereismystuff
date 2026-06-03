@@ -95,18 +95,24 @@
     </style>
     <!-- Immediately hide navbar if loaded in iframe (runs before body renders) -->
     <script>
-        (function() {
-            var search = window.location.search || '';
-            var isIframe = search.indexOf('iframe=1') !== -1 || window.self !== window.top;
-            console.log('[BUCKETS] URL search:', search, '| isIframe:', isIframe);
-            if (isIframe) {
-                document.write('<style>#main-navbar{display:none!important}.sidebar{min-height:calc(100vh - 10px)!important}</style>');
-                console.log('[BUCKETS] Navbar hidden via CSS injection');
-            }
-        })();
+        // Global flag for iframe detection
+        window.BUCKETS_IN_IFRAME = (window.location.search || '').indexOf('iframe=1') !== -1 || window.self !== window.top;
+        console.log('[BUCKETS] Iframe detection:', window.BUCKETS_IN_IFRAME, '| URL:', window.location.href);
+        if (window.BUCKETS_IN_IFRAME) {
+            document.write('<style>#main-navbar{display:none!important}.sidebar{min-height:calc(100vh - 10px)!important}</style>');
+        }
     </script>
 </head>
 <body>
+    <script>
+        // Double-check: Remove navbar immediately after body starts
+        if (window.BUCKETS_IN_IFRAME) {
+            document.addEventListener('DOMContentLoaded', function() {
+                var nav = document.getElementById('main-navbar');
+                if (nav) { nav.remove(); console.log('[BUCKETS] Navbar removed from DOM'); }
+            });
+        }
+    </script>
     <nav class="navbar navbar-expand-lg navbar-dark" id="main-navbar" style="background: var(--walmart-blue);">
         <div class="container-fluid">
             <a class="navbar-brand" href="#"><i class="bi bi-box-seam me-2"></i>Where's My Stuff</a>
@@ -2079,16 +2085,13 @@
         }
     });
 
-    // Iframe detection - hide navbar when loaded in iframe
-    (function() {
-        const inIframe = window.self !== window.top ||
-                         new URLSearchParams(window.location.search).get('iframe') === '1';
-        if (inIframe) {
-            document.body.classList.add('in-iframe');
-            const navbar = document.getElementById('main-navbar');
-            if (navbar) navbar.style.display = 'none';
-        }
-    })();
+    // Final iframe check - completely remove navbar if in iframe
+    if (window.BUCKETS_IN_IFRAME) {
+        document.body.classList.add('in-iframe');
+        var nav = document.getElementById('main-navbar');
+        if (nav) nav.remove();
+        console.log('[BUCKETS] Final check: navbar removed');
+    }
     </script>
 </body>
 </html>

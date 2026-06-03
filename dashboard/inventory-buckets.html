@@ -93,6 +93,15 @@
         body.in-iframe .navbar { display: none !important; }
         body.in-iframe .sidebar { min-height: calc(100vh - 10px) !important; }
     </style>
+    <!-- Immediately hide navbar if loaded in iframe (runs before body renders) -->
+    <script>
+        (function() {
+            var isIframe = window.location.search.indexOf('iframe=1') !== -1;
+            if (isIframe) {
+                document.write('<style>#main-navbar{display:none!important}.sidebar{min-height:calc(100vh - 10px)!important}</style>');
+            }
+        })();
+    </script>
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark" id="main-navbar" style="background: var(--walmart-blue);">
@@ -681,13 +690,37 @@
         return n.toFixed(0);
     }
 
-    // Load data from both APIs
+    // Load data from both APIs with retry for cache warming
+    let loadRetryCount = 0;
+    const MAX_RETRIES = 5;
+    const RETRY_DELAY = 3000; // 3 seconds
+
     async function loadData() {
         const statusEl = document.getElementById('data-status');
+        const loadingEl = document.getElementById('loading');
         try {
             const apiBase = window.location.pathname.replace(/\/dashboard\/.*$/, '');
 
+            // First check if caches are ready
+            statusEl.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Checking cache...';
+            const healthResp = await fetch(apiBase + '/api/health');
+            const health = await healthResp.json();
+
+            if (!health.historical_cache?.ready) {
+                loadRetryCount++;
+                if (loadRetryCount <= MAX_RETRIES) {
+                    console.log('[BUCKETS] Historical cache not ready, retry', loadRetryCount, 'of', MAX_RETRIES);
+                    statusEl.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Cache loading... (' + loadRetryCount + '/' + MAX_RETRIES + ')';
+                    loadingEl.querySelector('p').textContent = 'Historical data cache is warming up... Please wait.';
+                    setTimeout(loadData, RETRY_DELAY);
+                    return;
+                } else {
+                    throw new Error('Historical cache not ready after ' + MAX_RETRIES + ' retries. Please refresh the page.');
+                }
+            }
+
             // Load historical and on-order data in parallel
+            statusEl.innerHTML = '<i class="bi bi-download me-1"></i>Loading data...';
             const [histResp, onorderResp] = await Promise.all([
                 fetch(apiBase + '/api/historical'),
                 fetch(apiBase + '/api/on-order')
@@ -712,11 +745,16 @@
 
             console.log('[BUCKETS] On-order data loaded:', ONORDER_DATA.by_sbu?.length || 0, 'SBU records');
 
+            // Verify we actually got data
+            if (!HIST_DATA.by_sbu || HIST_DATA.by_sbu.length === 0) {
+                throw new Error('No historical data returned from API');
+            }
+
             // Populate filters
             populateFilters();
 
             // Hide loading, show content
-            document.getElementById('loading').classList.add('hide');
+            loadingEl.classList.add('hide');
             statusEl.innerHTML = '<i class="bi bi-check-circle me-1"></i>Ready';
             statusEl.style.background = 'rgba(34, 197, 94, 0.3)';
 
@@ -730,7 +768,7 @@
             console.error('[BUCKETS] Load failed:', err);
             statusEl.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>Error';
             statusEl.style.background = 'rgba(239, 68, 68, 0.3)';
-            document.getElementById('loading').innerHTML = '<div class="text-center text-danger"><p>Failed to load data</p><p class="small">' + err.message + '</p></div>';
+            loadingEl.innerHTML = '<div class="text-center text-danger"><p>Failed to load data</p><p class="small">' + err.message + '</p><button class="btn btn-outline-warning btn-sm mt-2" onclick="location.reload()">Retry</button></div>';
         }
     }
 

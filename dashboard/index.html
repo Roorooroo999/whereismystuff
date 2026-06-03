@@ -597,9 +597,10 @@
                     if (!bucketsLoaded) {
                         const iframe = document.getElementById('buckets-iframe');
                         const path = window.location.pathname;
-                        iframe.src = path.endsWith('.html') || path.endsWith('.htm')
+                        const bucketsUrl = (path.endsWith('.html') || path.endsWith('.htm')
                             ? path.replace(/[^\/]+$/, 'inventory-buckets.html')
-                            : path + '/inventory-buckets.html';
+                            : path + '/inventory-buckets.html') + '?iframe=1';
+                        iframe.src = bucketsUrl;
                         bucketsLoaded = true;
                     }
                 }

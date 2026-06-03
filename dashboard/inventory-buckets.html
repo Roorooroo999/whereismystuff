@@ -95,12 +95,6 @@
     </style>
 </head>
 <body>
-    <script>
-        // Detect if we're in an iframe and hide navbar
-        if (window.self !== window.top) {
-            document.body.classList.add('in-iframe');
-        }
-    </script>
     <nav class="navbar navbar-expand-lg navbar-dark" id="main-navbar" style="background: var(--walmart-blue);">
         <div class="container-fluid">
             <a class="navbar-brand" href="#"><i class="bi bi-box-seam me-2"></i>Where's My Stuff</a>
@@ -2043,6 +2037,17 @@
             });
         }
     });
+
+    // Iframe detection - hide navbar when loaded in iframe
+    (function() {
+        const inIframe = window.self !== window.top ||
+                         new URLSearchParams(window.location.search).get('iframe') === '1';
+        if (inIframe) {
+            document.body.classList.add('in-iframe');
+            const navbar = document.getElementById('main-navbar');
+            if (navbar) navbar.style.display = 'none';
+        }
+    })();
     </script>
 </body>
 </html>

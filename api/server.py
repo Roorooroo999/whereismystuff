@@ -6,7 +6,8 @@ Deployed on Google Cloud Run / Posit Connect
 
 from fastapi import FastAPI, Query, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from google.cloud import bigquery
 from google.oauth2 import service_account
@@ -48,12 +49,21 @@ class SafeJSONResponse(JSONResponse):
         return json.dumps(content, cls=SafeJSONEncoder, ensure_ascii=False).encode("utf-8")
 
 
+def _serialize_json(data: dict) -> bytes:
+    """Serialize dict to UTF-8 JSON bytes using SafeJSONEncoder."""
+    return json.dumps(data, cls=SafeJSONEncoder, ensure_ascii=False).encode("utf-8")
+
+
 app = FastAPI(
     title="Where's My Stuff API",
     description="Inventory Rollup Dashboard API - Walmart Total Inventory Team",
     version="3.0.0",
     default_response_class=SafeJSONResponse
 )
+
+# GZip compression — compresses large JSON responses (historical data) by ~10-20x
+# Must be added BEFORE CORSMiddleware so it wraps all responses
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # Enable CORS for dashboard
 app.add_middleware(
@@ -692,6 +702,10 @@ class HistoricalCache:
         self.is_loading: bool = False
         # Cached JSON response to avoid repeated DataFrame → dict conversion
         self._cached_response: Optional[dict] = None
+        # Pre-serialized JSON bytes for the lite response (enterprise+sbu+dept+dc_drill_sbu+dc_drill_dept)
+        self._cached_lite_bytes: Optional[bytes] = None
+        # Pre-serialized JSON bytes for category data (by_catg + dc_drill_catg) — large, lazy-loaded
+        self._cached_catg_bytes: Optional[bytes] = None
         # Ensure cache directory exists
         self.CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -793,6 +807,8 @@ class HistoricalCache:
         """
         self.is_loading = True
         self._cached_response = None  # Clear cache on reload
+        self._cached_lite_bytes = None
+        self._cached_catg_bytes = None
         t0 = time.time()
 
         # STEP 1: Try loading from disk cache first (instant ~1s)
@@ -1117,12 +1133,11 @@ class HistoricalCache:
         self._save_to_disk()
 
     def to_response(self) -> dict:
-        """Build the same JSON structure as historical_data.json. Uses caching for performance."""
-        # Return cached response if available (DataFrame → dict conversion is slow)
+        """Build the full JSON structure (legacy — prefer to_lite_json_bytes + to_catg_json_bytes)."""
         if self._cached_response is not None:
             return self._cached_response
 
-        logger.info("[HIST] Building JSON response (first request after load)...")
+        logger.info("[HIST] Building full JSON response (first request after load)...")
         t0 = time.time()
 
         ent = self.enterprise_df
@@ -1137,19 +1152,80 @@ class HistoricalCache:
                 "weeks": len(dates)
             },
             "sbu_list": list(sbu_list),
-            # Add null checks for ALL dataframes to prevent AttributeError during partial load
             "enterprise": self.enterprise_df.to_dict(orient="records") if self.enterprise_df is not None else [],
             "by_sbu": self.sbu_df.to_dict(orient="records") if self.sbu_df is not None else [],
             "by_dept": self.dept_df.to_dict(orient="records") if self.dept_df is not None else [],
             "by_catg": self.catg_df.to_dict(orient="records") if self.catg_df is not None else [],
-            # DC Drilldown data from separate DC_HIST_TABLE (with full DC Type breakdown)
             "dc_drill_sbu": self.dc_drill_sbu_df.to_dict(orient="records") if self.dc_drill_sbu_df is not None else [],
             "dc_drill_dept": self.dc_drill_dept_df.to_dict(orient="records") if self.dc_drill_dept_df is not None else [],
             "dc_drill_catg": self.dc_drill_catg_df.to_dict(orient="records") if self.dc_drill_catg_df is not None else [],
         }
 
-        logger.info(f"[HIST] JSON response built in {round(time.time() - t0, 2)}s")
+        logger.info(f"[HIST] Full JSON response built in {round(time.time() - t0, 2)}s")
         return self._cached_response
+
+    def to_lite_json_bytes(self) -> bytes:
+        """Pre-serialized JSON bytes for the LITE response.
+
+        Contains: enterprise, by_sbu, by_dept, dc_drill_sbu, dc_drill_dept.
+        Excludes: by_catg, dc_drill_catg (these are 80-90% of the payload!).
+        by_catg / dc_drill_catg are served separately via /api/historical/catg.
+
+        Pre-serialized so the bytes are computed ONCE and reused for every request.
+        GZipMiddleware then compresses these bytes before sending to the browser.
+        """
+        if self._cached_lite_bytes is not None:
+            return self._cached_lite_bytes
+
+        logger.info("[HIST] Building lite JSON bytes (first request after load)...")
+        t0 = time.time()
+
+        ent = self.enterprise_df
+        dates = sorted(ent["BUS_DT"].unique())
+        sbu_list = sorted(self.sbu_df["SBU"].unique()) if "SBU" in self.sbu_df.columns else []
+
+        lite = {
+            "generated_at": datetime.now().isoformat(),
+            "date_range": {
+                "min": dates[0] if dates else None,
+                "max": dates[-1] if dates else None,
+                "weeks": len(dates)
+            },
+            "sbu_list": list(sbu_list),
+            "enterprise": self.enterprise_df.to_dict(orient="records") if self.enterprise_df is not None else [],
+            "by_sbu": self.sbu_df.to_dict(orient="records") if self.sbu_df is not None else [],
+            "by_dept": self.dept_df.to_dict(orient="records") if self.dept_df is not None else [],
+            "by_catg": [],          # fetched separately via /api/historical/catg
+            "dc_drill_sbu": self.dc_drill_sbu_df.to_dict(orient="records") if self.dc_drill_sbu_df is not None else [],
+            "dc_drill_dept": self.dc_drill_dept_df.to_dict(orient="records") if self.dc_drill_dept_df is not None else [],
+            "dc_drill_catg": [],    # fetched separately via /api/historical/catg
+        }
+
+        self._cached_lite_bytes = _serialize_json(lite)
+        elapsed = round(time.time() - t0, 2)
+        logger.info(f"[HIST] Lite JSON bytes built in {elapsed}s ({len(self._cached_lite_bytes) // 1024}KB)")
+        return self._cached_lite_bytes
+
+    def to_catg_json_bytes(self) -> bytes:
+        """Pre-serialized JSON bytes for category-grain data (large, lazy-loaded).
+
+        Contains: by_catg + dc_drill_catg.
+        """
+        if self._cached_catg_bytes is not None:
+            return self._cached_catg_bytes
+
+        logger.info("[HIST] Building catg JSON bytes (first catg request after load)...")
+        t0 = time.time()
+
+        catg_data = {
+            "by_catg": self.catg_df.to_dict(orient="records") if self.catg_df is not None else [],
+            "dc_drill_catg": self.dc_drill_catg_df.to_dict(orient="records") if self.dc_drill_catg_df is not None else [],
+        }
+
+        self._cached_catg_bytes = _serialize_json(catg_data)
+        elapsed = round(time.time() - t0, 2)
+        logger.info(f"[HIST] Catg JSON bytes built in {elapsed}s ({len(self._cached_catg_bytes) // 1024}KB)")
+        return self._cached_catg_bytes
 
 
 hist_cache = HistoricalCache()
@@ -2114,10 +2190,34 @@ async def get_dc_lookup(dc_nbr: str = Query(..., description="DC number to look 
 
 @app.get("/api/historical")
 async def get_historical_data():
-    """Serve pre-aggregated historical inventory data from in-memory cache."""
+    """Serve LITE historical data (enterprise + sbu + dept — no category rows).
+
+    Category data (~80-90% of payload) is intentionally excluded for speed.
+    Fetch /api/historical/catg for by_catg + dc_drill_catg when needed.
+    GZipMiddleware compresses the pre-serialized bytes before sending.
+    """
     if not hist_cache.is_ready:
         raise HTTPException(status_code=503, detail="Historical data is loading, please retry in a few seconds")
-    return SafeJSONResponse(content=hist_cache.to_response())
+    return Response(
+        content=hist_cache.to_lite_json_bytes(),
+        media_type="application/json"
+    )
+
+
+@app.get("/api/historical/catg")
+async def get_historical_catg():
+    """Serve category-grain historical data (by_catg + dc_drill_catg).
+
+    Large payload — lazy-loaded by the frontend only when the user drills to
+    category level (SBU Comparison → Category filter or Change Analysis → By Category).
+    GZipMiddleware compresses this before sending.
+    """
+    if not hist_cache.is_ready:
+        raise HTTPException(status_code=503, detail="Historical data is loading, please retry in a few seconds")
+    return Response(
+        content=hist_cache.to_catg_json_bytes(),
+        media_type="application/json"
+    )
 
 
 @app.get("/api/on-order")

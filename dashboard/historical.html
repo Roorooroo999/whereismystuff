@@ -561,6 +561,10 @@
     let FILTERED = null;       // Currently filtered/aggregated data
     let CHARTS = {};           // Chart.js instances
 
+    // Category data is lazy-loaded separately (large payload)
+    let CATG_LOADED = false;
+    let CATG_LOADING = false;
+
     // On Order data (separate from inventory data)
     let ONORDER_DATA = null;
     let ONORDER_TABLE_VIEW = 'sbu';
@@ -691,7 +695,7 @@
             populateFilters();
             applyFilters();
 
-            // Pre-load DC Drilldown data so it's ready when tab is clicked
+            // Pre-load DC Drilldown data (uses sbu/dept — no catg needed yet)
             loadDCDrilldownData();
 
             // Pre-load On Order data
@@ -701,6 +705,9 @@
             document.getElementById('data-status').innerHTML = '<i class="bi bi-check-circle me-1"></i>' + RAW_DATA.date_range.weeks + ' weeks loaded (' + badge + ')';
             document.getElementById('date-range').textContent = RAW_DATA.date_range.min + ' → ' + RAW_DATA.date_range.max;
             document.getElementById('loading').classList.add('hide');
+
+            // Lazy-load category data in background (large payload — don't block initial render)
+            loadCatgDataBackground();
         } catch (err) {
             document.getElementById('loading').innerHTML = `
                 <div class="text-center">
@@ -710,6 +717,50 @@
                     <p class="text-muted" style="font-size:0.75rem;">${err.message}</p>
                 </div>`;
         }
+    }
+
+    // ============================================================
+    // Lazy Category Loader
+    // ============================================================
+    async function loadCatgDataBackground() {
+        if (CATG_LOADED || CATG_LOADING) return;
+        CATG_LOADING = true;
+        try {
+            const catgUrl = window.location.pathname.replace(/\/dashboard\/.*$/, '') + '/api/historical/catg';
+            const resp = await fetch(catgUrl);
+            if (!resp.ok) throw new Error(`catg API ${resp.status}`);
+            const catgData = await resp.json();
+            // Merge into RAW_DATA
+            RAW_DATA.by_catg = catgData.by_catg || [];
+            RAW_DATA.dc_drill_catg = catgData.dc_drill_catg || [];
+            CATG_LOADED = true;
+            CATG_LOADING = false;
+            console.log('[HIST] Catg data loaded:', RAW_DATA.by_catg.length, 'rows,', RAW_DATA.dc_drill_catg.length, 'dc_drill_catg rows');
+            // If Change Analysis is already showing catg view, re-render
+            const viewFilter = document.getElementById('dc-drill-view-filter');
+            if (viewFilter && viewFilter.value === 'catg') {
+                loadDCDrilldownData();
+            }
+        } catch (e) {
+            CATG_LOADING = false;
+            console.warn('[HIST] Could not lazy-load catg data:', e.message);
+        }
+    }
+
+    async function ensureCatgLoaded(callback) {
+        if (CATG_LOADED) { callback(); return; }
+        if (CATG_LOADING) {
+            // Poll until loaded (max 30s)
+            let waited = 0;
+            const poll = setInterval(() => {
+                waited += 200;
+                if (CATG_LOADED) { clearInterval(poll); callback(); }
+                else if (waited > 30000) { clearInterval(poll); callback(); } // give up, run anyway
+            }, 200);
+            return;
+        }
+        await loadCatgDataBackground();
+        callback();
     }
 
     const HIDDEN_SBUS = ['OTHER', 'UNASSIGNED'];
@@ -2732,6 +2783,14 @@
 
     function switchDrillViewMode() {
         populateDeptFilter();
+        const viewMode = document.getElementById('dc-drill-view-filter').value;
+        if (viewMode === 'catg' && !CATG_LOADED) {
+            // Category data not yet loaded — ensure it's loaded first then re-render
+            ensureCatgLoaded(() => {
+                loadDCDrilldownData();
+            });
+            return;
+        }
         renderDCDrilldown();
     }
 

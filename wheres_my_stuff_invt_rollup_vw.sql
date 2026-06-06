@@ -48,6 +48,7 @@ AS (
     SELECT DISTINCT
       MDS_FAM_ID,
       ITEM_NBR,
+      REPL_GROUP_NBR,                                     -- CID (Replenishment Group)
       ITEM_REPLENISHABLE_IND,
       ACCTG_DEPT_NBR                                AS DEPT_NBR,
       WHPK_QTY,
@@ -179,21 +180,15 @@ AS (
 
 
 /*--------------------------------------------------------------------
-  TABLE: R0C0JUG_WMUS_STORE_INVT   (YOUR SECTION)
-  Source: repl_sku_ei_invt_dly
-  Purpose: Store floor on-hand inventory at item x store x date.
+  TABLE: R0C0JUG_WMUS_STORE_INVT
+  Source: fd_omni_chnl_item_dly (ALIGNED WITH HIST_COMBINED)
+  Purpose: Store OH + DC Reserved at item x date.
 
   Notes:
-  - Matches KPI_REPORT_ITEM_LVL_STORE_OH pattern exactly
-  - STORE_INFO_SNE inner join removes FCs, Sam's Clubs, closed/
-    relocating stores (OPEN_STATUS 0/6/7), and special sub-division
-    codes (X=Sam's, S=Supercenter variant, Z, W, G)
-  - ON_HAND_QTY guard: BETWEEN 1 AND 10000 (reference pattern)
-  - In-transit is intentionally excluded here — it is sourced
-    separately from repl_sku_ei_invt_dly (see next table)
-  - ITEM_REPLENISHABLE_IND from ITEM_CUR (joined via MDS_FAM_ID)
-  - REPLEN_TYPE = 'REPLEN' when ITEM_REPLENISHABLE_IND = 'Y', else 'NON-REPLEN'
-  - WALMART_NBR = ITEM_NBR from OMNI_STORE_HIERARCHY
+  - ALIGNED with HIST_COMBINED data source for consistency
+  - fd_omni_chnl_item_dly has native cost columns
+  - NO hierarchy join to avoid duplication - aggregate directly
+  - WALMART_NBR from ITEM_CUR (single row per MDS_FAM_ID)
 --------------------------------------------------------------------*/
 CREATE OR REPLACE TABLE `wmt-instockinventory-datamart.WM_AD_HOC.R0C0JUG_WMUS_STORE_INVT`
 CLUSTER BY MDS_FAM_ID
@@ -203,27 +198,42 @@ AS (
     CAL.WM_WK_NBR                                   AS WM_WEEK,
     CAL.WM_YR_WK_NBR,
     INVT.BUS_DT,
-    OMNI.OMNI_SEG_DESC,
-    OMNI.OMNI_DIVISION,
-    OMNI.OMNI_SUBGROUP_DESC,
-    OMNI.OMNI_DEPT_NBR,
-    OMNI.OMNI_DEPT_DESC,
-    OMNI.OMNI_CATG_NBR,                              -- Category number
-    OMNI.OMNI_CATG_DESC,                             -- Category description
+    INVT.OMNI_SEG_DESC,
+    CASE
+      WHEN INVT.OMNI_DEPT_NBR IN (2,4,8,13,40,46,79)          THEN 'CONSUMABLES'
+      WHEN INVT.OMNI_DEPT_NBR IN (80,81,93,94,97,98)          THEN 'FRESH'
+      WHEN INVT.OMNI_DEPT_NBR IN (90,91,1,82,96)              THEN 'CAC'
+      WHEN INVT.OMNI_DEPT_NBR IN (92,95)                      THEN 'PANTRY'
+      WHEN INVT.OMNI_DEPT_NBR IN (23,24,25,26,29,31,32,33,34) THEN 'FASHION'
+      WHEN INVT.OMNI_DEPT_NBR IN (5,6,7,18,21,67,72,87)       THEN 'ETS'
+      WHEN INVT.OMNI_DEPT_NBR IN (3,9,10,11,12,16,56)         THEN 'HARDLINES'
+      WHEN INVT.OMNI_DEPT_NBR IN (14,17,19,20,22,71,74)       THEN 'HOME'
+      ELSE 'UNASSIGNED'
+    END                                              AS OMNI_DIVISION,
+    CAST(NULL AS STRING)                             AS OMNI_SUBGROUP_DESC,
+    INVT.OMNI_DEPT_NBR,
+    INVT.OMNI_DEPT_DESC,
+    INVT.OMNI_CATG_NBR,
+    INVT.OMNI_CATG_DESC,
     'STORE'                                          AS NODE_TYPE,
     INVT.MDS_FAM_ID,
-    OMNI.ITEM_NBR                                    AS WALMART_NBR,
-    OMNI.UNIT_COST,
+    ITEM_CUR.ITEM_NBR                                AS WALMART_NBR,   -- From ITEM_CUR (1:1)
+    ITEM_CUR.REPL_GROUP_NBR,                         -- CID
+    SAFE_DIVIDE(
+      SUM(COALESCE(INVT.TY_ON_HAND_COST_AMT, 0)),
+      NULLIF(SUM(COALESCE(INVT.TY_ON_HAND_QTY, 0)), 0)
+    )                                                AS UNIT_COST,
     ITEM_CUR.ITEM_REPLENISHABLE_IND,
     CASE
       WHEN ITEM_CUR.ITEM_REPLENISHABLE_IND = 'Y'     THEN 'REPLEN'
       ELSE 'NON-REPLEN'
     END                                              AS REPLEN_TYPE,
-    COUNT(DISTINCT INVT.STORE_NBR)                   AS STORE_COUNT,
-    SUM(COALESCE(INVT.ON_HAND_QTY, 0))               AS STORE_OH_UNITS,
-    SUM(COALESCE(INVT.IN_WHSE_QTY, 0))               AS DC_RESERVED_UNITS
+    SUM(COALESCE(INVT.TY_ON_HAND_QTY, 0))           AS STORE_OH_UNITS,
+    SUM(COALESCE(INVT.TY_ON_HAND_COST_AMT, 0))      AS STORE_OH_COST,
+    SUM(COALESCE(INVT.TY_IN_WHSE_QTY, 0))           AS DC_RESERVED_UNITS,
+    SUM(COALESCE(INVT.TY_IN_WHSE_COST_AMT, 0))      AS DC_RESERVED_COST
 
-  FROM `wmt-gdap-dl-sec-merch-bq-prod.ww_repl_dl_secure.repl_sku_ei_invt_dly` INVT
+  FROM `wmt-gdap-dl-sec-merch-bq-prod.us_fd_app_secure.fd_omni_chnl_item_dly` INVT
 
   INNER JOIN `wmt-edw-prod.WW_CORE_DIM_DL_VM.DL_CALENDAR_DIM` CAL
     ON INVT.BUS_DT = CAL.CAL_DT
@@ -231,42 +241,24 @@ AS (
   INNER JOIN ITEM_CUR
     ON INVT.MDS_FAM_ID = ITEM_CUR.MDS_FAM_ID
 
-  -- INNER JOIN ensures only store items (items in store hierarchy) are included
-  INNER JOIN OMNI_STORE_HIERARCHY OMNI
-    ON INVT.MDS_FAM_ID = OMNI.MDS_FAM_ID
-
-  -- Remove FCs, closed stores, Sam's Clubs, and special sub-division types
-  INNER JOIN `wmt-edw-prod.US_WM_VM.STORE_INFO_SNE` STR_ALIGN
-    ON STR_ALIGN.STORE_NBR                = INVT.STORE_NBR
-    AND STR_ALIGN.ALIGN_SUB_DIVISION_NBR  NOT IN ('X','S','Z','W','G')
-    AND STR_ALIGN.OPEN_STATUS             NOT IN ('0','6','7')
-
   WHERE 1=1
-    AND INVT.BUS_DT           IN (DATE_SUB(CURRENT_DATE('America/Chicago'), INTERVAL 1 DAY))
-    AND INVT.ON_HAND_QTY       BETWEEN 1 AND 10000
-    AND OMNI.OMNI_SEG_DESC     NOT IN ('HEALTH AND WELLNESS','OTHER','WALMART SERVICES')
+    AND INVT.BUS_DT           = DATE_SUB(CURRENT_DATE('America/Chicago'), INTERVAL 1 DAY)
+    AND INVT.FULFMT_CHNL_NM   = 'Store'
+    AND INVT.OMNI_SEG_DESC    NOT IN ('HEALTH AND WELLNESS','OTHER','WALMART SERVICES')
 
   GROUP BY ALL
 );
 
 
 /*--------------------------------------------------------------------
-  TABLE: R0C0JUG_WMUS_IN_TRANSIT_INVT   (YOUR SECTION)
-  Source: repl_sku_ei_invt_dly
+  TABLE: R0C0JUG_WMUS_IN_TRANSIT_INVT
+  Source: fd_omni_chnl_item_dly (ALIGNED WITH HIST_COMBINED)
   Purpose: Inventory in-transit to stores, at item x date.
 
   Notes:
-  - in_trnst_qty represents inventory currently en route (shipped
-    from DC, not yet received at store)
-  - Same STORE_INFO_SNE filter applied so transit is scoped to the
-    same valid store universe as store OH
-  - RPT_EXCL_IND = 0: data pipeline quality flag — excludes rows
-    marked as bad/excluded by the reporting pipeline
-  - FULFMT_VALID_IND = 1: active store-item relationship —
-    only count transit for live replenishment-active store/item pairs
-  - ITEM_REPLENISHABLE_IND from ITEM_CUR (joined via MDS_FAM_ID)
-  - REPLEN_TYPE = 'REPLEN' when ITEM_REPLENISHABLE_IND = 'Y', else 'NON-REPLEN'
-  - WALMART_NBR = ITEM_NBR from OMNI_STORE_HIERARCHY
+  - ALIGNED with HIST_COMBINED data source for consistency
+  - NO hierarchy join to avoid duplication - aggregate directly
+  - WALMART_NBR from ITEM_CUR (single row per MDS_FAM_ID)
 --------------------------------------------------------------------*/
 CREATE OR REPLACE TABLE `wmt-instockinventory-datamart.WM_AD_HOC.R0C0JUG_WMUS_IN_TRANSIT_INVT`
 CLUSTER BY MDS_FAM_ID
@@ -276,25 +268,40 @@ AS (
     CAL.WM_WK_NBR                                   AS WM_WEEK,
     CAL.WM_YR_WK_NBR,
     INVT.BUS_DT,
-    OMNI.OMNI_SEG_DESC,
-    OMNI.OMNI_DIVISION,
-    OMNI.OMNI_SUBGROUP_DESC,
-    OMNI.OMNI_DEPT_NBR,
-    OMNI.OMNI_DEPT_DESC,
-    OMNI.OMNI_CATG_NBR,                              -- Category number
-    OMNI.OMNI_CATG_DESC,                             -- Category description
+    INVT.OMNI_SEG_DESC,
+    CASE
+      WHEN INVT.OMNI_DEPT_NBR IN (2,4,8,13,40,46,79)          THEN 'CONSUMABLES'
+      WHEN INVT.OMNI_DEPT_NBR IN (80,81,93,94,97,98)          THEN 'FRESH'
+      WHEN INVT.OMNI_DEPT_NBR IN (90,91,1,82,96)              THEN 'CAC'
+      WHEN INVT.OMNI_DEPT_NBR IN (92,95)                      THEN 'PANTRY'
+      WHEN INVT.OMNI_DEPT_NBR IN (23,24,25,26,29,31,32,33,34) THEN 'FASHION'
+      WHEN INVT.OMNI_DEPT_NBR IN (5,6,7,18,21,67,72,87)       THEN 'ETS'
+      WHEN INVT.OMNI_DEPT_NBR IN (3,9,10,11,12,16,56)         THEN 'HARDLINES'
+      WHEN INVT.OMNI_DEPT_NBR IN (14,17,19,20,22,71,74)       THEN 'HOME'
+      ELSE 'UNASSIGNED'
+    END                                              AS OMNI_DIVISION,
+    CAST(NULL AS STRING)                             AS OMNI_SUBGROUP_DESC,
+    INVT.OMNI_DEPT_NBR,
+    INVT.OMNI_DEPT_DESC,
+    INVT.OMNI_CATG_NBR,
+    INVT.OMNI_CATG_DESC,
     'IN_TRANSIT'                                     AS NODE_TYPE,
     INVT.MDS_FAM_ID,
-    OMNI.ITEM_NBR                                    AS WALMART_NBR,
-    OMNI.UNIT_COST,
+    ITEM_CUR.ITEM_NBR                                AS WALMART_NBR,   -- From ITEM_CUR (1:1)
+    ITEM_CUR.REPL_GROUP_NBR,                         -- CID
+    SAFE_DIVIDE(
+      SUM(COALESCE(INVT.TY_IN_TRNST_COST_AMT, 0)),
+      NULLIF(SUM(COALESCE(INVT.TY_IN_TRNST_QTY, 0)), 0)
+    )                                                AS UNIT_COST,
     ITEM_CUR.ITEM_REPLENISHABLE_IND,
     CASE
       WHEN ITEM_CUR.ITEM_REPLENISHABLE_IND = 'Y'     THEN 'REPLEN'
       ELSE 'NON-REPLEN'
     END                                              AS REPLEN_TYPE,
-    SUM(COALESCE(INVT.IN_TRNST_QTY, 0))              AS IN_TRANSIT_UNITS
+    SUM(COALESCE(INVT.TY_IN_TRNST_QTY, 0))          AS IN_TRANSIT_UNITS,
+    SUM(COALESCE(INVT.TY_IN_TRNST_COST_AMT, 0))     AS IN_TRANSIT_COST
 
-  FROM `wmt-gdap-dl-sec-merch-bq-prod.ww_repl_dl_secure.repl_sku_ei_invt_dly` INVT
+  FROM `wmt-gdap-dl-sec-merch-bq-prod.us_fd_app_secure.fd_omni_chnl_item_dly` INVT
 
   INNER JOIN `wmt-edw-prod.WW_CORE_DIM_DL_VM.DL_CALENDAR_DIM` CAL
     ON INVT.BUS_DT = CAL.CAL_DT
@@ -302,21 +309,11 @@ AS (
   INNER JOIN ITEM_CUR
     ON INVT.MDS_FAM_ID = ITEM_CUR.MDS_FAM_ID
 
-  -- INNER JOIN ensures only store items (items in store hierarchy) are included
-  INNER JOIN OMNI_STORE_HIERARCHY OMNI
-    ON INVT.MDS_FAM_ID = OMNI.MDS_FAM_ID
-
-  INNER JOIN `wmt-edw-prod.US_WM_VM.STORE_INFO_SNE` STR_ALIGN
-    ON STR_ALIGN.STORE_NBR                = INVT.STORE_NBR
-    AND STR_ALIGN.ALIGN_SUB_DIVISION_NBR  NOT IN ('X','S','Z','W','G')
-    AND STR_ALIGN.OPEN_STATUS             NOT IN ('0','6','7')
-
   WHERE 1=1
-    AND INVT.BUS_DT           IN (DATE_SUB(CURRENT_DATE('America/Chicago'), INTERVAL 1 DAY))
-    AND INVT.RPT_EXCL_IND      = 0
-    AND INVT.FULFMT_VALID_IND  = 1
-    AND INVT.IN_TRNST_QTY      > 0
-    AND OMNI.OMNI_SEG_DESC     NOT IN ('HEALTH AND WELLNESS','OTHER','WALMART SERVICES')
+    AND INVT.BUS_DT           = DATE_SUB(CURRENT_DATE('America/Chicago'), INTERVAL 1 DAY)
+    AND INVT.FULFMT_CHNL_NM   = 'Store'
+    AND INVT.TY_IN_TRNST_QTY  > 0
+    AND INVT.OMNI_SEG_DESC    NOT IN ('HEALTH AND WELLNESS','OTHER','WALMART SERVICES')
 
   GROUP BY ALL
 );
@@ -326,70 +323,30 @@ AS (
   TABLE: R0C0JUG_WMUS_DC_INVT
   Source: WHSE_DLY_SKU (On-Hand) + DC_DLY_INVT_TYPE (Labeled + Unlabeled)
   Purpose: DC inventory combining On-Hand + Labeled + Unlabeled inventory.
-
-  INVT_TYPE_CODE breakdown:
-    O = On-Hand (from WHSE_DLY_SKU)
-    L = Distribution Labeled - Not Invoiced (from DC_DLY_INVT_TYPE)
-    S = Staple Stock Labeled - Not Invoiced (from DC_DLY_INVT_TYPE)
-    U = Unlabeled Distribution (from DC_DLY_INVT_TYPE)
-
-  DC_TYPE_DESC comes from DC_DIM_CUR.
-  Filtered to STORE-REPLENISHING DCs only.
+  NOTE: NO hierarchy join to avoid duplication. Hierarchy comes from STORE_INVT.
 --------------------------------------------------------------------*/
 CREATE OR REPLACE TABLE `wmt-instockinventory-datamart.WM_AD_HOC.R0C0JUG_WMUS_DC_INVT`
 CLUSTER BY MDS_FAM_ID
 AS (
-  -- ═══════════════════════════════════════════════════════════════
-  -- PART 1: ON-HAND INVENTORY (INVT_TYPE_CODE = 'O')
-  -- Source: WHSE_DLY_SKU
-  -- ═══════════════════════════════════════════════════════════════
+  -- PART 1: ON-HAND (INVT_TYPE_CODE = 'O')
   SELECT
-    CAL.WM_FULL_YR_NBR                              AS WM_YEAR,
-    CAL.WM_WK_NBR                                   AS WM_WEEK,
-    CAL.WM_YR_WK_NBR,
-    WDS.INVENTORY_DATE                               AS BUS_DT,
-    OMNI.OMNI_SEG_DESC,
-    OMNI.OMNI_DIVISION,
-    OMNI.OMNI_SUBGROUP_DESC,
-    OMNI.OMNI_DEPT_NBR,
-    OMNI.OMNI_DEPT_DESC,
-    OMNI.OMNI_CATG_NBR,                              -- Category number
-    OMNI.OMNI_CATG_DESC,                             -- Category description
-    'DC'                                             AS NODE_TYPE,
-    'O'                                              AS INVT_TYPE_CODE,
-    COALESCE(DC_DIM.DC_TYPE_DESC, 'UNKNOWN')         AS DC_TYPE_DESC,
-    WDS.WHSE_NBR                                     AS DC_NBR,
-    WDS.ITEM_NBR                                     AS MDS_FAM_ID,
-    OMNI.ITEM_NBR                                    AS WALMART_NBR,
-    OMNI.UNIT_COST,
+    CAL.WM_FULL_YR_NBR AS WM_YEAR, CAL.WM_WK_NBR AS WM_WEEK, CAL.WM_YR_WK_NBR,
+    WDS.INVENTORY_DATE AS BUS_DT,
+    'DC' AS NODE_TYPE, 'O' AS INVT_TYPE_CODE,
+    COALESCE(DC_DIM.DC_TYPE_DESC, 'UNKNOWN') AS DC_TYPE_DESC,
+    WDS.ITEM_NBR AS MDS_FAM_ID,
+    ITEM_CUR.ITEM_NBR AS WALMART_NBR,
+    ITEM_CUR.REPL_GROUP_NBR,
     ITEM_CUR.ITEM_REPLENISHABLE_IND,
-    CASE
-      WHEN ITEM_CUR.ITEM_REPLENISHABLE_IND = 'Y'     THEN 'REPLEN'
-      ELSE 'NON-REPLEN'
-    END                                              AS REPLEN_TYPE,
-    SUM(WDS.ON_HAND_QTY * WDS.WHPK_QTY)             AS DC_OH_UNITS
-
+    CASE WHEN ITEM_CUR.ITEM_REPLENISHABLE_IND = 'Y' THEN 'REPLEN' ELSE 'NON-REPLEN' END AS REPLEN_TYPE,
+    SUM(WDS.ON_HAND_QTY * WDS.WHPK_QTY) AS DC_OH_UNITS
   FROM `wmt-edw-prod.US_WM_VM.WHSE_DLY_SKU` WDS
-
   INNER JOIN `wmt-edw-prod.WW_CORE_DIM_VM.DC_DIM_CUR` DC_DIM
-    ON  DC_DIM.COUNTRY_CODE  = 'US'
-    AND DC_DIM.DC_NBR         = WDS.WHSE_NBR
-    AND DC_DIM.CURRENT_IND    = 'Y'
-
-  INNER JOIN `wmt-edw-prod.WW_CORE_DIM_DL_VM.DL_CALENDAR_DIM` CAL
-    ON WDS.INVENTORY_DATE = CAL.CAL_DT
-
-  INNER JOIN ITEM_CUR
-    ON WDS.ITEM_NBR = ITEM_CUR.MDS_FAM_ID
-
-  INNER JOIN OMNI_STORE_HIERARCHY OMNI
-    ON WDS.ITEM_NBR = OMNI.MDS_FAM_ID
-
-  WHERE 1=1
-    AND WDS.INVENTORY_DATE = DATE_SUB(CURRENT_DATE('America/Chicago'), INTERVAL 1 DAY)
-    AND WDS.ON_HAND_QTY    > 0
-    AND OMNI.OMNI_SEG_DESC NOT IN ('HEALTH AND WELLNESS','OTHER','WALMART SERVICES')
-    -- Exclude eComm / fulfillment DC types
+    ON DC_DIM.COUNTRY_CODE = 'US' AND DC_DIM.DC_NBR = WDS.WHSE_NBR AND DC_DIM.CURRENT_IND = 'Y'
+  INNER JOIN `wmt-edw-prod.WW_CORE_DIM_DL_VM.DL_CALENDAR_DIM` CAL ON WDS.INVENTORY_DATE = CAL.CAL_DT
+  INNER JOIN ITEM_CUR ON WDS.ITEM_NBR = ITEM_CUR.MDS_FAM_ID
+  WHERE WDS.INVENTORY_DATE = DATE_SUB(CURRENT_DATE('America/Chicago'), INTERVAL 1 DAY)
+    AND WDS.ON_HAND_QTY > 0
     AND UPPER(COALESCE(DC_DIM.DC_TYPE_DESC, '')) NOT LIKE '%DOTCOM%'
     AND UPPER(COALESCE(DC_DIM.DC_TYPE_DESC, '')) NOT LIKE '%SORTABLE%'
     AND UPPER(COALESCE(DC_DIM.DC_TYPE_DESC, '')) NOT LIKE '%E-COMMERCE%'
@@ -397,66 +354,30 @@ AS (
     AND UPPER(COALESCE(DC_DIM.DC_TYPE_DESC, '')) NOT LIKE '%FULFILLMENT%'
     AND DC_DIM.DC_TYPE_DESC IS NOT NULL
     AND UPPER(DC_DIM.DC_TYPE_DESC) NOT IN ('PHARMACY', 'ADMINISTRATION ACCOUNT')
-
   GROUP BY ALL
 
   UNION ALL
 
-  -- ═══════════════════════════════════════════════════════════════
-  -- PART 2: LABELED + UNLABELED INVENTORY (INVT_TYPE_CODE IN ('L', 'S', 'U'))
-  -- Source: DC_DLY_INVT_TYPE
-  -- L = Distribution Labeled - Not Invoiced
-  -- S = Staple Stock Labeled - Not Invoiced
-  -- U = Unlabeled Distribution
-  -- ═══════════════════════════════════════════════════════════════
+  -- PART 2: LABELED + UNLABELED (L, S, U)
   SELECT
-    CAL.WM_FULL_YR_NBR                              AS WM_YEAR,
-    CAL.WM_WK_NBR                                   AS WM_WEEK,
-    CAL.WM_YR_WK_NBR,
-    DC.INVENTORY_DATE                                AS BUS_DT,
-    OMNI.OMNI_SEG_DESC,
-    OMNI.OMNI_DIVISION,
-    OMNI.OMNI_SUBGROUP_DESC,
-    OMNI.OMNI_DEPT_NBR,
-    OMNI.OMNI_DEPT_DESC,
-    OMNI.OMNI_CATG_NBR,                              -- Category number
-    OMNI.OMNI_CATG_DESC,                             -- Category description
-    'DC'                                             AS NODE_TYPE,
-    DC.INVT_TYPE_CODE,                               -- 'L', 'S', or 'U'
-    COALESCE(DC_DIM.DC_TYPE_DESC, 'UNKNOWN')         AS DC_TYPE_DESC,
-    DC.DC_NBR,
-    DC.ITEM_NBR                                      AS MDS_FAM_ID,
-    OMNI.ITEM_NBR                                    AS WALMART_NBR,
-    OMNI.UNIT_COST,
+    CAL.WM_FULL_YR_NBR AS WM_YEAR, CAL.WM_WK_NBR AS WM_WEEK, CAL.WM_YR_WK_NBR,
+    DC.INVENTORY_DATE AS BUS_DT,
+    'DC' AS NODE_TYPE, DC.INVT_TYPE_CODE,
+    COALESCE(DC_DIM.DC_TYPE_DESC, 'UNKNOWN') AS DC_TYPE_DESC,
+    DC.ITEM_NBR AS MDS_FAM_ID,
+    ITEM_CUR.ITEM_NBR AS WALMART_NBR,
+    ITEM_CUR.REPL_GROUP_NBR,
     ITEM_CUR.ITEM_REPLENISHABLE_IND,
-    CASE
-      WHEN ITEM_CUR.ITEM_REPLENISHABLE_IND = 'Y'     THEN 'REPLEN'
-      ELSE 'NON-REPLEN'
-    END                                              AS REPLEN_TYPE,
-    SUM(DC.WHPK_INVT_QTY * ITEM_CUR.WHPK_QTY)       AS DC_OH_UNITS
-
+    CASE WHEN ITEM_CUR.ITEM_REPLENISHABLE_IND = 'Y' THEN 'REPLEN' ELSE 'NON-REPLEN' END AS REPLEN_TYPE,
+    SUM(DC.WHPK_INVT_QTY * ITEM_CUR.WHPK_QTY) AS DC_OH_UNITS
   FROM `wmt-edw-prod.US_WM_VM.DC_DLY_INVT_TYPE` DC
-
   INNER JOIN `wmt-edw-prod.WW_CORE_DIM_VM.DC_DIM_CUR` DC_DIM
-    ON  DC_DIM.COUNTRY_CODE  = 'US'
-    AND DC_DIM.DC_NBR         = DC.DC_NBR
-    AND DC_DIM.CURRENT_IND    = 'Y'
-
-  INNER JOIN `wmt-edw-prod.WW_CORE_DIM_DL_VM.DL_CALENDAR_DIM` CAL
-    ON DC.INVENTORY_DATE = CAL.CAL_DT
-
-  INNER JOIN ITEM_CUR
-    ON DC.ITEM_NBR = ITEM_CUR.MDS_FAM_ID
-
-  INNER JOIN OMNI_STORE_HIERARCHY OMNI
-    ON DC.ITEM_NBR = OMNI.MDS_FAM_ID
-
-  WHERE 1=1
-    AND DC.INVENTORY_DATE = DATE_SUB(CURRENT_DATE('America/Chicago'), INTERVAL 1 DAY)
-    AND DC.INVT_TYPE_CODE IN ('L', 'S', 'U')         -- Labeled + Unlabeled inventory
-    AND DC.WHPK_INVT_QTY   > 0
-    AND OMNI.OMNI_SEG_DESC NOT IN ('HEALTH AND WELLNESS','OTHER','WALMART SERVICES')
-    -- Exclude eComm / fulfillment DC types
+    ON DC_DIM.COUNTRY_CODE = 'US' AND DC_DIM.DC_NBR = DC.DC_NBR AND DC_DIM.CURRENT_IND = 'Y'
+  INNER JOIN `wmt-edw-prod.WW_CORE_DIM_DL_VM.DL_CALENDAR_DIM` CAL ON DC.INVENTORY_DATE = CAL.CAL_DT
+  INNER JOIN ITEM_CUR ON DC.ITEM_NBR = ITEM_CUR.MDS_FAM_ID
+  WHERE DC.INVENTORY_DATE = DATE_SUB(CURRENT_DATE('America/Chicago'), INTERVAL 1 DAY)
+    AND DC.INVT_TYPE_CODE IN ('L', 'S', 'U')
+    AND DC.WHPK_INVT_QTY > 0
     AND UPPER(COALESCE(DC_DIM.DC_TYPE_DESC, '')) NOT LIKE '%DOTCOM%'
     AND UPPER(COALESCE(DC_DIM.DC_TYPE_DESC, '')) NOT LIKE '%SORTABLE%'
     AND UPPER(COALESCE(DC_DIM.DC_TYPE_DESC, '')) NOT LIKE '%E-COMMERCE%'
@@ -464,19 +385,173 @@ AS (
     AND UPPER(COALESCE(DC_DIM.DC_TYPE_DESC, '')) NOT LIKE '%FULFILLMENT%'
     AND DC_DIM.DC_TYPE_DESC IS NOT NULL
     AND UPPER(DC_DIM.DC_TYPE_DESC) NOT IN ('PHARMACY', 'ADMINISTRATION ACCOUNT')
-
   GROUP BY ALL
 );
 
 
 /*--------------------------------------------------------------------
   TABLE: R0C0JUG_WMUS_FC_INVT
-  Source: repl_fc_item_invt_dly + mdse_omni_item_vw
+  Source: fd_omni_chnl_item_dly (FULFMT_CHNL_NM = 'OWNED')
   Purpose: FC (fulfillment center) on-hand at item x date.
-  NOTE: This staging table is built for reference but is NOT included
-  in WHERES_MY_STUFF_ROLLUP. FC uses CATLG_ITEM_ID (a different item
-  key from MDS_FAM_ID used by the store network). A crosswalk would
-  be needed to combine FC with Store/Transit/DC in a single rollup.
+  NOTE: NO hierarchy join to avoid duplication.
+--------------------------------------------------------------------*/
+DROP TABLE IF EXISTS `wmt-instockinventory-datamart.WM_AD_HOC.R0C0JUG_WMUS_FC_INVT`;
+
+CREATE OR REPLACE TABLE `wmt-instockinventory-datamart.WM_AD_HOC.R0C0JUG_WMUS_FC_INVT`
+CLUSTER BY MDS_FAM_ID
+AS (
+  SELECT
+    CAL.WM_FULL_YR_NBR AS WM_YEAR, CAL.WM_WK_NBR AS WM_WEEK, CAL.WM_YR_WK_NBR,
+    INVT.BUS_DT,
+    INVT.OMNI_SEG_DESC,
+    INVT.OMNI_DEPT_NBR, INVT.OMNI_DEPT_DESC,
+    INVT.OMNI_CATG_NBR, INVT.OMNI_CATG_DESC,
+    'FC' AS NODE_TYPE,
+    INVT.MDS_FAM_ID,
+    ITEM_CUR.ITEM_NBR AS WALMART_NBR,
+    ITEM_CUR.REPL_GROUP_NBR,
+    ITEM_CUR.ITEM_REPLENISHABLE_IND,
+    CASE WHEN ITEM_CUR.ITEM_REPLENISHABLE_IND = 'Y' THEN 'REPLEN' ELSE 'NON-REPLEN' END AS REPLEN_TYPE,
+    SUM(COALESCE(INVT.TY_FC_ON_HAND_UNIT_QTY, 0)) AS FC_OH_UNITS,
+    SUM(COALESCE(INVT.TY_FC_ON_HAND_COST_AMT, 0)) AS FC_OH_COST
+  FROM `wmt-gdap-dl-sec-merch-bq-prod.us_fd_app_secure.fd_omni_chnl_item_dly` INVT
+  INNER JOIN `wmt-edw-prod.WW_CORE_DIM_DL_VM.DL_CALENDAR_DIM` CAL ON INVT.BUS_DT = CAL.CAL_DT
+  INNER JOIN ITEM_CUR ON INVT.MDS_FAM_ID = ITEM_CUR.MDS_FAM_ID
+
+  WHERE INVT.BUS_DT = DATE_SUB(CURRENT_DATE('America/Chicago'), INTERVAL 1 DAY)
+    AND INVT.FULFMT_CHNL_NM = 'OWNED'
+    AND INVT.TY_FC_ON_HAND_UNIT_QTY > 0
+    AND INVT.OMNI_SEG_DESC NOT IN ('HEALTH AND WELLNESS','OTHER','WALMART SERVICES')
+  GROUP BY ALL
+);
+
+
+/*--------------------------------------------------------------------
+  TABLE: R0C0JUG_WMUS_BACKROOM_INVT
+  Source: o0c046n_backroom_oh_inv_inv_sol_reporting_pre_20260126
+  NOTE: NO hierarchy join to avoid duplication.
+--------------------------------------------------------------------*/
+CREATE OR REPLACE TABLE `wmt-instockinventory-datamart.WM_AD_HOC.R0C0JUG_WMUS_BACKROOM_INVT`
+CLUSTER BY MDS_FAM_ID
+AS (
+  WITH latest_week AS (
+    SELECT WM_YEAR, WM_WEEK, (WM_YEAR * 100 + WM_WEEK) AS WM_YR_WK_SORT
+    FROM `wmt-instockinventory-datamart.WM_AD_HOC.o0c046n_backroom_oh_inv_inv_sol_reporting_pre_20260126`
+    WHERE WM_YEAR IN (25, 26)
+    GROUP BY WM_YEAR, WM_WEEK
+    ORDER BY WM_YR_WK_SORT DESC
+    LIMIT 1
+  )
+  SELECT
+    DATE_SUB(CURRENT_DATE('America/Chicago'), INTERVAL 1 DAY) AS BUS_DT,
+    'BACKROOM' AS NODE_TYPE,
+    BKRM.MDS_FAM_ID,
+    ITEM_CUR.ITEM_NBR AS WALMART_NBR,
+    ITEM_CUR.REPL_GROUP_NBR,
+    ITEM_CUR.ITEM_REPLENISHABLE_IND,
+    CASE WHEN ITEM_CUR.ITEM_REPLENISHABLE_IND = 'Y' THEN 'REPLEN' ELSE 'NON-REPLEN' END AS REPLEN_TYPE,
+    SUM(CASE
+      WHEN BKRM.WM_YEAR = 25 THEN COALESCE(BKRM.BACKROOM_QTY_LY, 0)
+      WHEN BKRM.WM_YEAR = 26 THEN COALESCE(BKRM.BACKROOM_QTY_TY, 0)
+      ELSE 0
+    END) AS BACKROOM_UNITS
+  FROM `wmt-instockinventory-datamart.WM_AD_HOC.o0c046n_backroom_oh_inv_inv_sol_reporting_pre_20260126` BKRM
+  INNER JOIN latest_week LW ON BKRM.WM_YEAR = LW.WM_YEAR AND BKRM.WM_WEEK = LW.WM_WEEK
+  INNER JOIN ITEM_CUR ON BKRM.MDS_FAM_ID = ITEM_CUR.MDS_FAM_ID
+  WHERE BKRM.WM_YEAR IN (25, 26)
+    AND ((BKRM.WM_YEAR = 25 AND BKRM.BACKROOM_QTY_LY > 0) OR (BKRM.WM_YEAR = 26 AND BKRM.BACKROOM_QTY_TY > 0))
+  GROUP BY ALL
+);
+
+
+/*--------------------------------------------------------------------
+  TABLE: R0C0JUG_WMUS_STO_INVT
+  Source: ALLOC_ORDER_FACT + STOCK_TRANSFER_ORDER + ITEM
+  NOTE: NO hierarchy join to avoid duplication.
+--------------------------------------------------------------------*/
+CREATE OR REPLACE TABLE `wmt-instockinventory-datamart.WM_AD_HOC.R0C0JUG_WMUS_STO_INVT`
+CLUSTER BY MDS_FAM_ID
+AS (
+  SELECT
+    CAL.WM_FULL_YR_NBR AS WM_YEAR, CAL.WM_WK_NBR AS WM_WEEK, CAL.WM_YR_WK_NBR,
+    DATE(AOF.ALLOC_CREATE_TS) AS BUS_DT,
+    'STO' AS NODE_TYPE,
+    COALESCE(DEST_DC.DC_TYPE_DESC, 'UNKNOWN') AS DEST_DC_TYPE,
+    ITEM.ITEM_NBR AS MDS_FAM_ID,
+    ITEM_CUR.ITEM_NBR AS WALMART_NBR,
+    ITEM_CUR.REPL_GROUP_NBR,
+    ITEM_CUR.ITEM_REPLENISHABLE_IND,
+    CASE WHEN ITEM_CUR.ITEM_REPLENISHABLE_IND = 'Y' THEN 'REPLEN' ELSE 'NON-REPLEN' END AS REPLEN_TYPE,
+    SUM(AOF.WHPK_ORD_QTY * AOF.WHPK_QTY) AS STO_IN_TRANSIT_TO_DC_UNITS
+  FROM `wmt-edw-prod.US_WM_OMS_VM.ALLOC_ORDER_FACT` AOF
+  INNER JOIN `wmt-edw-prod.US_WM_OMS_VM.STOCK_TRANSFER_ORDER` STO
+    ON AOF.STOCK_TRANSFER_ORD_NBR = STO.STOCK_TRANSFER_ORD_NBR
+  INNER JOIN `wmt-edw-prod.US_WM_VM.ITEM` ITEM
+    ON ITEM.OLD_NBR = AOF.ITEM_NBR AND ITEM.OBSOLETE_DATE IS NULL
+  INNER JOIN `wmt-edw-prod.US_WM_OMS_VM.OMS_STO_PO_XREF` STO_XREF
+    ON STO_XREF.STOCK_TRANSFER_ORD_NBR = AOF.STOCK_TRANSFER_ORD_NBR
+  INNER JOIN `wmt-edw-prod.WW_CORE_DIM_DL_VM.DL_CALENDAR_DIM` CAL
+    ON DATE(AOF.ALLOC_CREATE_TS) = CAL.CAL_DT
+  INNER JOIN ITEM_CUR ON ITEM.ITEM_NBR = ITEM_CUR.MDS_FAM_ID
+  LEFT JOIN `wmt-edw-prod.WW_CORE_DIM_VM.DC_DIM_CUR` DEST_DC
+    ON DEST_DC.COUNTRY_CODE = 'US' AND DEST_DC.DC_NBR = AOF.TO_STORE_NBR AND DEST_DC.CURRENT_IND = 'Y'
+  WHERE DATE(AOF.ALLOC_CREATE_TS) = DATE_SUB(CURRENT_DATE('America/Chicago'), INTERVAL 1 DAY)
+    AND AOF.WHPK_ORD_QTY > 0
+    AND DEST_DC.DC_TYPE_DESC IS NOT NULL
+  GROUP BY ALL
+);
+
+
+/*--------------------------------------------------------------------
+  TABLE: R0C0JUG_WMUS_ON_YARD_INVT
+  Source: TUP.RDC_FDC_EVENT_POS_HIST + OMS_PURCHASE_ORDER + OMS_PO_LINE
+  NOTE: NO hierarchy join to avoid duplication.
+--------------------------------------------------------------------*/
+CREATE OR REPLACE TABLE `wmt-instockinventory-datamart.WM_AD_HOC.R0C0JUG_WMUS_ON_YARD_INVT`
+CLUSTER BY MDS_FAM_ID
+AS (
+  WITH po_first_gate AS (
+    SELECT PO_NBR, WHSE_NBR AS DC_NBR, MIN(LEFT(GATE_IN_DATE, 10)) AS first_gate_date
+    FROM `wmt-cp-prod.TUP.RDC_FDC_EVENT_POS_HIST`
+    WHERE TRAILER_STATUS_CODE IN ('IN', 'XI', 'CI', 'XD') AND PO_NBR IS NOT NULL AND GATE_IN_DATE IS NOT NULL
+    GROUP BY PO_NBR, WHSE_NBR
+  )
+  SELECT
+    CAL.WM_FULL_YR_NBR AS WM_YEAR, CAL.WM_WK_NBR AS WM_WEEK, CAL.WM_YR_WK_NBR,
+    DATE(pfg.first_gate_date) AS BUS_DT,
+    'ON_YARD' AS NODE_TYPE,
+    COALESCE(DC_DIM.DC_TYPE_DESC, 'UNKNOWN') AS DC_TYPE,
+    pfg.DC_NBR,
+    itm.MDS_FAM_ID,
+    ITEM_CUR.ITEM_NBR AS WALMART_NBR,
+    ITEM_CUR.REPL_GROUP_NBR,
+    ITEM_CUR.ITEM_REPLENISHABLE_IND,
+    CASE WHEN ITEM_CUR.ITEM_REPLENISHABLE_IND = 'Y' THEN 'REPLEN' ELSE 'NON-REPLEN' END AS REPLEN_TYPE,
+    SUM(pol.VNPK_ORD_QTY * pol.VNPK_QTY) AS ON_YARD_UNITS
+  FROM `wmt-edw-prod.US_WM_OMS_VM.OMS_PURCHASE_ORDER` po
+  INNER JOIN `wmt-edw-prod.US_WM_OMS_VM.OMS_PO_LINE` pol ON pol.OMS_PO_NBR = po.OMS_PO_NBR
+  INNER JOIN (
+    SELECT DISTINCT ITEM_NBR, MDS_FAM_ID
+    FROM `wmt-edw-prod.US_WM_VM.ITEM_CUR`
+    WHERE ITEM_NBR IS NOT NULL AND MDS_FAM_ID IS NOT NULL
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY ITEM_NBR ORDER BY OBSOLETE_DATE DESC) = 1
+  ) itm ON itm.ITEM_NBR = pol.ITEM_NBR
+  INNER JOIN po_first_gate pfg ON pfg.PO_NBR = po.PO_NBR
+  INNER JOIN `wmt-edw-prod.WW_CORE_DIM_DL_VM.DL_CALENDAR_DIM` CAL ON DATE(pfg.first_gate_date) = CAL.CAL_DT
+  INNER JOIN ITEM_CUR ON itm.MDS_FAM_ID = ITEM_CUR.MDS_FAM_ID
+  LEFT JOIN `wmt-edw-prod.WW_CORE_DIM_VM.DC_DIM_CUR` DC_DIM
+    ON DC_DIM.COUNTRY_CODE = 'US' AND DC_DIM.DC_NBR = pfg.DC_NBR AND DC_DIM.CURRENT_IND = 'Y'
+  WHERE pol.PO_LINE_STATUS_CD <> 1300
+    AND po.COUNTRY_CODE = 'US'
+    AND DATE(pfg.first_gate_date) = DATE_SUB(CURRENT_DATE('America/Chicago'), INTERVAL 1 DAY)
+    AND pol.VNPK_ORD_QTY > 0
+  GROUP BY ALL
+);
+
+
+/*--------------------------------------------------------------------
+  LEGACY: R0C0JUG_WMUS_FC_INVT (CATLG_ITEM_ID version - DEPRECATED)
+  Kept for reference only - uses different item key than store network.
 --------------------------------------------------------------------*/
 -- CREATE OR REPLACE TABLE `wmt-instockinventory-datamart.WM_AD_HOC.R0C0JUG_WMUS_FC_INVT`
 -- CLUSTER BY CATLG_ITEM_ID
@@ -519,107 +594,73 @@ AS (
 /*--------------------------------------------------------------------
   TABLE: WHERES_MY_STUFF_ROLLUP
   Purpose: Final "Where's My Stuff" — store-network item rollup
-           combining Store OH, DC Reserved, In-Transit, and DC inventory.
-           Share % and total calculations are handled in the dashboard.
+           combining ALL inventory channels:
+           • Store OH, DC Reserved, In-Transit
+           • DC OH, DC Labeled, DC Unlabeled
+           • FC OH (Fulfillment Center)
+           • Backroom
+           • STO (Stock Transfer Orders to DC)
+           • On Yard (Trailers at DC yards)
 
-  Grain:   MDS_FAM_ID x BUS_DT x REPLEN_TYPE x DC_TYPE_DESC
-    • Store / Transit rows:  DC_TYPE_DESC = NULL  (one row per item per date)
-    • DC rows: one row per item x DC type (REGIONAL DC, NATIONAL DC, etc.)
-      To collapse DC types to a single total, remove DC_TYPE_DESC from
-      DC_AGG GROUP BY and the SPINE / final SELECT.
+  Grain:   MDS_FAM_ID x BUS_DT x REPLEN_TYPE (collapsed DC types)
 
   Item identifiers in output:
-    MDS_FAM_ID   — internal merch family ID (join key across all 3 networks)
+    MDS_FAM_ID   — internal merch family ID (join key across all networks)
     WALMART_NBR  — human-facing Walmart ITEM_NBR
     UNIT_COST    — item_cost_amt from mdse_omni_item_vw (via OMNI_STORE_HIERARCHY)
-    ITEM_REPLENISHABLE_IND  — from ITEM_CUR (all networks join to ITEM_CUR)
+    ITEM_REPLENISHABLE_IND  — from ITEM_CUR
     REPLEN_TYPE  — 'REPLEN' when ITEM_REPLENISHABLE_IND = 'Y', else 'NON-REPLEN'
 
-  Inventory columns:
-    STORE_OH_UNITS      — on_hand_qty from repl_sku_ei_invt_dly (floor inventory)
-    DC_RESERVED_UNITS   — in_whse_qty from repl_sku_ei_invt_dly (DC allocated, not shipped)
-    IN_TRANSIT_UNITS    — in_trnst_qty from repl_sku_ei_invt_dly (shipped, not received)
-    DC_OH_UNITS         — on_hand_qty from WHSE_DLY_SKU (INVT_TYPE_CODE = 'O')
-    DC_LABELED_UNITS    — DC_DLY_INVT_TYPE where INVT_TYPE_CODE IN ('L', 'S')
-    DC_UNLABELED_UNITS  — DC_DLY_INVT_TYPE where INVT_TYPE_CODE = 'U'
+  Inventory columns (all channels):
+    STORE_OH_UNITS        — Store floor on-hand
+    BACKROOM_UNITS        — Store backroom inventory
+    DC_RESERVED_UNITS     — DC allocated for store, not shipped
+    IN_TRANSIT_UNITS      — Shipped from DC, not received at store
+    DC_OH_UNITS           — DC on-hand (INVT_TYPE_CODE = 'O')
+    DC_LABELED_UNITS      — DC labeled (INVT_TYPE_CODE IN ('L', 'S'))
+    DC_UNLABELED_UNITS    — DC unlabeled (INVT_TYPE_CODE = 'U')
+    STO_IN_TRANSIT_TO_DC_UNITS — Stock Transfer Orders to DC
+    FC_OH_UNITS           — Fulfillment Center on-hand
+    ON_YARD_UNITS         — Trailers at DC yards
+    TOTAL_NETWORK_UNITS   — Sum of all channels
 --------------------------------------------------------------------*/
 CREATE OR REPLACE TABLE `wmt-instockinventory-datamart.WM_AD_HOC.WHERES_MY_STUFF_ROLLUP`
 AS (
   WITH
 
-  -- ── Store OH + DC Reserved  [your section — repl_sku_ei_invt_dly] ──────────
+  -- ── Store OH + DC Reserved (with native cost from fd_omni_chnl_item_dly) ──
   STORE_AGG AS (
     SELECT
-      BUS_DT,
-      WM_YEAR,
-      WM_WEEK,
-      WM_YR_WK_NBR,
-      OMNI_SEG_DESC,
-      OMNI_DIVISION,
-      OMNI_SUBGROUP_DESC,
-      OMNI_DEPT_NBR,
-      OMNI_DEPT_DESC,
-      OMNI_CATG_NBR,                                  -- Category number
-      OMNI_CATG_DESC,                                 -- Category description
-      MDS_FAM_ID,
-      WALMART_NBR,
-      UNIT_COST,
-      ITEM_REPLENISHABLE_IND,
-      REPLEN_TYPE,
-      SUM(STORE_OH_UNITS)           AS STORE_OH_UNITS,
-      SUM(DC_RESERVED_UNITS)        AS DC_RESERVED_UNITS
+      BUS_DT, MDS_FAM_ID, WALMART_NBR, REPL_GROUP_NBR, UNIT_COST,
+      ITEM_REPLENISHABLE_IND, REPLEN_TYPE,
+      OMNI_SEG_DESC, OMNI_DIVISION, OMNI_SUBGROUP_DESC,
+      OMNI_DEPT_NBR, OMNI_DEPT_DESC, OMNI_CATG_NBR, OMNI_CATG_DESC,
+      SUM(STORE_OH_UNITS) AS STORE_OH_UNITS,
+      SUM(STORE_OH_COST) AS STORE_OH_COST,           -- Native cost
+      SUM(DC_RESERVED_UNITS) AS DC_RESERVED_UNITS,
+      SUM(DC_RESERVED_COST) AS DC_RESERVED_COST      -- Native cost
     FROM `wmt-instockinventory-datamart.WM_AD_HOC.R0C0JUG_WMUS_STORE_INVT`
     GROUP BY ALL
   ),
 
-  -- ── In-Transit  [your section — repl_sku_ei_invt_dly] ─────────────
+  -- ── In-Transit (with native cost from fd_omni_chnl_item_dly) ────────
   TRANSIT_AGG AS (
     SELECT
-      BUS_DT,
-      WM_YEAR,
-      WM_WEEK,
-      WM_YR_WK_NBR,
-      OMNI_SEG_DESC,
-      OMNI_DIVISION,
-      OMNI_SUBGROUP_DESC,
-      OMNI_DEPT_NBR,
-      OMNI_DEPT_DESC,
-      OMNI_CATG_NBR,                                  -- Category number
-      OMNI_CATG_DESC,                                 -- Category description
-      MDS_FAM_ID,
-      WALMART_NBR,
-      UNIT_COST,
-      ITEM_REPLENISHABLE_IND,
-      REPLEN_TYPE,
-      SUM(IN_TRANSIT_UNITS)         AS IN_TRANSIT_UNITS
+      BUS_DT, MDS_FAM_ID, WALMART_NBR, REPL_GROUP_NBR, UNIT_COST,
+      ITEM_REPLENISHABLE_IND, REPLEN_TYPE,
+      OMNI_SEG_DESC, OMNI_DIVISION, OMNI_SUBGROUP_DESC,
+      OMNI_DEPT_NBR, OMNI_DEPT_DESC, OMNI_CATG_NBR, OMNI_CATG_DESC,
+      SUM(IN_TRANSIT_UNITS) AS IN_TRANSIT_UNITS,
+      SUM(IN_TRANSIT_COST) AS IN_TRANSIT_COST        -- Native cost
     FROM `wmt-instockinventory-datamart.WM_AD_HOC.R0C0JUG_WMUS_IN_TRANSIT_INVT`
     GROUP BY ALL
   ),
 
-  -- ── DC  [DC team section — WHSE_DLY_SKU + DC_DLY_INVT_TYPE] ───────────────
-  -- DC_TYPE_DESC grain: one row per item x date x DC type.
-  -- Store / Transit rows will have DC_TYPE_DESC = NULL in the SPINE.
-  -- Split by inventory type: O=On-Hand, L/S=Labeled, U=Unlabeled
+  -- ── DC (collapsed to item level - no OMNI columns in staging table) ──
   DC_AGG AS (
     SELECT
-      BUS_DT,
-      WM_YEAR,
-      WM_WEEK,
-      WM_YR_WK_NBR,
-      OMNI_SEG_DESC,
-      OMNI_DIVISION,
-      OMNI_SUBGROUP_DESC,
-      OMNI_DEPT_NBR,
-      OMNI_DEPT_DESC,
-      OMNI_CATG_NBR,                                  -- Category number
-      OMNI_CATG_DESC,                                 -- Category description
-      DC_TYPE_DESC,
-      MDS_FAM_ID,
-      WALMART_NBR,
-      UNIT_COST,
-      ITEM_REPLENISHABLE_IND,
-      REPLEN_TYPE,
-      -- Split by inventory type
+      BUS_DT, MDS_FAM_ID, WALMART_NBR, REPL_GROUP_NBR,
+      ITEM_REPLENISHABLE_IND, REPLEN_TYPE,
       SUM(CASE WHEN INVT_TYPE_CODE = 'O' THEN DC_OH_UNITS ELSE 0 END) AS DC_OH_UNITS,
       SUM(CASE WHEN INVT_TYPE_CODE IN ('L', 'S') THEN DC_OH_UNITS ELSE 0 END) AS DC_LABELED_UNITS,
       SUM(CASE WHEN INVT_TYPE_CODE = 'U' THEN DC_OH_UNITS ELSE 0 END) AS DC_UNLABELED_UNITS
@@ -627,139 +668,170 @@ AS (
     GROUP BY ALL
   ),
 
-  -- ── Spine: full set of item x date x replen-type x DC-type combos ────
-  -- Store / Transit rows: DC_TYPE_DESC = NULL
-  -- DC rows: one entry per DC_TYPE_DESC value
-  -- ITEM_REPLENISHABLE_IND and REPLEN_TYPE are item-level attributes —
-  -- they are consistent per MDS_FAM_ID across all three networks.
+  -- ── FC (Fulfillment Center - has partial OMNI columns) ──────────────
+  FC_AGG AS (
+    SELECT
+      BUS_DT, MDS_FAM_ID, WALMART_NBR, REPL_GROUP_NBR,
+      ITEM_REPLENISHABLE_IND, REPLEN_TYPE,
+      OMNI_SEG_DESC, OMNI_DEPT_NBR, OMNI_DEPT_DESC,
+      OMNI_CATG_NBR, OMNI_CATG_DESC,
+      SUM(FC_OH_UNITS) AS FC_OH_UNITS,
+      SUM(FC_OH_COST) AS FC_OH_COST
+    FROM `wmt-instockinventory-datamart.WM_AD_HOC.R0C0JUG_WMUS_FC_INVT`
+    GROUP BY ALL
+  ),
+
+  -- ── Backroom (no OMNI columns in staging table) ─────────────────────
+  BACKROOM_AGG AS (
+    SELECT
+      BUS_DT, MDS_FAM_ID, WALMART_NBR, REPL_GROUP_NBR,
+      ITEM_REPLENISHABLE_IND, REPLEN_TYPE,
+      SUM(BACKROOM_UNITS) AS BACKROOM_UNITS
+    FROM `wmt-instockinventory-datamart.WM_AD_HOC.R0C0JUG_WMUS_BACKROOM_INVT`
+    GROUP BY ALL
+  ),
+
+  -- ── STO (Stock Transfer Orders - no OMNI columns) ───────────────────
+  STO_AGG AS (
+    SELECT
+      BUS_DT, MDS_FAM_ID, WALMART_NBR, REPL_GROUP_NBR,
+      ITEM_REPLENISHABLE_IND, REPLEN_TYPE,
+      SUM(STO_IN_TRANSIT_TO_DC_UNITS) AS STO_IN_TRANSIT_TO_DC_UNITS
+    FROM `wmt-instockinventory-datamart.WM_AD_HOC.R0C0JUG_WMUS_STO_INVT`
+    GROUP BY ALL
+  ),
+
+  -- ── On Yard (no OMNI columns) ────────────────────────────────────────
+  ON_YARD_AGG AS (
+    SELECT
+      BUS_DT, MDS_FAM_ID, WALMART_NBR, REPL_GROUP_NBR,
+      ITEM_REPLENISHABLE_IND, REPLEN_TYPE,
+      SUM(ON_YARD_UNITS) AS ON_YARD_UNITS
+    FROM `wmt-instockinventory-datamart.WM_AD_HOC.R0C0JUG_WMUS_ON_YARD_INVT`
+    GROUP BY ALL
+  ),
+
+  -- ── Spine: All unique item x date (simple key for reliable joins) ───
   SPINE AS (
-    SELECT DISTINCT
-      BUS_DT, MDS_FAM_ID, WALMART_NBR, UNIT_COST,
-      ITEM_REPLENISHABLE_IND, REPLEN_TYPE,
-      OMNI_DEPT_NBR, OMNI_CATG_NBR, CAST(NULL AS STRING) AS DC_TYPE_DESC
-    FROM STORE_AGG
+    SELECT DISTINCT BUS_DT, MDS_FAM_ID FROM STORE_AGG
     UNION DISTINCT
-    SELECT DISTINCT
-      BUS_DT, MDS_FAM_ID, WALMART_NBR, UNIT_COST,
-      ITEM_REPLENISHABLE_IND, REPLEN_TYPE,
-      OMNI_DEPT_NBR, OMNI_CATG_NBR, CAST(NULL AS STRING) AS DC_TYPE_DESC
-    FROM TRANSIT_AGG
+    SELECT DISTINCT BUS_DT, MDS_FAM_ID FROM TRANSIT_AGG
     UNION DISTINCT
-    SELECT DISTINCT
-      BUS_DT, MDS_FAM_ID, WALMART_NBR, UNIT_COST,
-      ITEM_REPLENISHABLE_IND, REPLEN_TYPE,
-      OMNI_DEPT_NBR, OMNI_CATG_NBR, DC_TYPE_DESC
-    FROM DC_AGG
+    SELECT DISTINCT BUS_DT, MDS_FAM_ID FROM DC_AGG
+    UNION DISTINCT
+    SELECT DISTINCT BUS_DT, MDS_FAM_ID FROM FC_AGG
+    UNION DISTINCT
+    SELECT DISTINCT BUS_DT, MDS_FAM_ID FROM BACKROOM_AGG
+    UNION DISTINCT
+    SELECT DISTINCT BUS_DT, MDS_FAM_ID FROM STO_AGG
+    UNION DISTINCT
+    SELECT DISTINCT BUS_DT, MDS_FAM_ID FROM ON_YARD_AGG
   )
 
-  -- ── Final Rollup ──────────────────────────────────────────────────────
-  -- Tightened joins to include all item attributes from SPINE
-  --         to prevent duplicate rows if staging tables have multiple matches.
-  -- Added ROLLUP_ROW_TYPE helper field to clarify grain for dashboard users.
+  -- ── Final Rollup with ALL channels ──────────────────────────────────
   SELECT
     SP.BUS_DT,
-    -- COALESCE(S.WM_YEAR,  T.WM_YEAR,  D.WM_YEAR)   AS WM_YEAR,
-    -- COALESCE(S.WM_WEEK,  T.WM_WEEK,  D.WM_WEEK)   AS WM_WEEK,
-    -- COALESCE(S.WM_YR_WK_NBR, T.WM_YR_WK_NBR,
-    --          D.WM_YR_WK_NBR)                       AS WM_YR_WK_NBR,
 
-    -- ── Item identifiers ──────────────────────────────────────────────
+    -- ── Item identifiers (from Store/Transit which have full info) ────
     SP.MDS_FAM_ID,
-    SP.WALMART_NBR AS ITEM_NBR,
-    SP.UNIT_COST,
-    SP.ITEM_REPLENISHABLE_IND,
-    SP.REPLEN_TYPE,
+    COALESCE(S.WALMART_NBR, T.WALMART_NBR, D.WALMART_NBR, FC.WALMART_NBR,
+             BR.WALMART_NBR, STO.WALMART_NBR, OY.WALMART_NBR) AS ITEM_NBR,
+    COALESCE(S.REPL_GROUP_NBR, T.REPL_GROUP_NBR, D.REPL_GROUP_NBR, FC.REPL_GROUP_NBR,
+             BR.REPL_GROUP_NBR, STO.REPL_GROUP_NBR, OY.REPL_GROUP_NBR) AS REPL_GROUP_NBR,
+    COALESCE(S.UNIT_COST, T.UNIT_COST)               AS UNIT_COST,
+    COALESCE(S.ITEM_REPLENISHABLE_IND, T.ITEM_REPLENISHABLE_IND, D.ITEM_REPLENISHABLE_IND,
+             FC.ITEM_REPLENISHABLE_IND, BR.ITEM_REPLENISHABLE_IND) AS ITEM_REPLENISHABLE_IND,
+    COALESCE(S.REPLEN_TYPE, T.REPLEN_TYPE, D.REPLEN_TYPE,
+             FC.REPLEN_TYPE, BR.REPLEN_TYPE)         AS REPLEN_TYPE,
 
-    -- ── Merch hierarchy ───────────────────────────────────────────────
-    SP.OMNI_DEPT_NBR,
-    COALESCE(S.OMNI_DEPT_DESC, T.OMNI_DEPT_DESC,
-             D.OMNI_DEPT_DESC)                     AS OMNI_DEPT_DESC,
-    SP.OMNI_CATG_NBR,                              -- Category number
-    COALESCE(S.OMNI_CATG_DESC, T.OMNI_CATG_DESC,
-             D.OMNI_CATG_DESC)                     AS OMNI_CATG_DESC,
-    COALESCE(S.OMNI_SEG_DESC,  T.OMNI_SEG_DESC,
-             D.OMNI_SEG_DESC)                      AS OMNI_SEG_DESC,
-    COALESCE(S.OMNI_DIVISION,  T.OMNI_DIVISION,
-             D.OMNI_DIVISION)                      AS OMNI_DIVISION,
-    COALESCE(S.OMNI_SUBGROUP_DESC, T.OMNI_SUBGROUP_DESC,
-             D.OMNI_SUBGROUP_DESC)                 AS OMNI_SUBGROUP_DESC,
+    -- ── Merch hierarchy (from Store/Transit/FC which have OMNI columns) ─
+    COALESCE(S.OMNI_DEPT_NBR, T.OMNI_DEPT_NBR, FC.OMNI_DEPT_NBR) AS OMNI_DEPT_NBR,
+    COALESCE(S.OMNI_DEPT_DESC, T.OMNI_DEPT_DESC, FC.OMNI_DEPT_DESC) AS OMNI_DEPT_DESC,
+    COALESCE(S.OMNI_CATG_NBR, T.OMNI_CATG_NBR, FC.OMNI_CATG_NBR) AS OMNI_CATG_NBR,
+    COALESCE(S.OMNI_CATG_DESC, T.OMNI_CATG_DESC, FC.OMNI_CATG_DESC) AS OMNI_CATG_DESC,
+    COALESCE(S.OMNI_SEG_DESC, T.OMNI_SEG_DESC, FC.OMNI_SEG_DESC) AS OMNI_SEG_DESC,
+    COALESCE(S.OMNI_DIVISION, T.OMNI_DIVISION)       AS OMNI_DIVISION,
+    COALESCE(S.OMNI_SUBGROUP_DESC, T.OMNI_SUBGROUP_DESC) AS OMNI_SUBGROUP_DESC,
 
-    -- ── DC type (NULL on Store / Transit rows) ────────────────────────
-    SP.DC_TYPE_DESC,
+    -- ── Store Inventory (native cost from fd_omni_chnl_item_dly) ───────
+    COALESCE(S.STORE_OH_UNITS, 0)                    AS STORE_OH_UNITS,
+    COALESCE(S.STORE_OH_COST, 0)                     AS STORE_OH_COST,
+    COALESCE(BR.BACKROOM_UNITS, 0)                   AS BACKROOM_UNITS,
+    COALESCE(S.STORE_OH_UNITS, 0) - COALESCE(BR.BACKROOM_UNITS, 0) AS ON_FLOOR_UNITS,
+    COALESCE(S.DC_RESERVED_UNITS, 0)                 AS DC_RESERVED_UNITS,
+    COALESCE(S.DC_RESERVED_COST, 0)                  AS DC_RESERVED_COST,
 
-    -- ── Row type indicator ────────────────────────────────────────────
-    -- Helps dashboard users understand the grain:
-    --   STORE_TRANSIT: Store OH + DC Reserved + In-Transit on this row (DC_TYPE_DESC IS NULL)
-    --   DC: DC inventory by type on this row (DC_TYPE_DESC has value)
-    CASE
-      WHEN SP.DC_TYPE_DESC IS NULL THEN 'STORE_TRANSIT'
-      ELSE 'DC'
-    END                                            AS ROLLUP_ROW_TYPE,
+    -- ── In-Transit (native cost from fd_omni_chnl_item_dly) ───────────
+    COALESCE(T.IN_TRANSIT_UNITS, 0)                  AS IN_TRANSIT_UNITS,
+    COALESCE(T.IN_TRANSIT_COST, 0)                   AS IN_TRANSIT_COST,
 
-    -- ── Inventory by network ──────────────────────────────────────────
-    -- Store on-hand (repl_sku_ei_invt_dly → on_hand_qty)
-    -- Only populate on DC_TYPE_DESC IS NULL rows to avoid duplication
-    CASE WHEN SP.DC_TYPE_DESC IS NULL
-         THEN COALESCE(S.STORE_OH_UNITS, 0)
-         ELSE 0
-    END                                            AS STORE_OH_UNITS,
+    -- ── DC Inventory (cost calc uses Store/Transit UNIT_COST) ─────────
+    COALESCE(D.DC_OH_UNITS, 0)                       AS DC_OH_UNITS,
+    COALESCE(D.DC_OH_UNITS, 0) * COALESCE(S.UNIT_COST, T.UNIT_COST, 0) AS DC_OH_COST,
+    COALESCE(D.DC_LABELED_UNITS, 0)                  AS DC_LABELED_UNITS,
+    COALESCE(D.DC_LABELED_UNITS, 0) * COALESCE(S.UNIT_COST, T.UNIT_COST, 0) AS DC_LABELED_COST,
+    COALESCE(D.DC_UNLABELED_UNITS, 0)                AS DC_UNLABELED_UNITS,
+    COALESCE(D.DC_UNLABELED_UNITS, 0) * COALESCE(S.UNIT_COST, T.UNIT_COST, 0) AS DC_UNLABELED_COST,
 
-    -- DC Reserved (repl_sku_ei_invt_dly → in_whse_qty)
-    -- Inventory allocated at DC for store, not yet shipped
-    -- Only populate on DC_TYPE_DESC IS NULL rows to avoid duplication
-    CASE WHEN SP.DC_TYPE_DESC IS NULL
-         THEN COALESCE(S.DC_RESERVED_UNITS, 0)
-         ELSE 0
-    END                                            AS DC_RESERVED_UNITS,
+    -- ── STO (Stock Transfer Orders) ───────────────────────────────────
+    COALESCE(STO.STO_IN_TRANSIT_TO_DC_UNITS, 0)      AS STO_IN_TRANSIT_TO_DC_UNITS,
+    COALESCE(STO.STO_IN_TRANSIT_TO_DC_UNITS, 0) * COALESCE(S.UNIT_COST, T.UNIT_COST, 0) AS STO_IN_TRANSIT_TO_DC_COST,
 
-    -- In-transit to stores (repl_sku_ei_invt_dly → in_trnst_qty)
-    -- Only populate on DC_TYPE_DESC IS NULL rows to avoid duplication
-    CASE WHEN SP.DC_TYPE_DESC IS NULL
-         THEN COALESCE(T.IN_TRANSIT_UNITS, 0)
-         ELSE 0
-    END                                            AS IN_TRANSIT_UNITS,
+    -- ── FC (Fulfillment Center) ───────────────────────────────────────
+    COALESCE(FC.FC_OH_UNITS, 0)                      AS FC_OH_UNITS,
+    COALESCE(FC.FC_OH_COST, 0)                       AS FC_OH_COST,
 
-    -- DC on-hand (WHSE_DLY_SKU - INVT_TYPE_CODE = 'O')
-    COALESCE(D.DC_OH_UNITS, 0)                     AS DC_OH_UNITS,
+    -- ── On Yard ───────────────────────────────────────────────────────
+    COALESCE(OY.ON_YARD_UNITS, 0)                    AS ON_YARD_UNITS,
+    COALESCE(OY.ON_YARD_UNITS, 0) * COALESCE(S.UNIT_COST, T.UNIT_COST, 0) AS ON_YARD_COST,
 
-    -- DC Labeled (DC_DLY_INVT_TYPE - INVT_TYPE_CODE IN ('L', 'S'))
-    COALESCE(D.DC_LABELED_UNITS, 0)                AS DC_LABELED_UNITS,
+    -- ── Total Network (all channels) ──────────────────────────────────
+    (COALESCE(S.STORE_OH_UNITS, 0)
+     + COALESCE(S.DC_RESERVED_UNITS, 0)
+     + COALESCE(T.IN_TRANSIT_UNITS, 0)
+     + COALESCE(D.DC_OH_UNITS, 0)
+     + COALESCE(D.DC_LABELED_UNITS, 0)
+     + COALESCE(D.DC_UNLABELED_UNITS, 0)
+     + COALESCE(STO.STO_IN_TRANSIT_TO_DC_UNITS, 0)
+     + COALESCE(FC.FC_OH_UNITS, 0)
+     + COALESCE(OY.ON_YARD_UNITS, 0)
+    )                                                AS TOTAL_NETWORK_UNITS,
 
-    -- DC Unlabeled (DC_DLY_INVT_TYPE - INVT_TYPE_CODE = 'U')
-    COALESCE(D.DC_UNLABELED_UNITS, 0)              AS DC_UNLABELED_UNITS,
+    (COALESCE(S.STORE_OH_COST, 0)
+     + COALESCE(S.DC_RESERVED_COST, 0)
+     + COALESCE(T.IN_TRANSIT_COST, 0)
+     + COALESCE(D.DC_OH_UNITS, 0) * COALESCE(S.UNIT_COST, T.UNIT_COST, 0)
+     + COALESCE(D.DC_LABELED_UNITS, 0) * COALESCE(S.UNIT_COST, T.UNIT_COST, 0)
+     + COALESCE(D.DC_UNLABELED_UNITS, 0) * COALESCE(S.UNIT_COST, T.UNIT_COST, 0)
+     + COALESCE(STO.STO_IN_TRANSIT_TO_DC_UNITS, 0) * COALESCE(S.UNIT_COST, T.UNIT_COST, 0)
+     + COALESCE(FC.FC_OH_COST, 0)
+     + COALESCE(OY.ON_YARD_UNITS, 0) * COALESCE(S.UNIT_COST, T.UNIT_COST, 0)
+    )                                                AS TOTAL_NETWORK_COST,
 
-    CURRENT_TIMESTAMP()                            AS REFRESH_TS
+    CURRENT_TIMESTAMP()                              AS REFRESH_TS
 
   FROM SPINE SP
 
-  -- Store: join on ALL item attributes + ensure DC_TYPE_DESC IS NULL
-  LEFT JOIN STORE_AGG   S  ON  SP.BUS_DT                 = S.BUS_DT
-                           AND SP.MDS_FAM_ID              = S.MDS_FAM_ID
-                           AND SP.WALMART_NBR             = S.WALMART_NBR
-                           AND SP.OMNI_DEPT_NBR           = S.OMNI_DEPT_NBR
-                           AND SP.OMNI_CATG_NBR           = S.OMNI_CATG_NBR
-                           AND SP.DC_TYPE_DESC IS NULL
+  LEFT JOIN STORE_AGG S
+    ON SP.BUS_DT = S.BUS_DT AND SP.MDS_FAM_ID = S.MDS_FAM_ID
 
-  -- Transit: join on ALL item attributes + ensure DC_TYPE_DESC IS NULL
-  LEFT JOIN TRANSIT_AGG T  ON  SP.BUS_DT                 = T.BUS_DT
-                           AND SP.MDS_FAM_ID              = T.MDS_FAM_ID
-                           AND SP.WALMART_NBR             = T.WALMART_NBR
-                           AND SP.OMNI_DEPT_NBR           = T.OMNI_DEPT_NBR
-                           AND SP.OMNI_CATG_NBR           = T.OMNI_CATG_NBR
-                           AND SP.DC_TYPE_DESC IS NULL
+  LEFT JOIN TRANSIT_AGG T
+    ON SP.BUS_DT = T.BUS_DT AND SP.MDS_FAM_ID = T.MDS_FAM_ID
 
-  -- DC: join on ALL item attributes + DC_TYPE_DESC
-  LEFT JOIN DC_AGG      D  ON  SP.BUS_DT                 = D.BUS_DT
-                           AND SP.MDS_FAM_ID              = D.MDS_FAM_ID
-                           AND SP.WALMART_NBR             = D.WALMART_NBR
-                           AND SP.OMNI_DEPT_NBR           = D.OMNI_DEPT_NBR
-                           AND SP.OMNI_CATG_NBR           = D.OMNI_CATG_NBR
-                           AND SP.DC_TYPE_DESC            = D.DC_TYPE_DESC
+  LEFT JOIN DC_AGG D
+    ON SP.BUS_DT = D.BUS_DT AND SP.MDS_FAM_ID = D.MDS_FAM_ID
 
-  ORDER BY
-    SP.BUS_DT            DESC,
-    SP.OMNI_DEPT_NBR     ASC,
-    SP.MDS_FAM_ID        ASC,
-    SP.REPLEN_TYPE       ASC,
-    SP.DC_TYPE_DESC      ASC
+  LEFT JOIN FC_AGG FC
+    ON SP.BUS_DT = FC.BUS_DT AND SP.MDS_FAM_ID = FC.MDS_FAM_ID
+
+  LEFT JOIN BACKROOM_AGG BR
+    ON SP.BUS_DT = BR.BUS_DT AND SP.MDS_FAM_ID = BR.MDS_FAM_ID
+
+  LEFT JOIN STO_AGG STO
+    ON SP.BUS_DT = STO.BUS_DT AND SP.MDS_FAM_ID = STO.MDS_FAM_ID
+
+  LEFT JOIN ON_YARD_AGG OY
+    ON SP.BUS_DT = OY.BUS_DT AND SP.MDS_FAM_ID = OY.MDS_FAM_ID
+
+  ORDER BY SP.BUS_DT DESC, COALESCE(S.OMNI_DEPT_NBR, T.OMNI_DEPT_NBR, FC.OMNI_DEPT_NBR) ASC, SP.MDS_FAM_ID ASC
 );

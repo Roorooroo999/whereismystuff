@@ -64,7 +64,7 @@ def fetch_data():
     dataset = os.environ.get("DATASET", "WM_AD_HOC")
     table = "R0C0JUG_WMUS_HIST_COMBINED"
 
-    # DC type + STO type columns from combined table
+    # DC type + STO type + On Yard + new channel columns from combined table
     dc_type_cols = """
         SUM(DC_OH_REGIONAL_UNITS) AS dc_oh_regional,
         SUM(DC_OH_GROCERY_UNITS) AS dc_oh_grocery,
@@ -81,7 +81,23 @@ def fetch_data():
         SUM(STO_TO_GIDC_UNITS) AS sto_to_gidc,
         SUM(STO_TO_MSC_UNITS) AS sto_to_msc,
         SUM(STO_TO_SUPPORT_UNITS) AS sto_to_support,
-        SUM(STO_TO_OTHER_UNITS) AS sto_to_other
+        SUM(STO_TO_OTHER_UNITS) AS sto_to_other,
+        SUM(FC_OH_UNITS) AS fc_oh,
+        SUM(FC_OH_COST) AS fc_oh_cost,
+        SUM(DC_OH_ECOMM_UNITS) AS dc_oh_ecomm,
+        SUM(TOTAL_NETWORK_COST) AS total_network_cost,
+        SUM(DC_LABELED_COST) AS dc_labeled_cost,
+        SUM(DC_UNLABELED_COST) AS dc_unlabeled_cost,
+        SUM(STO_IN_TRANSIT_TO_DC_COST) AS sto_to_dc_cost,
+        SUM(ON_YARD_UNITS) AS on_yard,
+        SUM(ON_YARD_COST) AS on_yard_cost,
+        SUM(ON_YARD_REGIONAL_UNITS) AS on_yard_regional,
+        SUM(ON_YARD_GROCERY_UNITS) AS on_yard_grocery,
+        SUM(ON_YARD_FASHION_UNITS) AS on_yard_fashion,
+        SUM(ON_YARD_IMPORTS_UNITS) AS on_yard_imports,
+        SUM(ON_YARD_GIDC_UNITS) AS on_yard_gidc,
+        SUM(ON_YARD_MSC_UNITS) AS on_yard_msc,
+        SUM(ON_YARD_OTHER_UNITS) AS on_yard_other
     """
 
     # ── Query 1: Enterprise-level weekly totals ──
@@ -157,17 +173,44 @@ def fetch_data():
     ORDER BY BUS_DT, SBU, dept_nbr
     """
 
-    print("[1/3] Fetching enterprise-level weekly totals...")
+    # ── Query 4: Category-level weekly aggregation ──
+    # Slim column set (no per-DC-type breakdowns) to keep JSON size manageable.
+    catg_query = f"""
+    SELECT
+        BUS_DT,
+        WM_YEAR,
+        WM_WEEK,
+        WM_YR_WK_NBR,
+        SBU,
+        OMNI_CATG_NBR AS catg_nbr,
+        OMNI_CATG_DESC AS category,
+        SUM(STORE_OH_UNITS) AS store_oh,
+        SUM(DC_OH_UNITS) AS dc_oh,
+        SUM(IN_TRANSIT_UNITS) AS in_transit,
+        SUM(TOTAL_NETWORK_UNITS) AS total_network,
+        SUM(FC_OH_UNITS) AS fc_oh,
+        SUM(DC_OH_ECOMM_UNITS) AS dc_oh_ecomm
+    FROM `{project}.{dataset}.{table}`
+    WHERE OMNI_CATG_NBR IS NOT NULL
+    GROUP BY BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU, catg_nbr, category
+    ORDER BY BUS_DT, SBU, catg_nbr
+    """
+
+    print("[1/4] Fetching enterprise-level weekly totals...")
     total_rows = rows_to_dicts(client.query(total_query).result())
     print(f"       {len(total_rows)} rows")
 
-    print("[2/3] Fetching SBU-level weekly data...")
+    print("[2/4] Fetching SBU-level weekly data...")
     sbu_rows = rows_to_dicts(client.query(sbu_query).result())
     print(f"       {len(sbu_rows)} rows")
 
-    print("[3/3] Fetching Dept-level weekly data...")
+    print("[3/4] Fetching Dept-level weekly data...")
     dept_rows = rows_to_dicts(client.query(dept_query).result())
     print(f"       {len(dept_rows)} rows")
+
+    print("[4/4] Fetching Category-level weekly data...")
+    catg_rows = rows_to_dicts(client.query(catg_query).result())
+    print(f"       {len(catg_rows)} rows")
 
     # Extract date range and SBU list
     all_dates = sorted(set(r["BUS_DT"] for r in total_rows))
@@ -184,7 +227,8 @@ def fetch_data():
         "sbu_list": sbu_list,
         "enterprise": total_rows,
         "by_sbu": sbu_rows,
-        "by_dept": dept_rows
+        "by_dept": dept_rows,
+        "by_catg": catg_rows
     }
 
     return data

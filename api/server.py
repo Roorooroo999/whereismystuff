@@ -1475,8 +1475,10 @@ async def cache_refresh_loop():
                 logger.info(f"[CACHE] Auto-refresh triggered (date={current_date}, last={cache.loaded_date})")
                 await loop.run_in_executor(None, cache.load)
             if hist_cache.loaded_date != current_date or not hist_cache.is_ready:
+                # Force-refresh so we bypass disk cache — BQ source may have been
+                # updated after today's initial disk-cache load (e.g. pipeline ran mid-day)
                 logger.info(f"[HIST] Auto-refresh triggered (date={current_date}, last={hist_cache.loaded_date})")
-                await loop.run_in_executor(None, hist_cache.load)
+                await loop.run_in_executor(None, lambda: hist_cache.load(force_refresh=True))
             if onorder_cache.loaded_date != current_date or not onorder_cache.is_ready:
                 logger.info(f"[ONORDER] Auto-refresh triggered (date={current_date}, last={onorder_cache.loaded_date})")
                 await loop.run_in_executor(None, onorder_cache.load)
@@ -1997,14 +1999,19 @@ async def refresh_cache():
 
 
 @app.post("/api/cache/refresh-historical")
-async def refresh_historical_cache():
-    """Manual historical cache refresh."""
+async def refresh_historical_cache(force: bool = False):
+    """Manual historical cache refresh.
+
+    Pass ?force=true to bypass disk cache and re-fetch from BigQuery even if
+    disk cache appears current (e.g. BQ source table was updated after today's
+    initial cache load).
+    """
     try:
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, hist_cache.load)
+        await loop.run_in_executor(None, lambda: hist_cache.load(force_refresh=force))
         catg_len = len(hist_cache.catg_df) if hist_cache.catg_df is not None else 0
         hist_rows = len(hist_cache.enterprise_df) + len(hist_cache.sbu_df) + len(hist_cache.dept_df) + catg_len
-        return {"status": "refreshed", "rows": hist_rows, "load_time_sec": hist_cache.load_time_sec}
+        return {"status": "refreshed", "rows": hist_rows, "load_time_sec": hist_cache.load_time_sec, "forced": force}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

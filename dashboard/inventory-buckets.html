@@ -570,6 +570,22 @@
     // Bucket filter state
     let SELECTED_BUCKETS = new Set();
     let STACKED_CHART_MODE = 'stacked'; // 'stacked' or 'change'
+
+    // ══════════════════════════════════════════════════════════════
+    // PERFORMANCE OPTIMIZATIONS
+    // ══════════════════════════════════════════════════════════════
+
+    // 1. Client-side data cache (avoid re-processing on every render)
+    let CACHED_BUCKETS_DATA = null;
+    let CACHED_FILTERS_KEY = null;
+    let CACHED_BY_YEAR = null;
+
+    // 2. Debounce timer for rapid filter changes
+    let RENDER_DEBOUNCE_TIMER = null;
+    const RENDER_DEBOUNCE_MS = 50; // 50ms debounce
+
+    // 3. Flag to skip animations on filter toggle (faster updates)
+    let SKIP_ANIMATIONS = false;
     const BUCKET_NAMES = {
         open_orders: 'On Order',
         on_yard: 'On Yard',
@@ -935,7 +951,14 @@
         };
     }
 
-    function buildBucketsData(filters) {
+    function buildBucketsData(filters, forceRefresh = false) {
+        // PERFORMANCE: Return cached data if filters unchanged
+        const filterKey = JSON.stringify(filters);
+        if (!forceRefresh && CACHED_BUCKETS_DATA && CACHED_FILTERS_KEY === filterKey) {
+            console.log('[BUCKETS] Using cached data (filters unchanged)');
+            return CACHED_BUCKETS_DATA;
+        }
+
         // Build weekly buckets data from historical + on-order
         const weeklyData = {};
 
@@ -1052,45 +1075,71 @@
 
         console.log('[BUCKETS] Built data:', Object.keys(weeklyData).length, 'weeks');
 
-        return Object.values(weeklyData).sort((a, b) => a.wm_week - b.wm_week);
+        // PERFORMANCE: Cache the result
+        const result = Object.values(weeklyData).sort((a, b) => a.wm_week - b.wm_week);
+        CACHED_BUCKETS_DATA = result;
+        CACHED_FILTERS_KEY = filterKey;
+
+        return result;
     }
 
     function renderCharts() {
+        // PERFORMANCE: Debounce rapid calls (e.g., quick filter clicks)
+        if (RENDER_DEBOUNCE_TIMER) {
+            clearTimeout(RENDER_DEBOUNCE_TIMER);
+        }
+        RENDER_DEBOUNCE_TIMER = setTimeout(_doRenderCharts, RENDER_DEBOUNCE_MS);
+    }
+
+    function _doRenderCharts() {
         if (!HIST_DATA) return;
+
+        // PERFORMANCE: Skip animations on filter toggles for faster updates
+        SKIP_ANIMATIONS = true;
 
         const filters = getFilters();
         const data = buildBucketsData(filters);
 
-        // Group by fiscal year
-        const byYear = { 2025: {}, 2026: {} };
-        console.log('[BUCKETS] Grouping', data.length, 'weekly records by year...');
-        data.forEach(r => {
-            const year = parseInt(String(r.wm_week).substring(0, 4));
-            const wkNum = parseInt(String(r.wm_week).slice(-2));
-            if (year === 2025 || year === 2026) {
-                byYear[year][wkNum] = r;
+        // Group by fiscal year (with caching)
+        const filterKey = JSON.stringify(filters);
+        let byYear;
+        if (CACHED_BY_YEAR && CACHED_FILTERS_KEY === filterKey) {
+            byYear = CACHED_BY_YEAR;
+            console.log('[BUCKETS] Using cached byYear data');
+        } else {
+            byYear = { 2025: {}, 2026: {} };
+            console.log('[BUCKETS] Grouping', data.length, 'weekly records by year...');
+            data.forEach(r => {
+                const year = parseInt(String(r.wm_week).substring(0, 4));
+                const wkNum = parseInt(String(r.wm_week).slice(-2));
+                if (year === 2025 || year === 2026) {
+                    byYear[year][wkNum] = r;
+                }
+            });
+            console.log('[BUCKETS] byYear[2025] weeks:', Object.keys(byYear[2025]).length);
+            console.log('[BUCKETS] byYear[2026] weeks:', Object.keys(byYear[2026]).length);
+            if (Object.keys(byYear[2025]).length === 0) {
+                console.warn('[BUCKETS] WARNING: No FY25 data in byYear! Sample data wm_week values:', data.slice(0, 5).map(r => r.wm_week));
             }
-        });
-        console.log('[BUCKETS] byYear[2025] weeks:', Object.keys(byYear[2025]).length);
-        console.log('[BUCKETS] byYear[2026] weeks:', Object.keys(byYear[2026]).length);
-        if (Object.keys(byYear[2025]).length === 0) {
-            console.warn('[BUCKETS] WARNING: No FY25 data in byYear! Sample data wm_week values:', data.slice(0, 5).map(r => r.wm_week));
+
+            // Debug: Log FY25/FY26 data
+            const fy25Total = Object.values(byYear[2025]).reduce((s, r) => s + (r.on_floor || 0), 0);
+            const fy26Total = Object.values(byYear[2026]).reduce((s, r) => s + (r.on_floor || 0), 0);
+            console.log('[BUCKETS] FY25 weeks:', Object.keys(byYear[2025]).length, 'on_floor total:', (fy25Total/1e9).toFixed(2) + 'B');
+            console.log('[BUCKETS] FY26 weeks:', Object.keys(byYear[2026]).length, 'on_floor total:', (fy26Total/1e9).toFixed(2) + 'B');
+
+            // Debug: Log ON_YARD specifically
+            const fy25YardTotal = Object.values(byYear[2025]).reduce((s, r) => s + (r.on_yard || 0), 0);
+            const fy26YardTotal = Object.values(byYear[2026]).reduce((s, r) => s + (r.on_yard || 0), 0);
+            console.log('[BUCKETS] ON_YARD - FY25 total:', (fy25YardTotal/1e6).toFixed(2) + 'M', '| FY26 total:', (fy26YardTotal/1e6).toFixed(2) + 'M');
+            const fy25YardWeeks = Object.entries(byYear[2025]).filter(([w, r]) => (r.on_yard || 0) > 0).map(([w, r]) => `WK${w}:${(r.on_yard/1e6).toFixed(1)}M`);
+            const fy26YardWeeks = Object.entries(byYear[2026]).filter(([w, r]) => (r.on_yard || 0) > 0).map(([w, r]) => `WK${w}:${(r.on_yard/1e6).toFixed(1)}M`);
+            console.log('[BUCKETS] ON_YARD FY25 weeks with data:', fy25YardWeeks.slice(0, 10).join(', '));
+            console.log('[BUCKETS] ON_YARD FY26 weeks with data:', fy26YardWeeks.join(', '));
+
+            // PERFORMANCE: Cache the byYear data
+            CACHED_BY_YEAR = byYear;
         }
-
-        // Debug: Log FY25/FY26 data
-        const fy25Total = Object.values(byYear[2025]).reduce((s, r) => s + (r.on_floor || 0), 0);
-        const fy26Total = Object.values(byYear[2026]).reduce((s, r) => s + (r.on_floor || 0), 0);
-        console.log('[BUCKETS] FY25 weeks:', Object.keys(byYear[2025]).length, 'on_floor total:', (fy25Total/1e9).toFixed(2) + 'B');
-        console.log('[BUCKETS] FY26 weeks:', Object.keys(byYear[2026]).length, 'on_floor total:', (fy26Total/1e9).toFixed(2) + 'B');
-
-        // Debug: Log ON_YARD specifically
-        const fy25YardTotal = Object.values(byYear[2025]).reduce((s, r) => s + (r.on_yard || 0), 0);
-        const fy26YardTotal = Object.values(byYear[2026]).reduce((s, r) => s + (r.on_yard || 0), 0);
-        console.log('[BUCKETS] ON_YARD - FY25 total:', (fy25YardTotal/1e6).toFixed(2) + 'M', '| FY26 total:', (fy26YardTotal/1e6).toFixed(2) + 'M');
-        const fy25YardWeeks = Object.entries(byYear[2025]).filter(([w, r]) => (r.on_yard || 0) > 0).map(([w, r]) => `WK${w}:${(r.on_yard/1e6).toFixed(1)}M`);
-        const fy26YardWeeks = Object.entries(byYear[2026]).filter(([w, r]) => (r.on_yard || 0) > 0).map(([w, r]) => `WK${w}:${(r.on_yard/1e6).toFixed(1)}M`);
-        console.log('[BUCKETS] ON_YARD FY25 weeks with data:', fy25YardWeeks.slice(0, 10).join(', '));
-        console.log('[BUCKETS] ON_YARD FY26 weeks with data:', fy26YardWeeks.join(', '));
 
         // Find latest week with inventory data
         const fy26Weeks = Object.keys(byYear[2026]).map(Number).filter(w => {
@@ -1186,7 +1235,6 @@
 
     function renderStackedChart(byYear) {
         const ctx = document.getElementById('stackedChart').getContext('2d');
-        if (CHARTS.stacked) CHARTS.stacked.destroy();
 
         const weeks = [];
         for (let w = 1; w <= 52; w++) weeks.push(w);
@@ -1197,6 +1245,9 @@
         const names = { open_orders: 'On Order', on_yard: 'On Yard', in_dc: 'In DC', in_transit: 'In Transit', fc_oh: 'FC (eComm)', backroom: 'Backroom', on_floor: 'On Floor' };
 
         const datasets = [];
+
+        // PERFORMANCE: Animation settings based on SKIP_ANIMATIONS flag
+        const animationOpts = SKIP_ANIMATIONS ? { duration: 0 } : { duration: 750 };
 
         if (STACKED_CHART_MODE === 'change') {
             // YoY CHANGE MODE: Show FY26 - FY25 difference
@@ -1224,12 +1275,15 @@
                 });
             });
 
+            // PERFORMANCE: Destroy existing chart and create new one (mode change requires full rebuild)
+            if (CHARTS.stacked) CHARTS.stacked.destroy();
             CHARTS.stacked = new Chart(ctx, {
                 type: 'bar',
                 data: { labels, datasets },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    animation: animationOpts, // PERFORMANCE: Skip animations on filter toggle
                     interaction: { mode: 'index', intersect: false },
                     plugins: {
                         legend: { display: true, position: 'top', labels: { color: '#a0a0a0', boxWidth: 12, font: { size: 10 } } },
@@ -1281,12 +1335,15 @@
                 });
             });
 
+            // PERFORMANCE: Destroy existing chart and create new one
+            if (CHARTS.stacked) CHARTS.stacked.destroy();
             CHARTS.stacked = new Chart(ctx, {
                 type: 'bar',
                 data: { labels, datasets },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    animation: animationOpts, // PERFORMANCE: Skip animations on filter toggle
                     interaction: { mode: 'index', intersect: false },
                     plugins: {
                         legend: { display: false },
@@ -1328,7 +1385,6 @@
     function renderYoYChart(canvasId, byYear, metric, label) {
         const ctx = document.getElementById(canvasId).getContext('2d');
         const key = 'yoy_' + metric;
-        if (CHARTS[key]) CHARTS[key].destroy();
 
         // Check if this bucket is selected/active
         const isActive = SELECTED_BUCKETS.size === 0 || SELECTED_BUCKETS.has(metric);
@@ -1357,6 +1413,17 @@
         }
         const fy26Data = weeks.map(w => byYear[2026]?.[w]?.[metric] || null);
 
+        // PERFORMANCE: Update existing chart instead of destroy/recreate
+        if (CHARTS[key]) {
+            // Just update the data - much faster than recreating
+            CHARTS[key].data.datasets[0].data = fy25Data;
+            CHARTS[key].data.datasets[1].data = fy26Data;
+            // Update with no animation for speed
+            CHARTS[key].update(SKIP_ANIMATIONS ? 'none' : undefined);
+            return;
+        }
+
+        // First time: create the chart
         CHARTS[key] = new Chart(ctx, {
             type: 'line',
             data: {
@@ -1375,6 +1442,7 @@
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                animation: SKIP_ANIMATIONS ? { duration: 0 } : { duration: 750 },
                 interaction: {
                     mode: 'index',
                     intersect: false
@@ -1411,9 +1479,9 @@
                                 const wk = wkIdx + 1;
                                 const lines = [];
 
-                                // Get current values
-                                const fy26Val = fy26Data[wkIdx];
-                                const fy25Val = fy25Data[wkIdx];
+                                // Get current values - use closure variables
+                                const fy26Val = CHARTS[key].data.datasets[1].data[wkIdx];
+                                const fy25Val = CHARTS[key].data.datasets[0].data[wkIdx];
 
                                 // YoY Comparison (FY26 vs FY25 same week)
                                 if (fy26Val !== null && fy25Val !== null && fy25Val !== 0) {
@@ -1426,7 +1494,7 @@
 
                                 // WoW Comparison (FY26 this week vs FY26 last week)
                                 if (wk > 1 && fy26Val !== null) {
-                                    const fy26Prev = fy26Data[wkIdx - 1];
+                                    const fy26Prev = CHARTS[key].data.datasets[1].data[wkIdx - 1];
                                     if (fy26Prev !== null && fy26Prev !== 0) {
                                         const wowPct = ((fy26Val - fy26Prev) / fy26Prev * 100).toFixed(1);
                                         const arrow = wowPct > 0 ? '▲' : wowPct < 0 ? '▼' : '—';

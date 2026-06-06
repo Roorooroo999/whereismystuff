@@ -2403,6 +2403,9 @@
                     }
                     if (!agg[key]) agg[key] = {
                         key, SBU: r.SBU || '', dept: r.department || '', catg: r.category || '',
+                        // All channel fields (needed for getDCTypeFilteredValue)
+                        total_network: 0, store_oh: 0, on_floor: 0, backroom: 0,
+                        in_transit: 0, dc_reserved: 0, fc_oh: 0,
                         dc_oh: 0, dc_labeled: 0, dc_unlabeled: 0, sto_to_dc: 0, on_yard: 0,
                         // DC Type breakdown for filtering
                         dc_oh_regional: 0, dc_oh_grocery: 0, dc_oh_fashion: 0, dc_oh_imports: 0,
@@ -2411,7 +2414,15 @@
                         sto_to_dc_regional: 0, sto_to_dc_grocery: 0, sto_to_dc_fashion: 0, sto_to_dc_imports: 0,
                         on_yard_regional: 0, on_yard_grocery: 0, on_yard_fashion: 0, on_yard_imports: 0
                     };
-                    // Totals
+                    // All channels
+                    agg[key].total_network += r.total_network || 0;
+                    agg[key].store_oh += r.store_oh || 0;
+                    agg[key].on_floor += r.on_floor || 0;
+                    agg[key].backroom += r.backroom || 0;
+                    agg[key].in_transit += r.in_transit || 0;
+                    agg[key].dc_reserved += r.dc_reserved || 0;
+                    agg[key].fc_oh += r.fc_oh || 0;
+                    // DC totals
                     agg[key].dc_oh += r.dc_oh || 0;
                     agg[key].dc_labeled += r.dc_labeled || 0;
                     agg[key].dc_unlabeled += r.dc_unlabeled || 0;

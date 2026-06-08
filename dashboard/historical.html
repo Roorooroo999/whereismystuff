@@ -439,17 +439,6 @@
                                         <option value="catg">By Category</option>
                                     </select>
                                 </div>
-                                <!-- DC Type Filter - hidden for general Change Analysis, shown only for DC positions -->
-                                <div class="col-md-2" id="dc-type-filter-container" style="display: none;">
-                                    <label class="filter-label">DC Type Filter</label>
-                                    <select class="form-select form-select-sm" id="dc-drill-dctype-filter" multiple size="1" onchange="renderDCDrilldown()" style="height: 31px;">
-                                        <option value="Grocery" selected>GDC (Grocery)</option>
-                                        <option value="Regional" selected>RDC (Regional)</option>
-                                        <option value="Fashion" selected>FDC (Fashion)</option>
-                                        <option value="Imports" selected>Import DC</option>
-                                    </select>
-                                    <small class="text-muted" style="font-size:0.55rem;">Ctrl+click multi-select</small>
-                                </div>
                                 <div class="col-md-2 d-flex align-items-end">
                                     <button class="btn btn-outline-secondary btn-sm me-2" onclick="resetDCDrillFilters()"><i class="bi bi-x-circle me-1"></i>Reset</button>
                                     <button class="btn btn-outline-secondary btn-sm" onclick="exportDCDrilldownCSV()"><i class="bi bi-download me-1"></i>CSV</button>
@@ -732,10 +721,9 @@
             const catgData = await resp.json();
             // Merge into RAW_DATA
             RAW_DATA.by_catg = catgData.by_catg || [];
-            RAW_DATA.dc_drill_catg = catgData.dc_drill_catg || [];
             CATG_LOADED = true;
             CATG_LOADING = false;
-            console.log('[HIST] Catg data loaded:', RAW_DATA.by_catg.length, 'rows,', RAW_DATA.dc_drill_catg.length, 'dc_drill_catg rows');
+            console.log('[HIST] Catg data loaded:', RAW_DATA.by_catg.length, 'rows');
             // If Change Analysis is already showing catg view, re-render
             const viewFilter = document.getElementById('dc-drill-view-filter');
             if (viewFilter && viewFilter.value === 'catg') {
@@ -2454,18 +2442,10 @@
                     }
                     if (!agg[key]) agg[key] = {
                         key, SBU: r.SBU || '', dept: r.department || '', catg: r.category || '',
-                        // All channel fields (needed for getDCTypeFilteredValue)
                         total_network: 0, store_oh: 0, on_floor: 0, backroom: 0,
                         in_transit: 0, dc_reserved: 0, fc_oh: 0,
-                        dc_oh: 0, dc_labeled: 0, dc_unlabeled: 0, sto_to_dc: 0, on_yard: 0,
-                        // DC Type breakdown for filtering
-                        dc_oh_regional: 0, dc_oh_grocery: 0, dc_oh_fashion: 0, dc_oh_imports: 0,
-                        dc_labeled_regional: 0, dc_labeled_grocery: 0, dc_labeled_fashion: 0, dc_labeled_imports: 0,
-                        dc_unlabeled_regional: 0, dc_unlabeled_grocery: 0, dc_unlabeled_fashion: 0, dc_unlabeled_imports: 0,
-                        sto_to_dc_regional: 0, sto_to_dc_grocery: 0, sto_to_dc_fashion: 0, sto_to_dc_imports: 0,
-                        on_yard_regional: 0, on_yard_grocery: 0, on_yard_fashion: 0, on_yard_imports: 0
+                        dc_oh: 0, dc_labeled: 0, dc_unlabeled: 0, sto_to_dc: 0, on_yard: 0
                     };
-                    // All channels
                     agg[key].total_network += r.total_network || 0;
                     agg[key].store_oh += r.store_oh || 0;
                     agg[key].on_floor += r.on_floor || 0;
@@ -2473,33 +2453,11 @@
                     agg[key].in_transit += r.in_transit || 0;
                     agg[key].dc_reserved += r.dc_reserved || 0;
                     agg[key].fc_oh += r.fc_oh || 0;
-                    // DC totals
                     agg[key].dc_oh += r.dc_oh || 0;
                     agg[key].dc_labeled += r.dc_labeled || 0;
                     agg[key].dc_unlabeled += r.dc_unlabeled || 0;
                     agg[key].sto_to_dc += r.sto_to_dc || 0;
                     agg[key].on_yard += r.on_yard || 0;
-                    // DC Type breakdown
-                    agg[key].dc_oh_regional += r.dc_oh_regional || 0;
-                    agg[key].dc_oh_grocery += r.dc_oh_grocery || 0;
-                    agg[key].dc_oh_fashion += r.dc_oh_fashion || 0;
-                    agg[key].dc_oh_imports += r.dc_oh_imports || 0;
-                    agg[key].dc_labeled_regional += r.dc_labeled_regional || 0;
-                    agg[key].dc_labeled_grocery += r.dc_labeled_grocery || 0;
-                    agg[key].dc_labeled_fashion += r.dc_labeled_fashion || 0;
-                    agg[key].dc_labeled_imports += r.dc_labeled_imports || 0;
-                    agg[key].dc_unlabeled_regional += r.dc_unlabeled_regional || 0;
-                    agg[key].dc_unlabeled_grocery += r.dc_unlabeled_grocery || 0;
-                    agg[key].dc_unlabeled_fashion += r.dc_unlabeled_fashion || 0;
-                    agg[key].dc_unlabeled_imports += r.dc_unlabeled_imports || 0;
-                    agg[key].sto_to_dc_regional += r.sto_to_dc_regional || r.sto_to_regional || 0;
-                    agg[key].sto_to_dc_grocery += r.sto_to_dc_grocery || r.sto_to_grocery || 0;
-                    agg[key].sto_to_dc_fashion += r.sto_to_dc_fashion || r.sto_to_fashion || 0;
-                    agg[key].sto_to_dc_imports += r.sto_to_dc_imports || r.sto_to_imports || 0;
-                    agg[key].on_yard_regional += r.on_yard_regional || 0;
-                    agg[key].on_yard_grocery += r.on_yard_grocery || 0;
-                    agg[key].on_yard_fashion += r.on_yard_fashion || 0;
-                    agg[key].on_yard_imports += r.on_yard_imports || 0;
                 });
             return agg;
         }
@@ -2613,8 +2571,8 @@
             let effectivePriorYoYWeek = priorYoYWeek;
 
             if (!catgWeekMap[mainWeekKey] && catgLatestWeek) {
-                console.warn('⚠️ HIST_COMBINED week', latestWeek.WM_YEAR + '-WK' + latestWeek.WM_WEEK,
-                             'not in DC_LEVEL! Using DC_LEVEL latest:', catgLatestWeek.WM_YEAR + '-WK' + catgLatestWeek.WM_WEEK);
+                console.warn('⚠️ Main latest week', latestWeek.WM_YEAR + '-WK' + latestWeek.WM_WEEK,
+                             'not in catg data. Using catg latest:', catgLatestWeek.WM_YEAR + '-WK' + catgLatestWeek.WM_WEEK);
                 effectiveLatestWeek = catgLatestWeek;
                 // Recalculate prior weeks based on category's latest
                 effectivePriorWoWWeek = catgLatestWeek.WM_WEEK - 1;
@@ -2796,19 +2754,10 @@
         renderDCDrilldown();
     }
 
-    // Helper function to get DC Type filtered value for a channel
-    function getDCTypeFilteredValue(row, channel, selectedDCTypes) {
-        // If all DC types selected (or none), return total
-        if (!row || selectedDCTypes.length === 0 || selectedDCTypes.length === 4) {
-            return row ? (row[channel] || 0) : 0;
-        }
-        // Sum only selected DC types
-        let sum = 0;
-        selectedDCTypes.forEach(dcType => {
-            const colName = `${channel}_${dcType.toLowerCase()}`;
-            sum += row[colName] || 0;
-        });
-        return sum;
+    // Helper function to get channel value from a row
+    // DC Type filter removed — HIST_COMBINED always returns aggregate totals
+    function getDCTypeFilteredValue(row, channel) {
+        return row ? (row[channel] || 0) : 0;
     }
 
     function renderDCDrilldown() {
@@ -2818,21 +2767,10 @@
         }
 
         const channel = document.getElementById('dc-drill-channel-filter').value;
-
-        // Show/hide DC Type Filter based on selected position (only show for DC-specific positions)
-        const dcTypeContainer = document.getElementById('dc-type-filter-container');
-        const dcPositions = ['dc_oh', 'dc_labeled', 'dc_unlabeled', 'dc_reserved'];
-        if (dcTypeContainer) {
-            dcTypeContainer.style.display = dcPositions.includes(channel) ? 'block' : 'none';
-        }
         const compareMode = document.getElementById('dc-drill-compare-filter').value;
         const viewMode = document.getElementById('dc-drill-view-filter').value;
         const sbuFilter = document.getElementById('dc-drill-sbu-filter').value;
         const deptFilter = document.getElementById('dc-drill-dept-filter').value;
-
-        // Get selected DC Types for filtering
-        const dcTypeSelect = document.getElementById('dc-drill-dctype-filter');
-        const selectedDCTypes = dcTypeSelect ? Array.from(dcTypeSelect.selectedOptions).map(o => o.value) : ['Grocery', 'Regional', 'Fashion', 'Imports'];
 
         // Get the right data based on view mode
         const dataSet = DC_DRILL_DATA[viewMode] || DC_DRILL_DATA.sbu;
@@ -2841,16 +2779,11 @@
 
         console.log('renderDCDrilldown:', {
             viewMode, channel, compareMode, sbuFilter, deptFilter,
-            selectedDCTypes,
             currentKeys: current ? Object.keys(current).length : 0,
             priorKeys: prior ? Object.keys(prior).length : 0
         });
         const compareLabel = compareMode === 'wow' ? 'WoW' : 'YoY';
         const viewLabel = viewMode === 'sbu' ? 'SBU' : viewMode === 'dept' ? 'Department' : 'Category';
-
-        // Build DC Type filter label
-        const dcTypeLabel = selectedDCTypes.length === 4 || selectedDCTypes.length === 0 ? '' :
-            ` (${selectedDCTypes.map(t => t.substring(0,3).toUpperCase()).join('+')})`;
 
         // Build change data
         const changes = [];
@@ -2861,8 +2794,8 @@
             if (deptFilter && r.dept !== deptFilter) return;
 
             const prev = prior[key] || {};
-            const currVal = getDCTypeFilteredValue(r, channel, selectedDCTypes);
-            const prevVal = getDCTypeFilteredValue(prev, channel, selectedDCTypes);
+            const currVal = getDCTypeFilteredValue(r, channel);
+            const prevVal = getDCTypeFilteredValue(prev, channel);
             const change = currVal - prevVal;
             const pctChange = prevVal > 0 ? ((change / prevVal) * 100) : (currVal > 0 ? 100 : 0);
 
@@ -2887,46 +2820,41 @@
         });
 
         // Update KPI summary bar
-        updateDrillKPIs(channel, compareMode, viewMode, sbuFilter, deptFilter, selectedDCTypes);
+        updateDrillKPIs(channel, compareMode, viewMode, sbuFilter, deptFilter);
 
         // Render tables
         renderIncreasingTable(changes, viewMode);
         renderDecreasingTable(changes, viewMode);
         renderChangeChart(changes, channel, compareLabel, viewMode);
 
-        // Update chart labels with DC Type indicator
-        document.getElementById('drill-chart-channel-label').textContent = (CHANNEL_NAMES[channel] || channel) + dcTypeLabel;
+        // Update chart labels
+        document.getElementById('drill-chart-channel-label').textContent = CHANNEL_NAMES[channel] || channel;
         document.getElementById('drill-chart-compare-label').textContent = `(${compareLabel})`;
         document.getElementById('drill-chart-view-label').textContent = viewLabel;
     }
 
-    function updateDrillKPIs(selectedChannel, compareMode, viewMode, sbuFilter, deptFilter, selectedDCTypes) {
+    function updateDrillKPIs(selectedChannel, compareMode, viewMode, sbuFilter, deptFilter) {
         const dataSet = DC_DRILL_DATA[viewMode] || DC_DRILL_DATA.sbu;
         const current = dataSet.current;
         const prior = compareMode === 'wow' ? dataSet.priorWoW : dataSet.priorYoY;
 
-        // Default DC types if not provided
-        const dcTypes = selectedDCTypes || ['Grocery', 'Regional', 'Fashion', 'Imports'];
-
-        // Calculate totals for selected channel only (with DC Type filter)
+        // Calculate totals for selected channel
         let currTotal = 0, prevTotal = 0;
         Object.values(current).forEach(r => {
             if (sbuFilter && r.SBU !== sbuFilter) return;
             if (deptFilter && r.dept !== deptFilter) return;
-            currTotal += getDCTypeFilteredValue(r, selectedChannel, dcTypes);
+            currTotal += getDCTypeFilteredValue(r, selectedChannel);
         });
         Object.values(prior).forEach(r => {
             if (sbuFilter && r.SBU !== sbuFilter) return;
             if (deptFilter && r.dept !== deptFilter) return;
-            prevTotal += getDCTypeFilteredValue(r, selectedChannel, dcTypes);
+            prevTotal += getDCTypeFilteredValue(r, selectedChannel);
         });
 
         const change = currTotal - prevTotal;
         const pctChange = prevTotal > 0 ? ((change / prevTotal) * 100).toFixed(1) : 0;
 
-        // Build DC Type label for display
-        const dcTypeLabel = dcTypes.length === 4 || dcTypes.length === 0 ? '' :
-            ` (${dcTypes.map(t => t.substring(0,3).toUpperCase()).join('+')})`;
+        const dcTypeLabel = '';
 
         // Update KPI display
         document.getElementById('drill-selected-position').textContent = (CHANNEL_NAMES[selectedChannel] || selectedChannel) + dcTypeLabel;

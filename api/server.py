@@ -6,7 +6,6 @@ Deployed on Google Cloud Run / Posit Connect
 
 from fastapi import FastAPI, Query, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from google.cloud import bigquery
@@ -692,19 +691,15 @@ class HistoricalCache:
         self.sbu_df: Optional[pd.DataFrame] = None
         self.dept_df: Optional[pd.DataFrame] = None
         self.catg_df: Optional[pd.DataFrame] = None
-        # DC Drilldown uses separate DC-level table for SBU/Dept/Category views
-        self.dc_drill_sbu_df: Optional[pd.DataFrame] = None
-        self.dc_drill_dept_df: Optional[pd.DataFrame] = None
-        self.dc_drill_catg_df: Optional[pd.DataFrame] = None
         self.loaded_at: Optional[float] = None
         self.loaded_date: Optional[str] = None
         self.load_time_sec: float = 0
         self.is_loading: bool = False
         # Cached JSON response to avoid repeated DataFrame → dict conversion
         self._cached_response: Optional[dict] = None
-        # Pre-serialized JSON bytes for the lite response (enterprise+sbu+dept+dc_drill_sbu+dc_drill_dept)
+        # Pre-serialized JSON bytes for the lite response (enterprise+sbu+dept)
         self._cached_lite_bytes: Optional[bytes] = None
-        # Pre-serialized JSON bytes for category data (by_catg + dc_drill_catg) — large, lazy-loaded
+        # Pre-serialized JSON bytes for category data (by_catg) — large, lazy-loaded
         self._cached_catg_bytes: Optional[bytes] = None
         # Ensure cache directory exists
         self.CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -717,12 +712,6 @@ class HistoricalCache:
             self.sbu_df.to_parquet(self.CACHE_DIR / "sbu.parquet")
             self.dept_df.to_parquet(self.CACHE_DIR / "dept.parquet")
             self.catg_df.to_parquet(self.CACHE_DIR / "catg.parquet")
-            if self.dc_drill_sbu_df is not None:
-                self.dc_drill_sbu_df.to_parquet(self.CACHE_DIR / "dc_drill_sbu.parquet")
-            if self.dc_drill_dept_df is not None:
-                self.dc_drill_dept_df.to_parquet(self.CACHE_DIR / "dc_drill_dept.parquet")
-            if self.dc_drill_catg_df is not None:
-                self.dc_drill_catg_df.to_parquet(self.CACHE_DIR / "dc_drill_catg.parquet")
             # Save metadata
             metadata = {"loaded_date": self.loaded_date, "loaded_at": self.loaded_at}
             with open(self.CACHE_DIR / "metadata.json", "w") as f:
@@ -753,16 +742,6 @@ class HistoricalCache:
             self.sbu_df = pd.read_parquet(self.CACHE_DIR / "sbu.parquet")
             self.dept_df = pd.read_parquet(self.CACHE_DIR / "dept.parquet")
             self.catg_df = pd.read_parquet(self.CACHE_DIR / "catg.parquet")
-            # DC Drilldown (optional - might not exist in old caches)
-            dc_sbu_file = self.CACHE_DIR / "dc_drill_sbu.parquet"
-            dc_dept_file = self.CACHE_DIR / "dc_drill_dept.parquet"
-            dc_catg_file = self.CACHE_DIR / "dc_drill_catg.parquet"
-            if dc_sbu_file.exists():
-                self.dc_drill_sbu_df = pd.read_parquet(dc_sbu_file)
-            if dc_dept_file.exists():
-                self.dc_drill_dept_df = pd.read_parquet(dc_dept_file)
-            if dc_catg_file.exists():
-                self.dc_drill_catg_df = pd.read_parquet(dc_catg_file)
 
             self.loaded_date = cached_date
             self.loaded_at = metadata.get("loaded_at")
@@ -775,20 +754,12 @@ class HistoricalCache:
 
     @property
     def is_ready(self) -> bool:
-        # Must check ALL required dataframes, including DC Drilldown DFs
-        # Otherwise requests can come in while cache is partially loaded
-        # This was the root cause of intermittent FC/On Yard=0 and DC Drilldown Category failures
         return (
             self.enterprise_df is not None and not self.enterprise_df.empty
             and self.sbu_df is not None
             and self.dept_df is not None
             and self.catg_df is not None
-            # CRITICAL: Also check DC Drilldown DataFrames!
-            # These load AFTER the main DFs and take extra time
-            and self.dc_drill_sbu_df is not None
-            and self.dc_drill_dept_df is not None
-            and self.dc_drill_catg_df is not None
-            and not self.is_loading  # Also check we're not mid-load
+            and not self.is_loading
         )
 
     def _get_client(self):
@@ -948,71 +919,13 @@ class HistoricalCache:
         print(f"[HIST] [FAST] Using PARALLEL query execution for faster loading...", flush=True)
 
         # ============================================================
-        # DC Drilldown - Build queries for DC_HIST_TABLE
-        # ============================================================
-        dc_fqn = f"`{HIST_PROJECT_ID}.{DATASET}.{DC_HIST_TABLE}`"
-        # DC_LEVEL table columns: DC_OH_UNITS, DC_LABELED_UNITS, DC_UNLABELED_UNITS,
-        # STO_TO_DC_UNITS, ON_YARD_UNITS, DC_TYPE (for filtering)
-        # Aggregate by DC_TYPE to get breakdown
-        dc_drill_metric_sql = """
-            SUM(COALESCE(DC_OH_UNITS, 0)) AS dc_oh,
-            SUM(COALESCE(DC_LABELED_UNITS, 0)) AS dc_labeled,
-            SUM(COALESCE(DC_UNLABELED_UNITS, 0)) AS dc_unlabeled,
-            SUM(COALESCE(STO_TO_DC_UNITS, 0)) AS sto_to_dc,
-            SUM(COALESCE(ON_YARD_UNITS, 0)) AS on_yard,
-            -- DC OH by type (using DC_TYPE column)
-            SUM(CASE WHEN DC_TYPE = 'Regional' THEN COALESCE(DC_OH_UNITS, 0) ELSE 0 END) AS dc_oh_regional,
-            SUM(CASE WHEN DC_TYPE = 'Grocery' THEN COALESCE(DC_OH_UNITS, 0) ELSE 0 END) AS dc_oh_grocery,
-            SUM(CASE WHEN DC_TYPE = 'Fashion' THEN COALESCE(DC_OH_UNITS, 0) ELSE 0 END) AS dc_oh_fashion,
-            SUM(CASE WHEN DC_TYPE = 'Imports' THEN COALESCE(DC_OH_UNITS, 0) ELSE 0 END) AS dc_oh_imports,
-            -- DC Labeled by type
-            SUM(CASE WHEN DC_TYPE = 'Regional' THEN COALESCE(DC_LABELED_UNITS, 0) ELSE 0 END) AS dc_labeled_regional,
-            SUM(CASE WHEN DC_TYPE = 'Grocery' THEN COALESCE(DC_LABELED_UNITS, 0) ELSE 0 END) AS dc_labeled_grocery,
-            SUM(CASE WHEN DC_TYPE = 'Fashion' THEN COALESCE(DC_LABELED_UNITS, 0) ELSE 0 END) AS dc_labeled_fashion,
-            SUM(CASE WHEN DC_TYPE = 'Imports' THEN COALESCE(DC_LABELED_UNITS, 0) ELSE 0 END) AS dc_labeled_imports,
-            -- DC Unlabeled by type
-            SUM(CASE WHEN DC_TYPE = 'Regional' THEN COALESCE(DC_UNLABELED_UNITS, 0) ELSE 0 END) AS dc_unlabeled_regional,
-            SUM(CASE WHEN DC_TYPE = 'Grocery' THEN COALESCE(DC_UNLABELED_UNITS, 0) ELSE 0 END) AS dc_unlabeled_grocery,
-            SUM(CASE WHEN DC_TYPE = 'Fashion' THEN COALESCE(DC_UNLABELED_UNITS, 0) ELSE 0 END) AS dc_unlabeled_fashion,
-            SUM(CASE WHEN DC_TYPE = 'Imports' THEN COALESCE(DC_UNLABELED_UNITS, 0) ELSE 0 END) AS dc_unlabeled_imports,
-            -- STO by type
-            SUM(CASE WHEN DC_TYPE = 'Regional' THEN COALESCE(STO_TO_DC_UNITS, 0) ELSE 0 END) AS sto_to_dc_regional,
-            SUM(CASE WHEN DC_TYPE = 'Grocery' THEN COALESCE(STO_TO_DC_UNITS, 0) ELSE 0 END) AS sto_to_dc_grocery,
-            SUM(CASE WHEN DC_TYPE = 'Fashion' THEN COALESCE(STO_TO_DC_UNITS, 0) ELSE 0 END) AS sto_to_dc_fashion,
-            SUM(CASE WHEN DC_TYPE = 'Imports' THEN COALESCE(STO_TO_DC_UNITS, 0) ELSE 0 END) AS sto_to_dc_imports,
-            -- On Yard by type
-            SUM(CASE WHEN DC_TYPE = 'Regional' THEN COALESCE(ON_YARD_UNITS, 0) ELSE 0 END) AS on_yard_regional,
-            SUM(CASE WHEN DC_TYPE = 'Grocery' THEN COALESCE(ON_YARD_UNITS, 0) ELSE 0 END) AS on_yard_grocery,
-            SUM(CASE WHEN DC_TYPE = 'Fashion' THEN COALESCE(ON_YARD_UNITS, 0) ELSE 0 END) AS on_yard_fashion,
-            SUM(CASE WHEN DC_TYPE = 'Imports' THEN COALESCE(ON_YARD_UNITS, 0) ELSE 0 END) AS on_yard_imports
-        """
-
-        # Build DC Drilldown queries
-        dc_q1 = f"""SELECT BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU, {dc_drill_metric_sql}
-                    FROM {dc_fqn} GROUP BY BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU ORDER BY BUS_DT, SBU"""
-        dc_q2 = f"""SELECT BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU,
-                           OMNI_DEPT_NBR AS dept_nbr, DEPARTMENT AS department, {dc_drill_metric_sql}
-                    FROM {dc_fqn} GROUP BY BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU, dept_nbr, department
-                    ORDER BY BUS_DT, SBU, dept_nbr"""
-        dc_q3 = f"""SELECT BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU,
-                           OMNI_DEPT_NBR AS dept_nbr, DEPARTMENT AS department,
-                           OMNI_CATG_NBR AS catg_nbr, CATEGORY AS category, {dc_drill_metric_sql}
-                    FROM {dc_fqn}
-                    WHERE CATEGORY IS NOT NULL AND TRIM(CATEGORY) != ''
-                    GROUP BY BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU, dept_nbr, department, catg_nbr, category
-                    ORDER BY BUS_DT, SBU, dept_nbr, catg_nbr"""
-
-        # ============================================================
-        # PARALLEL QUERY EXECUTION - All 7 queries run simultaneously
+        # PARALLEL QUERY EXECUTION - All 4 queries run simultaneously
         # ============================================================
         queries = {
             'enterprise': q1,
             'sbu': q2,
             'dept': q3,
             'catg': q4,
-            'dc_drill_sbu': dc_q1,
-            'dc_drill_dept': dc_q2,
-            'dc_drill_catg': dc_q3,
         }
 
         results = {}
@@ -1030,11 +943,11 @@ class HistoricalCache:
                 print(f"[HIST] [ERR] {name} FAILED: {e}", flush=True)
                 return None
 
-        print(f"[HIST] Starting 7 queries in parallel...", flush=True)
+        print(f"[HIST] Starting 4 queries in parallel...", flush=True)
         parallel_start = time.time()
 
         # Execute all queries in parallel using ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=7) as executor:
+        with ThreadPoolExecutor(max_workers=4) as executor:
             futures = {executor.submit(run_query, name, sql): name for name, sql in queries.items()}
             for future in as_completed(futures):
                 name = futures[future]
@@ -1046,16 +959,13 @@ class HistoricalCache:
                     results[name] = None
 
         parallel_elapsed = round(time.time() - parallel_start, 1)
-        print(f"[HIST] [FAST] All 7 queries completed in {parallel_elapsed}s (parallel)", flush=True)
+        print(f"[HIST] [FAST] All 4 queries completed in {parallel_elapsed}s (parallel)", flush=True)
 
         # Assign results to instance variables
         self.enterprise_df = results.get('enterprise')
         self.sbu_df = results.get('sbu')
         self.dept_df = results.get('dept')
         self.catg_df = results.get('catg')
-        self.dc_drill_sbu_df = results.get('dc_drill_sbu')
-        self.dc_drill_dept_df = results.get('dc_drill_dept')
-        self.dc_drill_catg_df = results.get('dc_drill_catg')
 
         # Validate dept data
         if self.dept_df is not None and len(self.dept_df) > 0:
@@ -1100,19 +1010,6 @@ class HistoricalCache:
             print(f"[HIST] Latest enterprise week: BUS_DT={latest.get('BUS_DT')}, "
                   f"fc_oh={latest.get('fc_oh', 'N/A')}, on_yard={latest.get('on_yard', 'N/A')}", flush=True)
 
-        # Validate DC Drilldown Category data
-        if self.dc_drill_catg_df is not None and len(self.dc_drill_catg_df) > 0:
-            null_catg = self.dc_drill_catg_df['category'].isna().sum()
-            if null_catg > 0:
-                print(f"[HIST] [WARN] DC Category has {null_catg} NULL categories!", flush=True)
-            unique_weeks = self.dc_drill_catg_df[['WM_YEAR', 'WM_WEEK']].drop_duplicates()
-            print(f"[HIST] DC Category: {len(unique_weeks)} weeks available", flush=True)
-
-        # Convert date columns for all successful DC Drilldown dataframes
-        for df in [self.dc_drill_sbu_df, self.dc_drill_dept_df, self.dc_drill_catg_df]:
-            if df is not None and "BUS_DT" in df.columns:
-                df["BUS_DT"] = df["BUS_DT"].astype(str)
-
         # Convert date columns to strings for JSON serialization
         for df in [self.enterprise_df, self.sbu_df, self.dept_df, self.catg_df]:
             if df is not None and "BUS_DT" in df.columns:
@@ -1123,17 +1020,14 @@ class HistoricalCache:
         self.load_time_sec = round(time.time() - t0, 1)
         # Note: is_loading is set to False in the finally block of load()
 
-        dc_drill_rows = (len(self.dc_drill_sbu_df) if self.dc_drill_sbu_df is not None else 0) + \
-                        (len(self.dc_drill_dept_df) if self.dc_drill_dept_df is not None else 0) + \
-                        (len(self.dc_drill_catg_df) if self.dc_drill_catg_df is not None else 0)
-        total_rows = len(self.enterprise_df) + len(self.sbu_df) + len(self.dept_df) + len(self.catg_df) + dc_drill_rows
+        total_rows = len(self.enterprise_df) + len(self.sbu_df) + len(self.dept_df) + len(self.catg_df)
         logger.info(f"[HIST] Loaded {total_rows:,} total rows in {self.load_time_sec}s")
 
         # STEP 3: Save to disk cache for instant load on next restart
         self._save_to_disk()
 
     def to_lite_response(self) -> dict:
-        """LITE response dict — no by_catg/dc_drill_catg (80-90% of payload).
+        """LITE response dict — no by_catg (80-90% of payload).
 
         Cached so DataFrame→dict conversion happens once per cache load.
         Catg data served separately via /api/historical/catg (lazy-loaded).
@@ -1161,9 +1055,6 @@ class HistoricalCache:
             "by_sbu": self.sbu_df.to_dict(orient="records") if self.sbu_df is not None else [],
             "by_dept": self.dept_df.to_dict(orient="records") if self.dept_df is not None else [],
             "by_catg": [],           # fetched separately via /api/historical/catg
-            "dc_drill_sbu": self.dc_drill_sbu_df.to_dict(orient="records") if self.dc_drill_sbu_df is not None else [],
-            "dc_drill_dept": self.dc_drill_dept_df.to_dict(orient="records") if self.dc_drill_dept_df is not None else [],
-            "dc_drill_catg": [],     # fetched separately via /api/historical/catg
         }
 
         self._cached_lite_bytes = result  # cache the dict (field repurposed)
@@ -1172,7 +1063,7 @@ class HistoricalCache:
         return result
 
     def to_catg_response(self) -> dict:
-        """Catg-grain dict — by_catg + dc_drill_catg (lazy-loaded by frontend).
+        """Catg-grain dict — by_catg (lazy-loaded by frontend).
 
         Cached so DataFrame→dict conversion happens once per cache load.
         """
@@ -1184,7 +1075,6 @@ class HistoricalCache:
 
         result = {
             "by_catg": self.catg_df.to_dict(orient="records") if self.catg_df is not None else [],
-            "dc_drill_catg": self.dc_drill_catg_df.to_dict(orient="records") if self.dc_drill_catg_df is not None else [],
         }
 
         self._cached_catg_bytes = result  # cache the dict (field repurposed)
@@ -1216,9 +1106,6 @@ class HistoricalCache:
             "by_sbu": self.sbu_df.to_dict(orient="records") if self.sbu_df is not None else [],
             "by_dept": self.dept_df.to_dict(orient="records") if self.dept_df is not None else [],
             "by_catg": self.catg_df.to_dict(orient="records") if self.catg_df is not None else [],
-            "dc_drill_sbu": self.dc_drill_sbu_df.to_dict(orient="records") if self.dc_drill_sbu_df is not None else [],
-            "dc_drill_dept": self.dc_drill_dept_df.to_dict(orient="records") if self.dc_drill_dept_df is not None else [],
-            "dc_drill_catg": self.dc_drill_catg_df.to_dict(orient="records") if self.dc_drill_catg_df is not None else [],
         }
 
         logger.info(f"[HIST] Full response dict built in {round(time.time() - t0, 2)}s")
@@ -2200,7 +2087,7 @@ async def get_historical_data():
 
 @app.get("/api/historical/catg")
 async def get_historical_catg():
-    """Serve category-grain data (by_catg + dc_drill_catg).
+    """Serve category-grain data (by_catg).
 
     Large payload — lazy-loaded by the frontend only when the user drills to
     category level (Change Analysis → By Category, or SBU Comparison → Category filter).

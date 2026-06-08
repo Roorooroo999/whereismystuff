@@ -583,6 +583,7 @@
     let CACHED_BUCKETS_DATA = null;
     let CACHED_FILTERS_KEY = null;
     let CACHED_BY_YEAR = null;
+    let CACHED_BY_YEAR_KEY = null; // separate key — CACHED_FILTERS_KEY is set by buildBucketsData before byYear check
 
     // 2. Debounce timer for rapid filter changes
     let RENDER_DEBOUNCE_TIMER = null;
@@ -1206,7 +1207,7 @@
         // Group by fiscal year (with caching)
         const filterKey = JSON.stringify(filters);
         let byYear;
-        if (CACHED_BY_YEAR && CACHED_FILTERS_KEY === filterKey) {
+        if (CACHED_BY_YEAR && CACHED_BY_YEAR_KEY === filterKey) {
             byYear = CACHED_BY_YEAR;
             console.log('[BUCKETS] Using cached byYear data');
         } else {
@@ -1242,6 +1243,7 @@
 
             // PERFORMANCE: Cache the byYear data
             CACHED_BY_YEAR = byYear;
+            CACHED_BY_YEAR_KEY = filterKey;
         }
 
         // Find latest week with inventory data

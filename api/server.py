@@ -7,7 +7,7 @@ Deployed on Google Cloud Run / Posit Connect
 from fastapi import FastAPI, Query, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from google.cloud import bigquery
 from google.oauth2 import service_account
@@ -62,9 +62,8 @@ app = FastAPI(
 )
 
 # NOTE: GZipMiddleware removed — Posit Connect's reverse proxy handles compression.
-# Adding GZipMiddleware here causes double-compression / garbled responses on Posit.
-# The pre-serialized bytes cache (to_lite_json_bytes / to_catg_json_bytes) still
-# provides the main performance benefit (serialize once, serve many times).
+# The cached dict approach (to_lite_response / to_catg_response) still provides
+# the main performance benefit (DataFrame→dict conversion happens once per load).
 
 # Enable CORS for dashboard
 app.add_middleware(
@@ -1133,12 +1132,72 @@ class HistoricalCache:
         # STEP 3: Save to disk cache for instant load on next restart
         self._save_to_disk()
 
+    def to_lite_response(self) -> dict:
+        """LITE response dict — no by_catg/dc_drill_catg (80-90% of payload).
+
+        Cached so DataFrame→dict conversion happens once per cache load.
+        Catg data served separately via /api/historical/catg (lazy-loaded).
+        Uses the same SafeJSONResponse path as other endpoints for Posit compat.
+        """
+        if self._cached_lite_bytes is not None:
+            return self._cached_lite_bytes  # reusing field as dict cache
+
+        logger.info("[HIST] Building lite response dict (first request after load)...")
+        t0 = time.time()
+
+        ent = self.enterprise_df
+        dates = sorted(ent["BUS_DT"].unique())
+        sbu_list = sorted(self.sbu_df["SBU"].unique()) if "SBU" in self.sbu_df.columns else []
+
+        result = {
+            "generated_at": datetime.now().isoformat(),
+            "date_range": {
+                "min": dates[0] if dates else None,
+                "max": dates[-1] if dates else None,
+                "weeks": len(dates)
+            },
+            "sbu_list": list(sbu_list),
+            "enterprise": self.enterprise_df.to_dict(orient="records") if self.enterprise_df is not None else [],
+            "by_sbu": self.sbu_df.to_dict(orient="records") if self.sbu_df is not None else [],
+            "by_dept": self.dept_df.to_dict(orient="records") if self.dept_df is not None else [],
+            "by_catg": [],           # fetched separately via /api/historical/catg
+            "dc_drill_sbu": self.dc_drill_sbu_df.to_dict(orient="records") if self.dc_drill_sbu_df is not None else [],
+            "dc_drill_dept": self.dc_drill_dept_df.to_dict(orient="records") if self.dc_drill_dept_df is not None else [],
+            "dc_drill_catg": [],     # fetched separately via /api/historical/catg
+        }
+
+        self._cached_lite_bytes = result  # cache the dict (field repurposed)
+        elapsed = round(time.time() - t0, 2)
+        logger.info(f"[HIST] Lite response dict built in {elapsed}s")
+        return result
+
+    def to_catg_response(self) -> dict:
+        """Catg-grain dict — by_catg + dc_drill_catg (lazy-loaded by frontend).
+
+        Cached so DataFrame→dict conversion happens once per cache load.
+        """
+        if self._cached_catg_bytes is not None:
+            return self._cached_catg_bytes  # reusing field as dict cache
+
+        logger.info("[HIST] Building catg response dict (first catg request after load)...")
+        t0 = time.time()
+
+        result = {
+            "by_catg": self.catg_df.to_dict(orient="records") if self.catg_df is not None else [],
+            "dc_drill_catg": self.dc_drill_catg_df.to_dict(orient="records") if self.dc_drill_catg_df is not None else [],
+        }
+
+        self._cached_catg_bytes = result  # cache the dict (field repurposed)
+        elapsed = round(time.time() - t0, 2)
+        logger.info(f"[HIST] Catg response dict built in {elapsed}s")
+        return result
+
     def to_response(self) -> dict:
-        """Build the full JSON structure (legacy — prefer to_lite_json_bytes + to_catg_json_bytes)."""
+        """Full response dict (all data including catg). Kept for compatibility."""
         if self._cached_response is not None:
             return self._cached_response
 
-        logger.info("[HIST] Building full JSON response (first request after load)...")
+        logger.info("[HIST] Building full response dict (first request after load)...")
         t0 = time.time()
 
         ent = self.enterprise_df
@@ -1162,71 +1221,8 @@ class HistoricalCache:
             "dc_drill_catg": self.dc_drill_catg_df.to_dict(orient="records") if self.dc_drill_catg_df is not None else [],
         }
 
-        logger.info(f"[HIST] Full JSON response built in {round(time.time() - t0, 2)}s")
+        logger.info(f"[HIST] Full response dict built in {round(time.time() - t0, 2)}s")
         return self._cached_response
-
-    def to_lite_json_bytes(self) -> bytes:
-        """Pre-serialized JSON bytes for the LITE response.
-
-        Contains: enterprise, by_sbu, by_dept, dc_drill_sbu, dc_drill_dept.
-        Excludes: by_catg, dc_drill_catg (these are 80-90% of the payload!).
-        by_catg / dc_drill_catg are served separately via /api/historical/catg.
-
-        Pre-serialized so the bytes are computed ONCE and reused for every request.
-        GZipMiddleware then compresses these bytes before sending to the browser.
-        """
-        if self._cached_lite_bytes is not None:
-            return self._cached_lite_bytes
-
-        logger.info("[HIST] Building lite JSON bytes (first request after load)...")
-        t0 = time.time()
-
-        ent = self.enterprise_df
-        dates = sorted(ent["BUS_DT"].unique())
-        sbu_list = sorted(self.sbu_df["SBU"].unique()) if "SBU" in self.sbu_df.columns else []
-
-        lite = {
-            "generated_at": datetime.now().isoformat(),
-            "date_range": {
-                "min": dates[0] if dates else None,
-                "max": dates[-1] if dates else None,
-                "weeks": len(dates)
-            },
-            "sbu_list": list(sbu_list),
-            "enterprise": self.enterprise_df.to_dict(orient="records") if self.enterprise_df is not None else [],
-            "by_sbu": self.sbu_df.to_dict(orient="records") if self.sbu_df is not None else [],
-            "by_dept": self.dept_df.to_dict(orient="records") if self.dept_df is not None else [],
-            "by_catg": [],          # fetched separately via /api/historical/catg
-            "dc_drill_sbu": self.dc_drill_sbu_df.to_dict(orient="records") if self.dc_drill_sbu_df is not None else [],
-            "dc_drill_dept": self.dc_drill_dept_df.to_dict(orient="records") if self.dc_drill_dept_df is not None else [],
-            "dc_drill_catg": [],    # fetched separately via /api/historical/catg
-        }
-
-        self._cached_lite_bytes = _serialize_json(lite)
-        elapsed = round(time.time() - t0, 2)
-        logger.info(f"[HIST] Lite JSON bytes built in {elapsed}s ({len(self._cached_lite_bytes) // 1024}KB)")
-        return self._cached_lite_bytes
-
-    def to_catg_json_bytes(self) -> bytes:
-        """Pre-serialized JSON bytes for category-grain data (large, lazy-loaded).
-
-        Contains: by_catg + dc_drill_catg.
-        """
-        if self._cached_catg_bytes is not None:
-            return self._cached_catg_bytes
-
-        logger.info("[HIST] Building catg JSON bytes (first catg request after load)...")
-        t0 = time.time()
-
-        catg_data = {
-            "by_catg": self.catg_df.to_dict(orient="records") if self.catg_df is not None else [],
-            "dc_drill_catg": self.dc_drill_catg_df.to_dict(orient="records") if self.dc_drill_catg_df is not None else [],
-        }
-
-        self._cached_catg_bytes = _serialize_json(catg_data)
-        elapsed = round(time.time() - t0, 2)
-        logger.info(f"[HIST] Catg JSON bytes built in {elapsed}s ({len(self._cached_catg_bytes) // 1024}KB)")
-        return self._cached_catg_bytes
 
 
 hist_cache = HistoricalCache()
@@ -2193,32 +2189,26 @@ async def get_dc_lookup(dc_nbr: str = Query(..., description="DC number to look 
 async def get_historical_data():
     """Serve LITE historical data (enterprise + sbu + dept — no category rows).
 
-    Category data (~80-90% of payload) is intentionally excluded for speed.
-    Fetch /api/historical/catg for by_catg + dc_drill_catg when needed.
-    GZipMiddleware compresses the pre-serialized bytes before sending.
+    Category data (~80-90% of payload) is excluded for speed.
+    Frontend lazy-loads it via /api/historical/catg when needed.
+    Dict cached after first DataFrame→dict conversion so subsequent requests are fast.
     """
     if not hist_cache.is_ready:
         raise HTTPException(status_code=503, detail="Historical data is loading, please retry in a few seconds")
-    return Response(
-        content=hist_cache.to_lite_json_bytes(),
-        media_type="application/json"
-    )
+    return SafeJSONResponse(content=hist_cache.to_lite_response())
 
 
 @app.get("/api/historical/catg")
 async def get_historical_catg():
-    """Serve category-grain historical data (by_catg + dc_drill_catg).
+    """Serve category-grain data (by_catg + dc_drill_catg).
 
     Large payload — lazy-loaded by the frontend only when the user drills to
-    category level (SBU Comparison → Category filter or Change Analysis → By Category).
-    GZipMiddleware compresses this before sending.
+    category level (Change Analysis → By Category, or SBU Comparison → Category filter).
+    Dict cached after first DataFrame→dict conversion.
     """
     if not hist_cache.is_ready:
         raise HTTPException(status_code=503, detail="Historical data is loading, please retry in a few seconds")
-    return Response(
-        content=hist_cache.to_catg_json_bytes(),
-        media_type="application/json"
-    )
+    return SafeJSONResponse(content=hist_cache.to_catg_response())
 
 
 @app.get("/api/on-order")

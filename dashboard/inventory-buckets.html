@@ -892,6 +892,9 @@
 
         // Preload ALL departments (aligned with Historical view)
         populateDeptFilter();
+
+        // Preload hist catg in background so category dropdown is instant on dept selection
+        loadHistCatgBackground();
     }
 
     // Populate department filter - shows all depts, filtered by SBU if selected

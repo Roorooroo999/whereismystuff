@@ -1220,6 +1220,7 @@ class OnOrderCache:
         self.load_time_sec: float = 0
         self.is_loading: bool = False
         self._cached_response: Optional[dict] = None
+        self._cached_lite_response: Optional[dict] = None
         self.CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
     def _save_to_disk(self):
@@ -1356,6 +1357,7 @@ class OnOrderCache:
         """Load on-order data - from disk cache first, then BigQuery."""
         self.is_loading = True
         self._cached_response = None
+        self._cached_lite_response = None
         t0 = time.time()
 
         # STEP 1: Try loading from disk cache first
@@ -1537,6 +1539,7 @@ class OnOrderCache:
                 print(f"[ONORDER] [BG] Catg ready: {len(df):,} rows in {elapsed}s", flush=True)
                 self.catg_df = df
                 self._cached_response = None
+                self._cached_lite_response = None
                 self._save_catg_to_disk()
             except Exception as e:
                 print(f"[ONORDER] [BG] Catg load failed: {e}", flush=True)
@@ -1544,8 +1547,46 @@ class OnOrderCache:
         print(f"[ONORDER] Catg loading in background thread (won't block health check)...", flush=True)
         threading.Thread(target=_load_catg_bg, daemon=True, name="onorder-catg-loader").start()
 
+    def to_lite_response(self) -> dict:
+        """LITE response — enterprise, by_sbu, by_dept only (no catg).
+        Cached. Catg (~316K rows) served separately via /api/on-order/catg.
+        """
+        if self._cached_lite_response is not None:
+            return self._cached_lite_response
+
+        weeks = sorted(self.enterprise_df["wm_week"].unique()) if self.enterprise_df is not None else []
+        sbu_list = sorted(self.sbu_df["sbu"].unique()) if self.sbu_df is not None and "sbu" in self.sbu_df.columns else []
+
+        self._cached_lite_response = {
+            "generated_at": datetime.now().isoformat(),
+            "week_range": {
+                "min": int(weeks[0]) if weeks else None,
+                "max": int(weeks[-1]) if weeks else None,
+                "count": len(weeks)
+            },
+            "sbu_list": list(sbu_list),
+            "filters": {
+                "replen_options": ["REPLEN", "NON-REPLEN"],
+                "channel_options": ["STORE", "ECOMM"],
+                "dsd_options": ["DSD", "NON-DSD"]
+            },
+            "enterprise": self.enterprise_df.to_dict(orient="records") if self.enterprise_df is not None else [],
+            "by_sbu": self.sbu_df.to_dict(orient="records") if self.sbu_df is not None else [],
+            "by_dept": self.dept_df.to_dict(orient="records") if self.dept_df is not None else [],
+            "by_catg": [],  # fetched separately via /api/on-order/catg
+        }
+        logger.info("[ONORDER] Lite response built")
+        return self._cached_lite_response
+
+    def to_catg_response(self) -> dict:
+        """Catg-grain response — lazy-loaded by frontend."""
+        return {
+            "by_catg": self.catg_df.to_dict(orient="records") if self.catg_df is not None else [],
+            "loading": self.catg_df is None,
+        }
+
     def to_response(self) -> dict:
-        """Build JSON response for On-Order data."""
+        """Full response dict (all data including catg). Kept for compatibility."""
         if self._cached_response is not None:
             return self._cached_response
 
@@ -2266,10 +2307,22 @@ async def get_historical_catg():
 
 @app.get("/api/on-order")
 async def get_onorder_data():
-    """Serve pre-aggregated on-order historical data from in-memory cache."""
+    """Serve LITE on-order data (enterprise + by_sbu + by_dept, no catg).
+    Catg (~316K rows) fetched separately via /api/on-order/catg when needed.
+    """
     if not onorder_cache.is_ready:
         raise HTTPException(status_code=503, detail="On-Order data is loading, please retry in a few seconds")
-    return SafeJSONResponse(content=onorder_cache.to_response())
+    return SafeJSONResponse(content=onorder_cache.to_lite_response())
+
+
+@app.get("/api/on-order/catg")
+async def get_onorder_catg():
+    """Serve on-order catg data (lazy-loaded by frontend when user filters to category)."""
+    if not onorder_cache.is_ready:
+        raise HTTPException(status_code=503, detail="On-Order data is loading, please retry in a few seconds")
+    if not onorder_cache.catg_ready:
+        return SafeJSONResponse(content={"by_catg": [], "loading": True})
+    return SafeJSONResponse(content=onorder_cache.to_catg_response())
 
 
 @app.post("/api/cache/refresh-onorder")

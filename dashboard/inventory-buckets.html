@@ -564,6 +564,8 @@
     // Global state
     let HIST_DATA = null;
     let ONORDER_DATA = null;
+    let ONORDER_CATG_LOADED = false;
+    let ONORDER_CATG_LOADING = false;
     let CHARTS = {};
     const HIDDEN_SBUS = ['OTHER', 'UNASSIGNED'];
 
@@ -800,6 +802,43 @@
         }
     }
 
+    // Lazy-load on-order catg (~316K rows) only when user filters to category level
+    const MAX_ONORDER_CATG_RETRIES = 20; // 60s total
+    let onorderCatgRetryCount = 0;
+    function loadOnorderCatgBackground(onDone) {
+        if (ONORDER_CATG_LOADED) { if (onDone) onDone(); return; }
+        if (ONORDER_CATG_LOADING) return;
+        ONORDER_CATG_LOADING = true;
+        onorderCatgRetryCount = 0;
+        const apiBase = window.location.pathname.replace(/\/dashboard\/.*$/, '');
+        function tryLoad() {
+            fetch(apiBase + '/api/on-order/catg')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.loading) {
+                        onorderCatgRetryCount++;
+                        if (onorderCatgRetryCount < MAX_ONORDER_CATG_RETRIES) {
+                            setTimeout(tryLoad, 3000);
+                        } else {
+                            ONORDER_CATG_LOADING = false;
+                            console.warn('[BUCKETS] On-order catg timed out');
+                        }
+                        return;
+                    }
+                    ONORDER_DATA.by_catg = data.by_catg || [];
+                    ONORDER_CATG_LOADED = true;
+                    ONORDER_CATG_LOADING = false;
+                    console.log('[BUCKETS] On-order catg loaded:', ONORDER_DATA.by_catg.length, 'rows');
+                    if (onDone) onDone();
+                })
+                .catch(e => {
+                    ONORDER_CATG_LOADING = false;
+                    console.warn('[BUCKETS] On-order catg fetch failed:', e);
+                });
+        }
+        tryLoad();
+    }
+
     function populateFilters() {
         // Populate SBU filter
         const sbuSelect = document.getElementById('sbu-filter');
@@ -1031,7 +1070,10 @@
         // Select appropriate on-order dataset based on filter level
         let onorderSource;
         if (filters.catgs.length > 0) {
-            // Category filter - use by_catg
+            // Category filter - use by_catg (lazy-loaded)
+            if (!ONORDER_CATG_LOADED) {
+                loadOnorderCatgBackground(() => renderCharts());
+            }
             onorderSource = (ONORDER_DATA?.by_catg || []).filter(r => filters.catgs.includes(r.category));
             if (filters.depts.length > 0) {
                 onorderSource = onorderSource.filter(r => filters.depts.includes(r.department));

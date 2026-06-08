@@ -714,41 +714,67 @@
     async function loadCatgDataBackground() {
         if (CATG_LOADED || CATG_LOADING) return;
         CATG_LOADING = true;
-        try {
-            const catgUrl = window.location.pathname.replace(/\/dashboard\/.*$/, '') + '/api/historical/catg';
-            const resp = await fetch(catgUrl);
-            if (!resp.ok) throw new Error(`catg API ${resp.status}`);
-            const catgData = await resp.json();
-            // Merge into RAW_DATA
-            RAW_DATA.by_catg = catgData.by_catg || [];
-            CATG_LOADED = true;
-            CATG_LOADING = false;
-            console.log('[HIST] Catg data loaded:', RAW_DATA.by_catg.length, 'rows');
-            // If Change Analysis is already showing catg view, re-render
-            const viewFilter = document.getElementById('dc-drill-view-filter');
-            if (viewFilter && viewFilter.value === 'catg') {
-                loadDCDrilldownData();
+        const catgUrl = window.location.pathname.replace(/\/dashboard\/.*$/, '') + '/api/historical/catg';
+        const MAX_CATG_RETRIES = 20;  // up to ~100s (5s intervals) for slow BQ catg query
+        let attempt = 0;
+
+        const tryLoad = async () => {
+            attempt++;
+            try {
+                const resp = await fetch(catgUrl);
+                if (!resp.ok) throw new Error(`catg API ${resp.status}`);
+                const catgData = await resp.json();
+
+                // Server signals catg BQ query is still running — retry
+                if (catgData.loading) {
+                    console.log('[HIST] Catg still loading on server, retry', attempt, '/', MAX_CATG_RETRIES);
+                    if (attempt < MAX_CATG_RETRIES) {
+                        setTimeout(tryLoad, 5000);
+                    } else {
+                        CATG_LOADING = false;
+                        console.warn('[HIST] Catg data never became ready after', MAX_CATG_RETRIES, 'retries');
+                    }
+                    return;
+                }
+
+                RAW_DATA.by_catg = catgData.by_catg || [];
+                CATG_LOADED = true;
+                CATG_LOADING = false;
+                console.log('[HIST] Catg data loaded:', RAW_DATA.by_catg.length, 'rows');
+                // If Change Analysis is already showing catg view, re-render
+                const viewFilter = document.getElementById('dc-drill-view-filter');
+                if (viewFilter && viewFilter.value === 'catg') {
+                    loadDCDrilldownData();
+                }
+            } catch (e) {
+                CATG_LOADING = false;
+                console.warn('[HIST] Could not lazy-load catg data:', e.message);
             }
-        } catch (e) {
-            CATG_LOADING = false;
-            console.warn('[HIST] Could not lazy-load catg data:', e.message);
-        }
+        };
+
+        tryLoad();
     }
 
     async function ensureCatgLoaded(callback) {
         if (CATG_LOADED) { callback(); return; }
         if (CATG_LOADING) {
-            // Poll until loaded (max 30s)
+            // Poll until loaded (max 120s)
             let waited = 0;
             const poll = setInterval(() => {
-                waited += 200;
+                waited += 500;
                 if (CATG_LOADED) { clearInterval(poll); callback(); }
-                else if (waited > 30000) { clearInterval(poll); callback(); } // give up, run anyway
-            }, 200);
+                else if (waited > 120000) { clearInterval(poll); callback(); } // give up after 2 min
+            }, 500);
             return;
         }
-        await loadCatgDataBackground();
-        callback();
+        loadCatgDataBackground();
+        // Poll for completion
+        let waited = 0;
+        const poll = setInterval(() => {
+            waited += 500;
+            if (CATG_LOADED) { clearInterval(poll); callback(); }
+            else if (waited > 120000) { clearInterval(poll); callback(); }
+        }, 500);
     }
 
     const HIDDEN_SBUS = ['OTHER', 'UNASSIGNED'];
@@ -2733,14 +2759,23 @@
             viewFilter.value = sbuFilter ? 'dept' : 'sbu';
         }
         updateBreadcrumb();
-        renderDCDrilldown();
+        switchDrillViewMode();
+    }
+
+    function showCatgLoadingState() {
+        const loadingMsg = '<tr><td colspan="6" class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div><span class="text-muted">Loading category data from BigQuery... this may take 30-40 seconds on first load.</span></td></tr>';
+        const inc = document.getElementById('dc-drill-increasing-tbody');
+        const dec = document.getElementById('dc-drill-decreasing-tbody');
+        if (inc) inc.innerHTML = loadingMsg;
+        if (dec) dec.innerHTML = loadingMsg;
     }
 
     function switchDrillViewMode() {
         populateDeptFilter();
         const viewMode = document.getElementById('dc-drill-view-filter').value;
         if (viewMode === 'catg' && !CATG_LOADED) {
-            // Category data not yet loaded — ensure it's loaded first then re-render
+            // Show loading state immediately so user knows it's working
+            showCatgLoadingState();
             ensureCatgLoaded(() => {
                 loadDCDrilldownData();
             });

@@ -754,13 +754,20 @@ class HistoricalCache:
 
     @property
     def is_ready(self) -> bool:
+        # catg_df intentionally excluded — it's the slowest query (~35-40s) and is
+        # served lazily via /api/historical/catg. Requiring it here blocks the health
+        # check and keeps the Buckets page stuck loading for 40+ seconds.
         return (
             self.enterprise_df is not None and not self.enterprise_df.empty
             and self.sbu_df is not None
             and self.dept_df is not None
-            and self.catg_df is not None
             and not self.is_loading
         )
+
+    @property
+    def catg_ready(self) -> bool:
+        """True once the large category DataFrame has finished loading."""
+        return self.catg_df is not None
 
     def _get_client(self):
         creds_json = os.environ.get("GOOGLE_CREDENTIALS", "")
@@ -2092,9 +2099,14 @@ async def get_historical_catg():
     Large payload — lazy-loaded by the frontend only when the user drills to
     category level (Change Analysis → By Category, or SBU Comparison → Category filter).
     Dict cached after first DataFrame→dict conversion.
+    Returns loading=true if catg is still being queried from BigQuery.
     """
     if not hist_cache.is_ready:
         raise HTTPException(status_code=503, detail="Historical data is loading, please retry in a few seconds")
+    if not hist_cache.catg_ready:
+        # Main cache is ready but catg query is still running (~35-40s)
+        # Return a loading signal so the frontend can retry
+        return SafeJSONResponse(content={"by_catg": [], "loading": True})
     return SafeJSONResponse(content=hist_cache.to_catg_response())
 
 

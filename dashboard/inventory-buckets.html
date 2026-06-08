@@ -566,6 +566,8 @@
     let ONORDER_DATA = null;
     let ONORDER_CATG_LOADED = false;
     let ONORDER_CATG_LOADING = false;
+    let HIST_CATG_LOADED = false;
+    let HIST_CATG_LOADING = false;
     let CHARTS = {};
     const HIDDEN_SBUS = ['OTHER', 'UNASSIGNED'];
 
@@ -802,6 +804,43 @@
         }
     }
 
+    // Lazy-load hist catg from /api/historical/catg (needed for category filter dropdown + chart data)
+    const MAX_HIST_CATG_RETRIES = 20;
+    let histCatgRetryCount = 0;
+    function loadHistCatgBackground(onDone) {
+        if (HIST_CATG_LOADED) { if (onDone) onDone(); return; }
+        if (HIST_CATG_LOADING) return;
+        HIST_CATG_LOADING = true;
+        histCatgRetryCount = 0;
+        const apiBase = window.location.pathname.replace(/\/dashboard\/.*$/, '');
+        function tryLoad() {
+            fetch(apiBase + '/api/historical/catg')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.loading) {
+                        histCatgRetryCount++;
+                        if (histCatgRetryCount < MAX_HIST_CATG_RETRIES) {
+                            setTimeout(tryLoad, 3000);
+                        } else {
+                            HIST_CATG_LOADING = false;
+                            console.warn('[BUCKETS] Hist catg timed out');
+                        }
+                        return;
+                    }
+                    HIST_DATA.by_catg = data.by_catg || [];
+                    HIST_CATG_LOADED = true;
+                    HIST_CATG_LOADING = false;
+                    console.log('[BUCKETS] Hist catg loaded:', HIST_DATA.by_catg.length, 'rows');
+                    if (onDone) onDone();
+                })
+                .catch(e => {
+                    HIST_CATG_LOADING = false;
+                    console.warn('[BUCKETS] Hist catg fetch failed:', e);
+                });
+        }
+        tryLoad();
+    }
+
     // Lazy-load on-order catg (~316K rows) only when user filters to category level
     const MAX_ONORDER_CATG_RETRIES = 20; // 60s total
     let onorderCatgRetryCount = 0;
@@ -899,32 +938,45 @@
         syncSidebarToChangeAnalysis();
     }
 
-    function onDeptChange() {
-        // Update category filter based on dept selection
+    function populateCatgFilter() {
         const deptSelect = document.getElementById('dept-filter');
         const selectedDepts = Array.from(deptSelect.selectedOptions).map(o => o.value);
-
         const catgSelect = document.getElementById('catg-filter');
         catgSelect.innerHTML = '';
 
-        if (HIST_DATA && HIST_DATA.by_catg && selectedDepts.length > 0) {
-            const catgs = [...new Set(
-                HIST_DATA.by_catg
-                    .filter(r => selectedDepts.includes(r.department))
-                    .map(r => r.category)
-                    .filter(Boolean)
-            )].sort();
+        if (selectedDepts.length === 0) {
+            catgSelect.innerHTML = '<option value="">Select Dept first</option>';
+            return;
+        }
+
+        if (!HIST_CATG_LOADED) {
+            catgSelect.innerHTML = '<option value="" disabled>Loading categories...</option>';
+            loadHistCatgBackground(() => { populateCatgFilter(); renderCharts(); updateFilterUI(); });
+            return;
+        }
+
+        const catgs = [...new Set(
+            (HIST_DATA.by_catg || [])
+                .filter(r => selectedDepts.includes(r.department))
+                .map(r => r.category)
+                .filter(Boolean)
+        )].sort();
+
+        if (catgs.length === 0) {
+            catgSelect.innerHTML = '<option value="" disabled>No categories found</option>';
+        } else {
             catgs.forEach(c => {
                 const opt = document.createElement('option');
                 opt.value = c; opt.textContent = c;
                 catgSelect.appendChild(opt);
             });
         }
+    }
 
+    function onDeptChange() {
+        populateCatgFilter();
         renderCharts();
         updateFilterUI();
-
-        // Sync sidebar filters to Change Analysis and re-render
         syncSidebarToChangeAnalysis();
     }
 
@@ -1010,7 +1062,10 @@
         // Note: Historical uses lowercase column names: department, category, SBU
         let histSource;
         if (filters.catgs.length > 0) {
-            // Category filter - use by_catg data
+            // Category filter - use by_catg data (lazy-loaded)
+            if (!HIST_CATG_LOADED) {
+                loadHistCatgBackground(() => renderCharts());
+            }
             histSource = (HIST_DATA?.by_catg || []).filter(r => filters.catgs.includes(r.category));
             if (filters.depts.length > 0) {
                 histSource = histSource.filter(r => filters.depts.includes(r.department));

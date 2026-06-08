@@ -704,24 +704,96 @@ class HistoricalCache:
         # Ensure cache directory exists
         self.CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
+    def _start_catg_bg_load(self):
+        """Start a background thread to load catg from BigQuery.
+        Used when disk cache was loaded but catg parquet was absent.
+        """
+        import threading
+
+        def _bg():
+            try:
+                client = self._get_client()
+            except Exception as e:
+                print(f"[HIST] [BG] Failed to get BQ client for catg: {e}", flush=True)
+                return
+
+            fqn = f"`{HIST_PROJECT_ID}.{DATASET}.{HIST_TABLE}`"
+            catg_metric_sql = """
+                SUM(COALESCE(STORE_OH_UNITS, 0)) AS store_oh,
+                SUM(COALESCE(BACKROOM_UNITS, 0)) AS backroom,
+                SUM(COALESCE(ON_FLOOR_UNITS, 0)) AS on_floor,
+                SUM(COALESCE(DC_OH_UNITS, 0)) AS dc_oh,
+                SUM(COALESCE(DC_RESERVED_UNITS, 0)) AS dc_reserved,
+                SUM(COALESCE(DC_LABELED_UNITS, 0)) AS dc_labeled,
+                SUM(COALESCE(DC_UNLABELED_UNITS, 0)) AS dc_unlabeled,
+                SUM(COALESCE(STO_IN_TRANSIT_TO_DC_UNITS, 0)) AS sto_to_dc,
+                SUM(COALESCE(ON_YARD_UNITS, 0)) AS on_yard,
+                SUM(COALESCE(IN_TRANSIT_UNITS, 0)) AS in_transit,
+                SUM(COALESCE(TOTAL_NETWORK_UNITS, 0)) AS total_network,
+                SUM(COALESCE(FC_OH_UNITS, 0)) AS fc_oh,
+                SUM(COALESCE(DC_OH_REGIONAL_UNITS, 0)) AS dc_oh_regional,
+                SUM(COALESCE(DC_OH_GROCERY_UNITS, 0)) AS dc_oh_grocery,
+                SUM(COALESCE(DC_OH_FASHION_UNITS, 0)) AS dc_oh_fashion,
+                SUM(COALESCE(DC_OH_IMPORTS_UNITS, 0)) AS dc_oh_imports,
+                SUM(COALESCE(STO_TO_REGIONAL_UNITS, 0)) AS sto_to_dc_regional,
+                SUM(COALESCE(STO_TO_GROCERY_UNITS, 0)) AS sto_to_dc_grocery,
+                SUM(COALESCE(STO_TO_FASHION_UNITS, 0)) AS sto_to_dc_fashion,
+                SUM(COALESCE(STO_TO_IMPORTS_UNITS, 0)) AS sto_to_dc_imports,
+                SUM(COALESCE(ON_YARD_REGIONAL_UNITS, 0)) AS on_yard_regional,
+                SUM(COALESCE(ON_YARD_GROCERY_UNITS, 0)) AS on_yard_grocery,
+                SUM(COALESCE(ON_YARD_FASHION_UNITS, 0)) AS on_yard_fashion,
+                SUM(COALESCE(ON_YARD_IMPORTS_UNITS, 0)) AS on_yard_imports
+            """
+            q = f"""SELECT BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU,
+                           OMNI_DEPT_NBR AS dept_nbr, OMNI_DEPT_DESC AS department,
+                           OMNI_CATG_NBR AS catg_nbr, OMNI_CATG_DESC AS category, {catg_metric_sql}
+                    FROM {fqn}
+                    WHERE OMNI_CATG_NBR IS NOT NULL
+                    GROUP BY BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU, dept_nbr, department, catg_nbr, category
+                    ORDER BY BUS_DT, SBU, dept_nbr, catg_nbr"""
+            try:
+                t0 = time.time()
+                df = client.query(q).to_dataframe()
+                if "BUS_DT" in df.columns:
+                    df["BUS_DT"] = df["BUS_DT"].astype(str)
+                self.catg_df = df
+                self._cached_catg_bytes = None
+                self._cached_response = None
+                print(f"[HIST] [BG] Catg ready: {len(df):,} rows in {round(time.time()-t0,1)}s", flush=True)
+                self._save_catg_to_disk()
+            except Exception as e:
+                print(f"[HIST] [BG] Catg query failed: {e}", flush=True)
+
+        threading.Thread(target=_bg, daemon=True, name="hist-catg-loader").start()
+
     def _save_to_disk(self):
-        """Save DataFrames to parquet for instant load on restart."""
+        """Save core DataFrames to parquet for instant load on restart.
+        Catg is saved separately by _save_catg_to_disk() once it finishes loading.
+        """
         try:
             t0 = time.time()
             self.enterprise_df.to_parquet(self.CACHE_DIR / "enterprise.parquet")
             self.sbu_df.to_parquet(self.CACHE_DIR / "sbu.parquet")
             self.dept_df.to_parquet(self.CACHE_DIR / "dept.parquet")
-            self.catg_df.to_parquet(self.CACHE_DIR / "catg.parquet")
-            # Save metadata
+            # Save metadata (catg may not be ready yet — that's OK)
             metadata = {"loaded_date": self.loaded_date, "loaded_at": self.loaded_at}
             with open(self.CACHE_DIR / "metadata.json", "w") as f:
                 json.dump(metadata, f)
-            print(f"[HIST] [DISK] Saved cache to disk in {round(time.time() - t0, 1)}s", flush=True)
+            print(f"[HIST] [DISK] Saved core cache to disk in {round(time.time() - t0, 1)}s", flush=True)
         except Exception as e:
             print(f"[HIST] [WARN] Failed to save cache to disk: {e}", flush=True)
 
+    def _save_catg_to_disk(self):
+        """Save catg parquet after background load completes."""
+        try:
+            if self.catg_df is not None:
+                self.catg_df.to_parquet(self.CACHE_DIR / "catg.parquet")
+                print(f"[HIST] [DISK] Saved catg cache to disk ({len(self.catg_df):,} rows)", flush=True)
+        except Exception as e:
+            print(f"[HIST] [WARN] Failed to save catg to disk: {e}", flush=True)
+
     def _load_from_disk(self) -> bool:
-        """Load DataFrames from parquet cache. Returns True if successful."""
+        """Load DataFrames from parquet cache. Returns True if core data loaded successfully."""
         try:
             metadata_file = self.CACHE_DIR / "metadata.json"
             if not metadata_file.exists():
@@ -741,12 +813,18 @@ class HistoricalCache:
             self.enterprise_df = pd.read_parquet(self.CACHE_DIR / "enterprise.parquet")
             self.sbu_df = pd.read_parquet(self.CACHE_DIR / "sbu.parquet")
             self.dept_df = pd.read_parquet(self.CACHE_DIR / "dept.parquet")
-            self.catg_df = pd.read_parquet(self.CACHE_DIR / "catg.parquet")
+            # Catg may not exist yet if server was restarted mid-load
+            catg_file = self.CACHE_DIR / "catg.parquet"
+            if catg_file.exists():
+                self.catg_df = pd.read_parquet(catg_file)
+            else:
+                print("[HIST] [DISK] catg.parquet not found, will load from BQ in background", flush=True)
 
             self.loaded_date = cached_date
             self.loaded_at = metadata.get("loaded_at")
             elapsed = round(time.time() - t0, 1)
-            print(f"[HIST] [FAST] Loaded from disk cache in {elapsed}s (cached at {cached_date})", flush=True)
+            print(f"[HIST] [FAST] Loaded from disk cache in {elapsed}s (cached at {cached_date})"
+                  f"{' [catg missing]' if self.catg_df is None else ''}", flush=True)
             return True
         except Exception as e:
             print(f"[HIST] [WARN] Failed to load from disk cache: {e}", flush=True)
@@ -793,8 +871,13 @@ class HistoricalCache:
         if not force_refresh and self._load_from_disk():
             self.is_loading = False
             self.load_time_sec = round(time.time() - t0, 1)
-            print(f"[HIST] [OK] Ready to serve from disk cache!", flush=True)
-            return  # Success! Data is ready to serve
+            if self.catg_df is None:
+                # Core loaded from disk but catg parquet was missing — load catg from BQ in background
+                print(f"[HIST] [OK] Core ready from disk, catg missing — loading from BQ in background...", flush=True)
+                self._start_catg_bg_load()
+            else:
+                print(f"[HIST] [OK] Ready to serve from disk cache!", flush=True)
+            return  # Core data is ready to serve
 
         # STEP 2: No cache or stale - load from BigQuery
         print(f"[HIST] Loading fresh data from BigQuery...", flush=True)
@@ -923,23 +1006,18 @@ class HistoricalCache:
                  ORDER BY BUS_DT, SBU, dept_nbr, catg_nbr"""
 
         print(f"[HIST] Loading from table: {HIST_PROJECT_ID}.{DATASET}.{HIST_TABLE}", flush=True)
-        print(f"[HIST] [FAST] Using PARALLEL query execution for faster loading...", flush=True)
 
         # ============================================================
-        # PARALLEL QUERY EXECUTION - All 4 queries run simultaneously
+        # STEP A: Run core queries (enterprise/sbu/dept) in parallel.
+        #         These finish in ~10s and make is_ready=True quickly.
+        # STEP B: Run catg in a background thread (~35-40s).
+        #         catg is served lazily via /api/historical/catg so it
+        #         doesn't need to block the health check or Buckets page.
         # ============================================================
-        queries = {
-            'enterprise': q1,
-            'sbu': q2,
-            'dept': q3,
-            'catg': q4,
-        }
-
+        core_queries = {'enterprise': q1, 'sbu': q2, 'dept': q3}
         results = {}
-        errors = {}
 
         def run_query(name, sql):
-            """Execute a single BigQuery query and return the result."""
             try:
                 t_start = time.time()
                 df = client.query(sql).to_dataframe()
@@ -950,88 +1028,84 @@ class HistoricalCache:
                 print(f"[HIST] [ERR] {name} FAILED: {e}", flush=True)
                 return None
 
-        print(f"[HIST] Starting 4 queries in parallel...", flush=True)
-        parallel_start = time.time()
-
-        # Execute all queries in parallel using ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            futures = {executor.submit(run_query, name, sql): name for name, sql in queries.items()}
+        # ── STEP A: Core queries ──────────────────────────────────────
+        print(f"[HIST] Starting 3 core queries in parallel...", flush=True)
+        core_start = time.time()
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = {executor.submit(run_query, name, sql): name for name, sql in core_queries.items()}
             for future in as_completed(futures):
                 name = futures[future]
                 try:
                     results[name] = future.result()
                 except Exception as e:
                     print(f"[HIST] [ERR] {name} exception: {e}", flush=True)
-                    errors[name] = str(e)
                     results[name] = None
 
-        parallel_elapsed = round(time.time() - parallel_start, 1)
-        print(f"[HIST] [FAST] All 4 queries completed in {parallel_elapsed}s (parallel)", flush=True)
+        core_elapsed = round(time.time() - core_start, 1)
+        print(f"[HIST] [FAST] Core queries done in {core_elapsed}s", flush=True)
 
-        # Assign results to instance variables
+        # Assign core results
         self.enterprise_df = results.get('enterprise')
         self.sbu_df = results.get('sbu')
         self.dept_df = results.get('dept')
-        self.catg_df = results.get('catg')
 
-        # Validate dept data
+        # Validate
         if self.dept_df is not None and len(self.dept_df) > 0:
-            print(f"[HIST] Dept records: {len(self.dept_df)}", flush=True)
-            print(f"[HIST] Dept columns: {list(self.dept_df.columns)}", flush=True)
             unique_depts = self.dept_df['department'].nunique() if 'department' in self.dept_df.columns else 'N/A'
-            print(f"[HIST] Unique departments: {unique_depts}", flush=True)
+            print(f"[HIST] Dept: {len(self.dept_df):,} records, {unique_depts} departments", flush=True)
         else:
             print(f"[HIST] [WARN] No dept data loaded!", flush=True)
 
-        # Validate category data - especially backroom/on_floor
-        if self.catg_df is not None and len(self.catg_df) > 0:
-            print(f"[HIST] Category records: {len(self.catg_df)}", flush=True)
-            print(f"[HIST] Category columns: {list(self.catg_df.columns)}", flush=True)
-            if 'backroom' in self.catg_df.columns:
-                backroom_sum = self.catg_df['backroom'].sum()
-                print(f"[HIST] Category backroom sum: {backroom_sum:,.0f}", flush=True)
-            else:
-                print(f"[HIST] [WARN] Category missing 'backroom' column!", flush=True)
-            if 'on_floor' in self.catg_df.columns:
-                on_floor_sum = self.catg_df['on_floor'].sum()
-                print(f"[HIST] Category on_floor sum: {on_floor_sum:,.0f}", flush=True)
-            else:
-                print(f"[HIST] [WARN] Category missing 'on_floor' column!", flush=True)
-        else:
-            print(f"[HIST] [WARN] No category data loaded!", flush=True)
-
-        # Validate enterprise data (critical for FC/On Yard KPIs)
         if self.enterprise_df is not None and len(self.enterprise_df) > 0:
-            print(f"[HIST] Enterprise columns: {list(self.enterprise_df.columns)}", flush=True)
             critical_cols = ['fc_oh', 'on_yard', 'sto_to_dc', 'dc_labeled', 'dc_unlabeled']
             missing_cols = [c for c in critical_cols if c not in self.enterprise_df.columns]
             if missing_cols:
-                print(f"[HIST] [WARN] WARNING: Missing critical columns: {missing_cols}", flush=True)
-            if 'fc_oh' in self.enterprise_df.columns:
-                fc_sum = self.enterprise_df['fc_oh'].sum()
-                print(f"[HIST] Enterprise fc_oh: sum={fc_sum:,.0f}", flush=True)
-            if 'on_yard' in self.enterprise_df.columns:
-                yard_sum = self.enterprise_df['on_yard'].sum()
-                print(f"[HIST] Enterprise on_yard: sum={yard_sum:,.0f}", flush=True)
+                print(f"[HIST] [WARN] Missing critical columns: {missing_cols}", flush=True)
             latest = self.enterprise_df.iloc[-1]
-            print(f"[HIST] Latest enterprise week: BUS_DT={latest.get('BUS_DT')}, "
+            print(f"[HIST] Latest week: BUS_DT={latest.get('BUS_DT')}, "
                   f"fc_oh={latest.get('fc_oh', 'N/A')}, on_yard={latest.get('on_yard', 'N/A')}", flush=True)
 
-        # Convert date columns to strings for JSON serialization
-        for df in [self.enterprise_df, self.sbu_df, self.dept_df, self.catg_df]:
+        # Convert date columns for core DFs
+        for df in [self.enterprise_df, self.sbu_df, self.dept_df]:
             if df is not None and "BUS_DT" in df.columns:
                 df["BUS_DT"] = df["BUS_DT"].astype(str)
 
         self.loaded_at = time.time()
         self.loaded_date = datetime.now().strftime("%Y-%m-%d")
         self.load_time_sec = round(time.time() - t0, 1)
-        # Note: is_loading is set to False in the finally block of load()
+        # Note: is_loading=False is set in the finally block of load() right after _do_load returns.
+        # Core data is ready — Buckets health check will pass.
 
-        total_rows = len(self.enterprise_df) + len(self.sbu_df) + len(self.dept_df) + len(self.catg_df)
-        logger.info(f"[HIST] Loaded {total_rows:,} total rows in {self.load_time_sec}s")
+        core_rows = (len(self.enterprise_df) if self.enterprise_df is not None else 0) + \
+                    (len(self.sbu_df) if self.sbu_df is not None else 0) + \
+                    (len(self.dept_df) if self.dept_df is not None else 0)
+        logger.info(f"[HIST] Core loaded {core_rows:,} rows in {self.load_time_sec}s")
 
-        # STEP 3: Save to disk cache for instant load on next restart
+        # Save core to disk now (catg saved separately when bg thread finishes)
         self._save_to_disk()
+
+        # ── STEP B: Catg in background thread ───────────────────────
+        import threading
+
+        def _load_catg_bg():
+            print("[HIST] [BG] Starting background catg query...", flush=True)
+            bg_t = time.time()
+            catg_df = run_query('catg', q4)
+            if catg_df is None:
+                print("[HIST] [BG] [WARN] Catg query failed!", flush=True)
+                return
+            if "BUS_DT" in catg_df.columns:
+                catg_df["BUS_DT"] = catg_df["BUS_DT"].astype(str)
+            self.catg_df = catg_df
+            self._cached_catg_bytes = None   # invalidate catg response cache
+            self._cached_response = None     # invalidate full response cache
+            elapsed = round(time.time() - bg_t, 1)
+            print(f"[HIST] [BG] Catg ready: {len(catg_df):,} rows in {elapsed}s", flush=True)
+            self._save_catg_to_disk()
+
+        catg_thread = threading.Thread(target=_load_catg_bg, daemon=True, name="hist-catg-loader")
+        catg_thread.start()
+        print("[HIST] Catg loading in background thread (won't block health check)...", flush=True)
 
     def to_lite_response(self) -> dict:
         """LITE response dict — no by_catg (80-90% of payload).

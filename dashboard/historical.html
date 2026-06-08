@@ -2550,47 +2550,44 @@
             };
         }
 
-        // SBU level - prefer dc_drill_sbu, fallback to by_sbu
-        const sbuSource = (RAW_DATA.dc_drill_sbu && RAW_DATA.dc_drill_sbu.length > 0) ? RAW_DATA.dc_drill_sbu : RAW_DATA.by_sbu;
-        const sbuSourceName = (RAW_DATA.dc_drill_sbu && RAW_DATA.dc_drill_sbu.length > 0) ? 'dc_drill_sbu (DC_LEVEL)' : 'by_sbu (HIST_COMBINED)';
+        // ── PERMANENT FIX ──────────────────────────────────────────────────────
+        // ALWAYS use HIST_COMBINED (by_sbu/dept/catg) as the Change Analysis source.
+        // DC_LEVEL (dc_drill_*) only has dc_oh/dc_labeled/dc_unlabeled/sto_to_dc/on_yard
+        // — it's missing store_oh, backroom, on_floor, in_transit, dc_reserved, fc_oh,
+        // and total_network. Preferring dc_drill caused "No data" for those channels.
+        // ──────────────────────────────────────────────────────────────────────
+
+        // SBU level — always HIST_COMBINED
+        const sbuSource = RAW_DATA.by_sbu;
         const sbuWeeks = getEffectiveWeeks(sbuSource, latestWeek);
-        console.log('DC Drilldown SBU source:', sbuSourceName, '| effective week:', sbuWeeks.latest.WM_YEAR + '-WK' + sbuWeeks.latest.WM_WEEK,
-                    sbuWeeks.usedSource ? '(adjusted from DC_LEVEL)' : '(matches HIST_COMBINED)');
+        console.log('Change Analysis SBU source: by_sbu (HIST_COMBINED) | week:', sbuWeeks.latest.WM_YEAR + '-WK' + sbuWeeks.latest.WM_WEEK);
         DC_DRILL_DATA.sbu.current = aggregate(sbuSource, r => r.SBU, sbuWeeks.latest.WM_YEAR, sbuWeeks.latest.WM_WEEK);
         DC_DRILL_DATA.sbu.priorWoW = aggregate(sbuSource, r => r.SBU, sbuWeeks.priorWoW.year, sbuWeeks.priorWoW.week);
         DC_DRILL_DATA.sbu.priorYoY = aggregate(sbuSource, r => r.SBU, sbuWeeks.priorYoY.year, sbuWeeks.priorYoY.week);
         DC_DRILL_DATA.sbuEffectiveWeek = sbuWeeks.latest;
 
-        // Dept level - prefer dc_drill_dept, fallback to by_dept
-        const deptSource = (RAW_DATA.dc_drill_dept && RAW_DATA.dc_drill_dept.length > 0) ? RAW_DATA.dc_drill_dept : RAW_DATA.by_dept;
-        const deptSourceName = (RAW_DATA.dc_drill_dept && RAW_DATA.dc_drill_dept.length > 0) ? 'dc_drill_dept (DC_LEVEL)' : 'by_dept (HIST_COMBINED)';
+        // Dept level — always HIST_COMBINED
+        const deptSource = RAW_DATA.by_dept;
         if (deptSource) {
             const deptWeeks = getEffectiveWeeks(deptSource, latestWeek);
-            console.log('DC Drilldown Dept source:', deptSourceName, '| effective week:', deptWeeks.latest.WM_YEAR + '-WK' + deptWeeks.latest.WM_WEEK,
-                        deptWeeks.usedSource ? '(adjusted from DC_LEVEL)' : '(matches HIST_COMBINED)');
+            console.log('Change Analysis Dept source: by_dept (HIST_COMBINED) | week:', deptWeeks.latest.WM_YEAR + '-WK' + deptWeeks.latest.WM_WEEK);
             DC_DRILL_DATA.dept.current = aggregate(deptSource, r => `${r.SBU}|${r.department}`, deptWeeks.latest.WM_YEAR, deptWeeks.latest.WM_WEEK);
             DC_DRILL_DATA.dept.priorWoW = aggregate(deptSource, r => `${r.SBU}|${r.department}`, deptWeeks.priorWoW.year, deptWeeks.priorWoW.week);
             DC_DRILL_DATA.dept.priorYoY = aggregate(deptSource, r => `${r.SBU}|${r.department}`, deptWeeks.priorYoY.year, deptWeeks.priorYoY.week);
             DC_DRILL_DATA.deptEffectiveWeek = deptWeeks.latest;
         }
 
-        // Category level - prefer dc_drill_catg, fallback to by_catg
-        // IMPORTANT: Filter out rows with null/undefined/empty category to prevent malformed keys
+        // Category level — HIST_COMBINED (lazy-loaded via /api/historical/catg)
+        // IMPORTANT: Filter out rows with null/undefined/empty category
         let catgSource = null;
         let catgSourceName = 'none';
 
-        if (RAW_DATA.dc_drill_catg && RAW_DATA.dc_drill_catg.length > 0) {
-            // Filter out null categories from dc_drill_catg
-            catgSource = RAW_DATA.dc_drill_catg.filter(r => r.category && r.category.trim() !== '');
-            catgSourceName = 'dc_drill_catg';
-            console.log('DC Drilldown Catg source: dc_drill_catg', RAW_DATA.dc_drill_catg.length, 'raw rows,', catgSource.length, 'valid category rows');
-        } else if (RAW_DATA.by_catg && RAW_DATA.by_catg.length > 0) {
-            // Filter out null categories from by_catg
+        if (RAW_DATA.by_catg && RAW_DATA.by_catg.length > 0) {
             catgSource = RAW_DATA.by_catg.filter(r => r.category && r.category.trim() !== '');
-            catgSourceName = 'by_catg';
-            console.log('DC Drilldown Catg source: by_catg fallback', RAW_DATA.by_catg.length, 'raw rows,', catgSource.length, 'valid category rows');
+            catgSourceName = 'by_catg (HIST_COMBINED)';
+            console.log('Change Analysis Catg source: by_catg', RAW_DATA.by_catg.length, 'raw rows,', catgSource.length, 'valid rows');
         } else {
-            console.log('DC Drilldown Catg source: NONE AVAILABLE - dc_drill_catg:', RAW_DATA.dc_drill_catg?.length || 0, ', by_catg:', RAW_DATA.by_catg?.length || 0);
+            console.log('Change Analysis Catg: not loaded yet (will load lazily via /api/historical/catg)');
         }
 
         if (catgSource && catgSource.length > 0) {

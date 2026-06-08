@@ -61,9 +61,10 @@ app = FastAPI(
     default_response_class=SafeJSONResponse
 )
 
-# GZip compression — compresses large JSON responses (historical data) by ~10-20x
-# Must be added BEFORE CORSMiddleware so it wraps all responses
-app.add_middleware(GZipMiddleware, minimum_size=1000)
+# NOTE: GZipMiddleware removed — Posit Connect's reverse proxy handles compression.
+# Adding GZipMiddleware here causes double-compression / garbled responses on Posit.
+# The pre-serialized bytes cache (to_lite_json_bytes / to_catg_json_bytes) still
+# provides the main performance benefit (serialize once, serve many times).
 
 # Enable CORS for dashboard
 app.add_middleware(

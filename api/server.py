@@ -1223,7 +1223,7 @@ class OnOrderCache:
         self.CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
     def _save_to_disk(self):
-        """Save DataFrames to parquet for instant load on restart."""
+        """Save core DataFrames (enterprise/sbu/dept) to parquet — NOT catg (saved separately)."""
         try:
             t0 = time.time()
             if self.enterprise_df is not None:
@@ -1232,15 +1232,22 @@ class OnOrderCache:
                 self.sbu_df.to_parquet(self.CACHE_DIR / "onorder_sbu.parquet")
             if self.dept_df is not None:
                 self.dept_df.to_parquet(self.CACHE_DIR / "onorder_dept.parquet")
-            if self.catg_df is not None:
-                self.catg_df.to_parquet(self.CACHE_DIR / "onorder_catg.parquet")
             # Save metadata
             metadata = {"loaded_date": self.loaded_date, "loaded_at": self.loaded_at}
             with open(self.CACHE_DIR / "onorder_metadata.json", "w") as f:
                 json.dump(metadata, f)
-            print(f"[ONORDER] [DISK] Saved cache to disk in {round(time.time() - t0, 1)}s", flush=True)
+            print(f"[ONORDER] [DISK] Saved core cache to disk in {round(time.time() - t0, 1)}s", flush=True)
         except Exception as e:
-            print(f"[ONORDER] [WARN] Failed to save cache to disk: {e}", flush=True)
+            print(f"[ONORDER] [WARN] Failed to save core cache to disk: {e}", flush=True)
+
+    def _save_catg_to_disk(self):
+        """Save catg DataFrame to parquet (called from background thread after catg query)."""
+        try:
+            if self.catg_df is not None:
+                self.catg_df.to_parquet(self.CACHE_DIR / "onorder_catg.parquet")
+                print(f"[ONORDER] [DISK] Saved catg cache to disk ({len(self.catg_df):,} rows)", flush=True)
+        except Exception as e:
+            print(f"[ONORDER] [WARN] Failed to save catg to disk: {e}", flush=True)
 
     def _load_from_disk(self) -> bool:
         """Load DataFrames from parquet cache. Returns True if successful."""
@@ -1262,26 +1269,80 @@ class OnOrderCache:
             self.enterprise_df = pd.read_parquet(self.CACHE_DIR / "onorder_enterprise.parquet")
             self.sbu_df = pd.read_parquet(self.CACHE_DIR / "onorder_sbu.parquet")
             self.dept_df = pd.read_parquet(self.CACHE_DIR / "onorder_dept.parquet")
-            self.catg_df = pd.read_parquet(self.CACHE_DIR / "onorder_catg.parquet")
+
+            # Load catg only if parquet exists (first run: missing, bg thread will populate it)
+            catg_file = self.CACHE_DIR / "onorder_catg.parquet"
+            if catg_file.exists():
+                self.catg_df = pd.read_parquet(catg_file)
+            else:
+                self.catg_df = None  # Background thread will load from BQ
 
             self.loaded_date = cached_date
             self.loaded_at = metadata.get("loaded_at")
             elapsed = round(time.time() - t0, 1)
-            print(f"[ONORDER] [FAST] Loaded from disk cache in {elapsed}s (cached at {cached_date})", flush=True)
+            catg_info = f"{len(self.catg_df):,} catg rows" if self.catg_df is not None else "catg pending (bg thread)"
+            print(f"[ONORDER] [FAST] Loaded from disk cache in {elapsed}s ({catg_info})", flush=True)
             return True
         except Exception as e:
             print(f"[ONORDER] [WARN] Failed to load from disk cache: {e}", flush=True)
             return False
 
+    def _start_catg_bg_load(self):
+        """Start background thread to load catg from BigQuery (non-blocking)."""
+        import threading
+        print(f"[ONORDER] [BG] Starting background catg query (won't block health check)...", flush=True)
+
+        def _load_catg_bg():
+            try:
+                client = self._get_client()
+                fqn = f"`{HIST_PROJECT_ID}.{DATASET}.{ONORDER_TABLE}`"
+                q_catg = f"""
+                SELECT
+                    wm_week,
+                    sbu,
+                    OMNI_DEPT_NBR AS dept_nbr,
+                    OMNI_DEPT_DESC AS department,
+                    OMNI_CATG_NBR AS catg_nbr,
+                    OMNI_CATG_DESC AS category,
+                    replen_ind,
+                    channel_ind,
+                    dsd_ind,
+                    SUM(COALESCE(vnpk_ordered, 0)) AS vnpk_ordered,
+                    SUM(COALESCE(units_ordered, 0)) AS units_ordered,
+                    SUM(COALESCE(vnpk_received, 0)) AS vnpk_received,
+                    SUM(COALESCE(units_received, 0)) AS units_received,
+                    SUM(COALESCE(vnpk_open, 0)) AS vnpk_open,
+                    SUM(COALESCE(units_open, 0)) AS units_open
+                FROM {fqn}
+                WHERE wm_week <= 12701 AND OMNI_CATG_NBR IS NOT NULL
+                GROUP BY wm_week, sbu, dept_nbr, department, catg_nbr, category, replen_ind, channel_ind, dsd_ind
+                ORDER BY wm_week, sbu, dept_nbr, catg_nbr
+                """
+                t_start = time.time()
+                df = client.query(q_catg).to_dataframe()
+                elapsed = round(time.time() - t_start, 1)
+                print(f"[ONORDER] [BG] Catg ready: {len(df):,} rows in {elapsed}s", flush=True)
+                self.catg_df = df
+                self._cached_response = None  # Invalidate cached response
+                self._save_catg_to_disk()
+            except Exception as e:
+                print(f"[ONORDER] [BG] Catg bg load failed: {e}", flush=True)
+
+        threading.Thread(target=_load_catg_bg, daemon=True, name="onorder-catg-loader").start()
+
     @property
     def is_ready(self) -> bool:
+        # catg_df excluded — slow query (~40s), loaded in background thread
         return (
             self.enterprise_df is not None and not self.enterprise_df.empty
             and self.sbu_df is not None
             and self.dept_df is not None
-            and self.catg_df is not None
             and not self.is_loading
         )
+
+    @property
+    def catg_ready(self) -> bool:
+        return self.catg_df is not None
 
     def _get_client(self):
         creds_json = os.environ.get("GOOGLE_CREDENTIALS", "")
@@ -1301,7 +1362,11 @@ class OnOrderCache:
         if not force_refresh and self._load_from_disk():
             self.is_loading = False
             self.load_time_sec = round(time.time() - t0, 1)
-            print(f"[ONORDER] [OK] Ready to serve from disk cache!", flush=True)
+            if self.catg_df is None:
+                # catg.parquet missing — load from BQ in background thread
+                self._start_catg_bg_load()
+            else:
+                print(f"[ONORDER] [OK] Ready to serve from disk cache!", flush=True)
             return
 
         # STEP 2: Load from BigQuery
@@ -1406,13 +1471,13 @@ class OnOrderCache:
         """
 
         print(f"[ONORDER] Loading from table: {HIST_PROJECT_ID}.{DATASET}.{ONORDER_TABLE}", flush=True)
-        print(f"[ONORDER] [FAST] Using PARALLEL query execution...", flush=True)
+        print(f"[ONORDER] Starting 3 core queries in parallel...", flush=True)
 
-        queries = {
+        # STEP A: 3 core queries in parallel (~5s)
+        core_queries = {
             'enterprise': q1,
             'sbu': q2,
             'dept': q3,
-            'catg': q4,
         }
 
         results = {}
@@ -1429,8 +1494,8 @@ class OnOrderCache:
                 return None
 
         parallel_start = time.time()
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            futures = {executor.submit(run_query, name, sql): name for name, sql in queries.items()}
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = {executor.submit(run_query, name, sql): name for name, sql in core_queries.items()}
             for future in as_completed(futures):
                 name = futures[future]
                 try:
@@ -1440,29 +1505,44 @@ class OnOrderCache:
                     results[name] = None
 
         parallel_elapsed = round(time.time() - parallel_start, 1)
-        print(f"[ONORDER] [FAST] All 4 queries completed in {parallel_elapsed}s (parallel)", flush=True)
+        print(f"[ONORDER] [FAST] Core queries done in {parallel_elapsed}s", flush=True)
 
         self.enterprise_df = results.get('enterprise')
         self.sbu_df = results.get('sbu')
         self.dept_df = results.get('dept')
-        self.catg_df = results.get('catg')
 
         # Validate enterprise data
         if self.enterprise_df is not None and len(self.enterprise_df) > 0:
-            print(f"[ONORDER] Enterprise columns: {list(self.enterprise_df.columns)}", flush=True)
             weeks = self.enterprise_df['wm_week'].nunique()
             total_ordered = self.enterprise_df['units_ordered'].sum()
             print(f"[ONORDER] {weeks} weeks, total units_ordered: {total_ordered:,.0f}", flush=True)
 
         self.loaded_at = time.time()
         self.loaded_date = datetime.now().strftime("%Y-%m-%d")
-        self.load_time_sec = round(time.time() - t0, 1)
+        self.load_time_sec = round(time.time() - parallel_start, 1)
 
-        total_rows = sum(len(df) for df in [self.enterprise_df, self.sbu_df, self.dept_df, self.catg_df] if df is not None)
-        logger.info(f"[ONORDER] Loaded {total_rows:,} total rows in {self.load_time_sec}s")
+        core_rows = sum(len(df) for df in [self.enterprise_df, self.sbu_df, self.dept_df] if df is not None)
+        print(f"[ONORDER] Core data ready: {core_rows:,} rows. is_ready=True", flush=True)
 
-        # Save to disk
+        # Save core data to disk (catg saved separately after bg thread)
         self._save_to_disk()
+
+        # STEP B: catg in background thread (~40s, won't block health check)
+        import threading
+        def _load_catg_bg():
+            try:
+                t_start = time.time()
+                df = client.query(q4).to_dataframe()
+                elapsed = round(time.time() - t_start, 1)
+                print(f"[ONORDER] [BG] Catg ready: {len(df):,} rows in {elapsed}s", flush=True)
+                self.catg_df = df
+                self._cached_response = None
+                self._save_catg_to_disk()
+            except Exception as e:
+                print(f"[ONORDER] [BG] Catg load failed: {e}", flush=True)
+
+        print(f"[ONORDER] Catg loading in background thread (won't block health check)...", flush=True)
+        threading.Thread(target=_load_catg_bg, daemon=True, name="onorder-catg-loader").start()
 
     def to_response(self) -> dict:
         """Build JSON response for On-Order data."""

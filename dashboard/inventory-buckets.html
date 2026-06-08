@@ -716,9 +716,11 @@
     }
 
     // Load data from both APIs with retry for cache warming
+    // Disk cache load takes ~25-30s on Posit (CACHE sequential 5s + HIST/ONORDER parallel 20s)
+    // Fresh BQ queries take ~40s. Allow 90s total (30 retries × 3s).
     let loadRetryCount = 0;
-    const MAX_RETRIES = 5;
-    const RETRY_DELAY = 3000; // 3 seconds
+    const MAX_RETRIES = 30;
+    const RETRY_DELAY = 3000; // 3 seconds → 90s total
 
     async function loadData() {
         const statusEl = document.getElementById('data-status');
@@ -726,51 +728,51 @@
         try {
             const apiBase = window.location.pathname.replace(/\/dashboard\/.*$/, '');
 
-            // First check if caches are ready
+            // Check if caches are ready
             statusEl.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Checking cache...';
             const healthResp = await fetch(apiBase + '/api/health');
             const health = await healthResp.json();
 
-            if (!health.historical_cache?.ready) {
+            const histReady = health.historical_cache?.ready;
+            const onorderReady = health.onorder_cache?.ready;
+
+            if (!histReady || !onorderReady) {
                 loadRetryCount++;
+                const elapsed = Math.round(loadRetryCount * RETRY_DELAY / 1000);
+                const notReady = [!histReady && 'inventory', !onorderReady && 'on-order'].filter(Boolean).join(' & ');
+                console.log('[BUCKETS] Cache not ready (' + notReady + '), retry', loadRetryCount, '(' + elapsed + 's elapsed)');
+                statusEl.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Cache warming... (' + elapsed + 's)';
+                const loadingP = loadingEl.querySelector('p');
+                if (loadingP) loadingP.textContent = 'Loading ' + notReady + ' data... (' + elapsed + 's elapsed, please wait)';
                 if (loadRetryCount <= MAX_RETRIES) {
-                    console.log('[BUCKETS] Historical cache not ready, retry', loadRetryCount, 'of', MAX_RETRIES);
-                    statusEl.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Cache loading... (' + loadRetryCount + '/' + MAX_RETRIES + ')';
-                    loadingEl.querySelector('p').textContent = 'Historical data cache is warming up... Please wait.';
                     setTimeout(loadData, RETRY_DELAY);
-                    return;
                 } else {
-                    throw new Error('Historical cache not ready after ' + MAX_RETRIES + ' retries. Please refresh the page.');
+                    throw new Error('Cache not ready after ' + elapsed + 's. Please refresh the page.');
                 }
+                return;
             }
 
-            // Load historical and on-order data in parallel
+            // Both caches ready — load data in parallel
             statusEl.innerHTML = '<i class="bi bi-download me-1"></i>Loading data...';
             const [histResp, onorderResp] = await Promise.all([
                 fetch(apiBase + '/api/historical'),
                 fetch(apiBase + '/api/on-order')
             ]);
 
-            HIST_DATA = await histResp.json();
-            ONORDER_DATA = await onorderResp.json();
+            if (!histResp.ok) throw new Error('Historical API returned ' + histResp.status);
 
-            console.log('[BUCKETS] Historical data loaded:', HIST_DATA.by_sbu?.length || 0, 'SBU records');
-            console.log('[BUCKETS] sbu_list from API:', HIST_DATA.sbu_list);
-            console.log('[BUCKETS] HIST_DATA keys:', Object.keys(HIST_DATA));
-            console.log('[BUCKETS] by_dept records:', HIST_DATA.by_dept?.length || 0);
-            if (HIST_DATA.by_dept?.length > 0) {
-                console.log('[BUCKETS] by_dept sample record keys:', Object.keys(HIST_DATA.by_dept[0]));
-                console.log('[BUCKETS] by_dept sample:', HIST_DATA.by_dept[0]);
+            HIST_DATA = await histResp.json();
+
+            // On-order: graceful fallback if still not ready (rare race condition)
+            if (onorderResp.ok) {
+                ONORDER_DATA = await onorderResp.json();
+            } else {
+                console.warn('[BUCKETS] On-order returned', onorderResp.status, '— rendering without on-order data');
+                ONORDER_DATA = { enterprise: [], by_sbu: [], by_dept: [], by_catg: [] };
             }
 
-            // Debug: Check FY25 vs FY26 in loaded data
-            const fy25InData = (HIST_DATA.by_sbu || []).filter(r => r.WM_YEAR === 2025).length;
-            const fy26InData = (HIST_DATA.by_sbu || []).filter(r => r.WM_YEAR === 2026).length;
-            console.log('[BUCKETS] API data breakdown - FY25:', fy25InData, 'FY26:', fy26InData);
+            console.log('[BUCKETS] HIST:', HIST_DATA.by_sbu?.length || 0, 'SBU rows | ONORDER:', ONORDER_DATA.by_sbu?.length || 0, 'SBU rows');
 
-            console.log('[BUCKETS] On-order data loaded:', ONORDER_DATA.by_sbu?.length || 0, 'SBU records');
-
-            // Verify we actually got data
             if (!HIST_DATA.by_sbu || HIST_DATA.by_sbu.length === 0) {
                 throw new Error('No historical data returned from API');
             }
@@ -786,14 +788,14 @@
             // Render charts
             renderCharts();
 
-            // Pre-initialize Change Analysis tab (data ready, just render when shown)
+            // Pre-initialize Change Analysis tab
             initBucketDrillFilters();
 
         } catch (err) {
             console.error('[BUCKETS] Load failed:', err);
             statusEl.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>Error';
             statusEl.style.background = 'rgba(239, 68, 68, 0.3)';
-            loadingEl.innerHTML = '<div class="text-center text-danger"><p>Failed to load data</p><p class="small">' + err.message + '</p><button class="btn btn-outline-warning btn-sm mt-2" onclick="location.reload()">Retry</button></div>';
+            loadingEl.innerHTML = '<div class="text-center"><p style="color:#f87171;">Failed to load data</p><p class="small text-muted">' + err.message + '</p><button class="btn btn-outline-warning btn-sm mt-2" onclick="loadRetryCount=0; loadData();">Retry</button></div>';
         }
     }
 

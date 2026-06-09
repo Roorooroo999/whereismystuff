@@ -779,7 +779,7 @@
         if (CATG_LOADED || CATG_LOADING) return;
         CATG_LOADING = true;
         const catgUrl = window.location.pathname.replace(/\/dashboard\/.*$/, '') + '/api/historical/catg';
-        const MAX_CATG_RETRIES = 20;  // up to ~100s (5s intervals) for slow BQ catg query
+        const MAX_CATG_RETRIES = 60;  // up to ~300s (5s intervals) — handles double BQ run (cube fallback ~74s)
         let attempt = 0;
 
         const tryLoad = async () => {
@@ -933,6 +933,8 @@
                 } else {
                     catgSelect.innerHTML = '<option value="">No categories available</option>';
                 }
+            } else if (CATG_LOADING) {
+                catgSelect.innerHTML = '<option value="" disabled>⏳ Categories loading…</option>';
             } else {
                 catgSelect.innerHTML = '<option value="">Category data not loaded</option>';
             }

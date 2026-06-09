@@ -814,8 +814,9 @@ class HistoricalCache:
                 return False
 
             # Invalidate cache if cube columns are missing (old cache pre-cube feature)
+            # Note: empty list (old metadata without "columns" key) also triggers refresh
             cached_cols = metadata.get("columns", [])
-            if cached_cols and "store_wtavg_cube" not in cached_cols:
+            if "store_wtavg_cube" not in cached_cols:
                 print("[HIST] Disk cache missing cube columns, will refresh from BQ", flush=True)
                 return False
 
@@ -1016,16 +1017,9 @@ class HistoricalCache:
             SUM(COALESCE(ON_YARD_GROCERY_UNITS, 0)) AS on_yard_grocery,
             SUM(COALESCE(ON_YARD_FASHION_UNITS, 0)) AS on_yard_fashion,
             SUM(COALESCE(ON_YARD_IMPORTS_UNITS, 0)) AS on_yard_imports,
-            -- Weighted average cube per channel
-            SAFE_DIVIDE(SUM(COALESCE(STORE_OH_UNITS,0) * COALESCE(STORE_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(STORE_OH_UNITS,0)),0)) AS store_wtavg_cube,
-            SAFE_DIVIDE(SUM(COALESCE(DC_RESERVED_UNITS,0) * COALESCE(DC_RESERVED_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(DC_RESERVED_UNITS,0)),0)) AS dc_reserved_wtavg_cube,
-            SAFE_DIVIDE(SUM(COALESCE(IN_TRANSIT_UNITS,0) * COALESCE(TRANSIT_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(IN_TRANSIT_UNITS,0)),0)) AS transit_wtavg_cube,
-            SAFE_DIVIDE(SUM(COALESCE(FC_OH_UNITS,0) * COALESCE(FC_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(FC_OH_UNITS,0)),0)) AS fc_wtavg_cube,
-            SAFE_DIVIDE(SUM(COALESCE(DC_OH_UNITS,0) * COALESCE(DC_OH_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(DC_OH_UNITS,0)),0)) AS dc_oh_wtavg_cube,
-            SAFE_DIVIDE(SUM(COALESCE(DC_LABELED_UNITS,0) * COALESCE(DC_LBL_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(DC_LABELED_UNITS,0)),0)) AS dc_lbl_wtavg_cube,
-            SAFE_DIVIDE(SUM(COALESCE(DC_UNLABELED_UNITS,0) * COALESCE(DC_UNLBL_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(DC_UNLABELED_UNITS,0)),0)) AS dc_unlbl_wtavg_cube,
-            SAFE_DIVIDE(SUM(COALESCE(STO_IN_TRANSIT_TO_DC_UNITS,0) * COALESCE(STO_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(STO_IN_TRANSIT_TO_DC_UNITS,0)),0)) AS sto_wtavg_cube,
-            SAFE_DIVIDE(SUM(COALESCE(ON_YARD_UNITS,0) * COALESCE(ON_YARD_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(ON_YARD_UNITS,0)),0)) AS on_yard_wtavg_cube
+            -- Note: cube columns intentionally omitted from catg query —
+            -- catg data is not used for cube KPI/charts (enterprise/sbu/dept suffice)
+            -- and the larger catg query is more prone to BigQuery resource limits
         """
         q4 = f"""SELECT BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU,
                         OMNI_DEPT_NBR AS dept_nbr, OMNI_DEPT_DESC AS department,

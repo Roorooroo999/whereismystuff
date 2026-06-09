@@ -805,6 +805,9 @@
                 CATG_LOADED = true;
                 CATG_LOADING = false;
                 console.log('[HIST] Catg data loaded:', RAW_DATA.by_catg.length, 'rows');
+                // Repopulate catg filter if dept is already selected (arrived after initial render)
+                const selectedDepts = getSelectedDepts();
+                if (selectedDepts.length > 0) onDeptChange();
                 // If Change Analysis is already showing catg view, re-render
                 const viewFilter = document.getElementById('dc-drill-view-filter');
                 if (viewFilter && viewFilter.value === 'catg') {
@@ -1279,7 +1282,7 @@
         function setCubeInfo(id, totalCube) {
             const el = document.getElementById(id);
             if (!el) return;
-            el.textContent = (totalCube != null && totalCube > 0) ? `⬡ ${fmtB(totalCube)}` : '';
+            el.textContent = (totalCube != null && totalCube > 0) ? `Cube: ${fmtB(totalCube)}` : '';
         }
         setCubeInfo('kpi-floor-cube',     (latest.on_floor     || 0) * (latest.store_wtavg_cube       || 0));
         setCubeInfo('kpi-backroom-cube',  (latest.backroom      || 0) * (latest.backroom_wtavg_cube    || 0));

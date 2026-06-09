@@ -776,7 +776,11 @@ class HistoricalCache:
             self.sbu_df.to_parquet(self.CACHE_DIR / "sbu.parquet")
             self.dept_df.to_parquet(self.CACHE_DIR / "dept.parquet")
             # Save metadata (catg may not be ready yet — that's OK)
-            metadata = {"loaded_date": self.loaded_date, "loaded_at": self.loaded_at}
+            metadata = {
+                "loaded_date": self.loaded_date,
+                "loaded_at": self.loaded_at,
+                "columns": list(self.enterprise_df.columns)  # used to detect schema changes
+            }
             with open(self.CACHE_DIR / "metadata.json", "w") as f:
                 json.dump(metadata, f)
             print(f"[HIST] [DISK] Saved core cache to disk in {round(time.time() - t0, 1)}s", flush=True)
@@ -807,6 +811,12 @@ class HistoricalCache:
             today = datetime.now().strftime("%Y-%m-%d")
             if cached_date != today:
                 print(f"[HIST] Disk cache is stale ({cached_date} vs {today}), will refresh", flush=True)
+                return False
+
+            # Invalidate cache if cube columns are missing (old cache pre-cube feature)
+            cached_cols = metadata.get("columns", [])
+            if cached_cols and "store_wtavg_cube" not in cached_cols:
+                print("[HIST] Disk cache missing cube columns, will refresh from BQ", flush=True)
                 return False
 
             t0 = time.time()
@@ -1058,7 +1068,7 @@ class HistoricalCache:
                 err_str = str(e)
                 if "Unrecognized name" in err_str and "WTAVG_CUBE" in err_str:
                     # Table doesn't have cube columns (e.g. old table on Posit) — retry without them
-                    print(f"[HIST] [WARN] {name}: cube columns not in table, retrying without cube...", flush=True)
+                    print(f"[HIST] [WARN] {name}: cube columns not in table, retrying without cube... BQ error: {err_str[:300]}", flush=True)
                     sql_no_cube = _strip_cube_columns(sql)
                     try:
                         df = client.query(sql_no_cube).to_dataframe()

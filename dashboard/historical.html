@@ -66,21 +66,40 @@
         .wow-neutral { color: var(--text-muted); }
         .filter-tag { display: inline-block; font-size: 0.65rem; padding: 1px 6px; border-radius: 8px; background: rgba(0,113,206,0.25); color: #6cb2eb; margin-right: 4px; margin-top: 4px; }
         .trend-arrow { font-size: 0.7rem; margin-left: 4px; }
+        /* View toggle buttons (matches index.html style) */
+        .view-toggle { display: inline-flex; gap: 4px; margin: 0 auto; }
+        .view-toggle .btn-view {
+            padding: 4px 14px; border-radius: 20px; font-size: 0.8rem; font-weight: 600;
+            border: 2px solid rgba(255,255,255,0.3); background: transparent; color: rgba(255,255,255,0.7);
+            cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; gap: 5px;
+            text-decoration: none;
+        }
+        .view-toggle .btn-view:hover { border-color: rgba(255,255,255,0.6); color: #fff; }
+        .view-toggle .btn-view.active {
+            background: rgba(255,255,255,0.2); border-color: #fff; color: #fff;
+        }
+        .view-toggle .btn-view .view-badge {
+            font-size: 0.55rem; padding: 1px 5px; border-radius: 8px; font-weight: 700; text-transform: uppercase;
+        }
+        .view-badge-live { background: #22c55e; color: #000; }
+        .view-badge-weekly { background: #0ea5e9; color: #000; }
+        /* Cube info on KPI tiles */
+        .kpi-cube { font-size: 0.6rem; opacity: 0.75; font-style: italic; margin-top: 1px; }
     </style>
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark" style="background: var(--walmart-blue);">
         <div class="container-fluid">
             <a class="navbar-brand" href="#"><i class="bi bi-graph-up me-2"></i>Where's My Stuff — Historical Trends</a>
+            <!-- View Toggle Buttons (centered, matches index.html style) -->
+            <div class="view-toggle">
+                <a href="index.html" class="btn-view"><i class="bi bi-speedometer2"></i> Current <span class="view-badge view-badge-live">LIVE</span></a>
+                <a href="historical.html" class="btn-view active"><i class="bi bi-graph-up"></i> Historical <span class="view-badge view-badge-weekly">WEEKLY</span></a>
+                <a href="inventory-buckets.html" class="btn-view"><i class="bi bi-stack"></i> Buckets <span class="view-badge" style="background:#f59e0b;color:#000;">PIPELINE</span></a>
+            </div>
             <div class="d-flex align-items-center text-white">
                 <span class="status-badge status-file me-2" id="data-status"><i class="bi bi-file-earmark-bar-graph me-1"></i>Loading...</span>
                 <span class="me-2" style="font-size:0.85rem;">Range: <strong id="date-range">-</strong></span>
-                <!-- View Toggle Buttons -->
-                <div class="btn-group ms-3" role="group">
-                    <a href="index.html" class="btn btn-outline-light btn-sm"><i class="bi bi-speedometer2 me-1"></i>Current <span class="badge bg-success ms-1">LIVE</span></a>
-                    <a href="historical.html" class="btn btn-light btn-sm text-dark"><i class="bi bi-graph-up me-1"></i>Historical <span class="badge bg-info ms-1">WEEKLY</span></a>
-                    <a href="inventory-buckets.html" class="btn btn-outline-light btn-sm"><i class="bi bi-stack me-1"></i>Buckets <span class="badge bg-warning text-dark ms-1">PIPELINE</span></a>
-                </div>
             </div>
         </div>
     </nav>
@@ -102,6 +121,7 @@
                     <div class="label">On Floor</div>
                     <div class="sub-value" id="kpi-floor-wow"></div>
                     <div class="sub-value" id="kpi-floor-yoy"></div>
+                    <div class="kpi-cube" id="kpi-floor-cube"></div>
                 </div>
             </div>
             <div class="col-6 col-md-4 col-lg-2">
@@ -110,6 +130,7 @@
                     <div class="label">Backroom</div>
                     <div class="sub-value" id="kpi-backroom-wow"></div>
                     <div class="sub-value" id="kpi-backroom-yoy"></div>
+                    <div class="kpi-cube" id="kpi-backroom-cube"></div>
                 </div>
             </div>
             <div class="col-6 col-md-4 col-lg-2">
@@ -118,6 +139,7 @@
                     <div class="label">Store OH (Total)</div>
                     <div class="sub-value" id="kpi-store-wow"></div>
                     <div class="sub-value" id="kpi-store-yoy"></div>
+                    <div class="kpi-cube" id="kpi-store-cube"></div>
                 </div>
             </div>
             <!-- DC Metrics Grouped Together -->
@@ -127,6 +149,7 @@
                     <div class="label">DC On-Hand</div>
                     <div class="sub-value" id="kpi-dcoh-wow"></div>
                     <div class="sub-value" id="kpi-dcoh-yoy"></div>
+                    <div class="kpi-cube" id="kpi-dcoh-cube"></div>
                 </div>
             </div>
             <div class="col-6 col-md-4 col-lg-2">
@@ -135,6 +158,7 @@
                     <div class="label">DC Reserved</div>
                     <div class="sub-value" id="kpi-reserved-wow"></div>
                     <div class="sub-value" id="kpi-reserved-yoy"></div>
+                    <div class="kpi-cube" id="kpi-reserved-cube"></div>
                 </div>
             </div>
             <div class="col-6 col-md-4 col-lg-2">
@@ -143,6 +167,7 @@
                     <div class="label">DC Labeled</div>
                     <div class="sub-value" id="kpi-labeled-wow"></div>
                     <div class="sub-value" id="kpi-labeled-yoy"></div>
+                    <div class="kpi-cube" id="kpi-labeled-cube"></div>
                 </div>
             </div>
         </div>
@@ -153,6 +178,7 @@
                     <div class="label">DC Unlabeled</div>
                     <div class="sub-value" id="kpi-unlabeled-wow"></div>
                     <div class="sub-value" id="kpi-unlabeled-yoy"></div>
+                    <div class="kpi-cube" id="kpi-unlabeled-cube"></div>
                 </div>
             </div>
             <!-- Other Metrics -->
@@ -162,6 +188,7 @@
                     <div class="label">In-Transit</div>
                     <div class="sub-value" id="kpi-transit-wow"></div>
                     <div class="sub-value" id="kpi-transit-yoy"></div>
+                    <div class="kpi-cube" id="kpi-transit-cube"></div>
                 </div>
             </div>
             <div class="col-6 col-md-4 col-lg-2">
@@ -170,6 +197,7 @@
                     <div class="label">FC (eComm)</div>
                     <div class="sub-value" id="kpi-fc-wow"></div>
                     <div class="sub-value" id="kpi-fc-yoy"></div>
+                    <div class="kpi-cube" id="kpi-fc-cube"></div>
                 </div>
             </div>
             <div class="col-6 col-md-4 col-lg-2">
@@ -178,6 +206,7 @@
                     <div class="label">On Yard</div>
                     <div class="sub-value" id="kpi-onyard-wow"></div>
                     <div class="sub-value" id="kpi-onyard-yoy"></div>
+                    <div class="kpi-cube" id="kpi-onyard-cube"></div>
                 </div>
             </div>
             <div class="col-6 col-md-4 col-lg-2">
@@ -245,22 +274,40 @@
                     <!-- Tab 1: Total Network Trend -->
                     <div class="tab-pane fade show active" id="tab-trend">
                         <div class="chart-container">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <div class="chart-title"><i class="bi bi-graph-up me-1"></i>Total Network Inventory Trend — YoY</div>
-                                <div class="text-muted" style="font-size:0.7rem;">Total = Store OH (incl. Backroom) + DC Reserved + DC OH + Labeled + Unlabeled + STO + On Yard + In-Transit</div>
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <div class="chart-title mb-0"><i class="bi bi-graph-up me-1"></i>Total Network Inventory Trend — YoY</div>
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="text-muted" style="font-size:0.65rem;">Total = Store OH + DC Reserved + DC OH + Labeled + Unlabeled + STO + On Yard + In-Transit</div>
+                                    <div class="btn-group btn-group-sm" role="group">
+                                        <button type="button" class="btn btn-primary btn-sm active" id="trend-units-btn" onclick="setTrendMode('units')" style="font-size:0.7rem;padding:2px 8px;">Units</button>
+                                        <button type="button" class="btn btn-outline-secondary btn-sm" id="trend-cube-btn" onclick="setTrendMode('cube')" style="font-size:0.7rem;padding:2px 8px;">Cube</button>
+                                    </div>
+                                </div>
                             </div>
                             <canvas id="trendChart" height="120"></canvas>
                         </div>
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="chart-container">
-                                    <div class="chart-title"><i class="bi bi-shop me-1"></i>Store OH — YoY</div>
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <div class="chart-title mb-0"><i class="bi bi-shop me-1"></i>Store OH — YoY</div>
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            <button type="button" class="btn btn-primary btn-sm active" id="storeoh-units-btn" onclick="setChartMode('storeoh','units')" style="font-size:0.7rem;padding:2px 8px;">Units</button>
+                                            <button type="button" class="btn btn-outline-secondary btn-sm" id="storeoh-cube-btn" onclick="setChartMode('storeoh','cube')" style="font-size:0.7rem;padding:2px 8px;">Cube</button>
+                                        </div>
+                                    </div>
                                     <canvas id="yoyStoreOHChart" height="85"></canvas>
                                 </div>
                             </div>
                             <div class="col-md-6">
                                 <div class="chart-container">
-                                    <div class="chart-title"><i class="bi bi-building me-1"></i>DC OH — YoY</div>
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <div class="chart-title mb-0"><i class="bi bi-building me-1"></i>DC OH — YoY</div>
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            <button type="button" class="btn btn-primary btn-sm active" id="dcoh-units-btn" onclick="setChartMode('dcoh','units')" style="font-size:0.7rem;padding:2px 8px;">Units</button>
+                                            <button type="button" class="btn btn-outline-secondary btn-sm" id="dcoh-cube-btn" onclick="setChartMode('dcoh','cube')" style="font-size:0.7rem;padding:2px 8px;">Cube</button>
+                                        </div>
+                                    </div>
                                     <canvas id="yoyDCOHChart" height="85"></canvas>
                                 </div>
                             </div>
@@ -268,16 +315,24 @@
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="chart-container">
-                                    <div class="d-flex justify-content-between align-items-center">
-                                        <div class="chart-title"><i class="bi bi-boxes me-1"></i>DC OH by Type — YoY</div>
-                                        <div class="text-muted" style="font-size:0.65rem;">Solid = FY26 &nbsp;|&nbsp; Dashed = FY25</div>
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <div class="chart-title mb-0"><i class="bi bi-boxes me-1"></i>DC OH by Type — YoY</div>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <div class="text-muted" style="font-size:0.65rem;">Solid = FY26 &nbsp;|&nbsp; Dashed = FY25</div>
+                                        </div>
                                     </div>
                                     <canvas id="yoyDCTypeChart" height="85"></canvas>
                                 </div>
                             </div>
                             <div class="col-md-6">
                                 <div class="chart-container">
-                                    <div class="chart-title"><i class="bi bi-box-seam me-1"></i>Backroom — YoY</div>
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <div class="chart-title mb-0"><i class="bi bi-box-seam me-1"></i>Backroom — YoY</div>
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            <button type="button" class="btn btn-primary btn-sm active" id="backroom-units-btn" onclick="setChartMode('backroom','units')" style="font-size:0.7rem;padding:2px 8px;">Units</button>
+                                            <button type="button" class="btn btn-outline-secondary btn-sm" id="backroom-cube-btn" onclick="setChartMode('backroom','cube')" style="font-size:0.7rem;padding:2px 8px;">Cube</button>
+                                        </div>
+                                    </div>
                                     <canvas id="yoyBackroomChart" height="85"></canvas>
                                 </div>
                             </div>
@@ -553,6 +608,9 @@
     // Category data is lazy-loaded separately (large payload)
     let CATG_LOADED = false;
     let CATG_LOADING = false;
+
+    // Chart display modes: 'units' | 'cube' (total cubic feet = units × wtavg_cube)
+    const CHART_MODES = { trend: 'units', storeoh: 'units', dcoh: 'units', backroom: 'units' };
 
     // On Order data (separate from inventory data)
     let ONORDER_DATA = null;
@@ -926,7 +984,12 @@
                     dc_oh_support: 0, dc_oh_other: 0,
                     sto_to_regional: 0, sto_to_grocery: 0, sto_to_fashion: 0,
                     sto_to_imports: 0, sto_to_gidc: 0, sto_to_msc: 0,
-                    sto_to_support: 0, sto_to_other: 0
+                    sto_to_support: 0, sto_to_other: 0,
+                    // Cube numerators (units × cube) for weighted-average re-aggregation
+                    _cube_num_store: 0, _cube_num_backroom: 0, _cube_num_dc_reserved: 0,
+                    _cube_num_transit: 0, _cube_num_fc: 0, _cube_num_dc_oh: 0,
+                    _cube_num_dc_lbl: 0, _cube_num_dc_unlbl: 0,
+                    _cube_num_sto: 0, _cube_num_on_yard: 0
                 };
             }
             const w = weekMap[key];
@@ -945,6 +1008,31 @@
             // DC type breakdowns
             DC_OH_KEYS.forEach(k => { w[k] += r[k] || 0; });
             STO_DC_KEYS.forEach(k => { w[k] += r[k] || 0; });
+            // Cube numerators (accumulate units × wtavg_cube for re-weighting)
+            w._cube_num_store    += (r.store_oh || 0) * (r.store_wtavg_cube || 0);
+            w._cube_num_backroom += (r.backroom || 0) * (r.store_wtavg_cube || 0); // same cube as store
+            w._cube_num_dc_reserved += (r.dc_reserved || 0) * (r.dc_reserved_wtavg_cube || 0);
+            w._cube_num_transit  += (r.in_transit || 0) * (r.transit_wtavg_cube || 0);
+            w._cube_num_fc       += (r.fc_oh || 0) * (r.fc_wtavg_cube || 0);
+            w._cube_num_dc_oh    += (r.dc_oh || 0) * (r.dc_oh_wtavg_cube || 0);
+            w._cube_num_dc_lbl   += (r.dc_labeled || 0) * (r.dc_lbl_wtavg_cube || 0);
+            w._cube_num_dc_unlbl += (r.dc_unlabeled || 0) * (r.dc_unlbl_wtavg_cube || 0);
+            w._cube_num_sto      += (r.sto_to_dc || 0) * (r.sto_wtavg_cube || 0);
+            w._cube_num_on_yard  += (r.on_yard || 0) * (r.on_yard_wtavg_cube || 0);
+        });
+
+        // Compute final weighted-average cube values per week
+        Object.values(weekMap).forEach(w => {
+            w.store_wtavg_cube       = w.store_oh > 0    ? w._cube_num_store / w.store_oh : null;
+            w.backroom_wtavg_cube    = w.backroom > 0     ? w._cube_num_backroom / w.backroom : null;
+            w.dc_reserved_wtavg_cube = w.dc_reserved > 0 ? w._cube_num_dc_reserved / w.dc_reserved : null;
+            w.transit_wtavg_cube     = w.in_transit > 0  ? w._cube_num_transit / w.in_transit : null;
+            w.fc_wtavg_cube          = w.fc_oh > 0       ? w._cube_num_fc / w.fc_oh : null;
+            w.dc_oh_wtavg_cube       = w.dc_oh > 0       ? w._cube_num_dc_oh / w.dc_oh : null;
+            w.dc_lbl_wtavg_cube      = w.dc_labeled > 0  ? w._cube_num_dc_lbl / w.dc_labeled : null;
+            w.dc_unlbl_wtavg_cube    = w.dc_unlabeled > 0? w._cube_num_dc_unlbl / w.dc_unlabeled : null;
+            w.sto_wtavg_cube         = w.sto_to_dc > 0   ? w._cube_num_sto / w.sto_to_dc : null;
+            w.on_yard_wtavg_cube     = w.on_yard > 0     ? w._cube_num_on_yard / w.on_yard : null;
         });
 
         let weeks = Object.values(weekMap).sort((a,b) => a.BUS_DT.localeCompare(b.BUS_DT));
@@ -1180,6 +1268,23 @@
                lyWeek ? (lyWeek.fc_oh || 0) : null, 'kpi-fc-yoy');
         setKPI('kpi-onyard', latest.on_yard || 0, prev ? (prev.on_yard || 0) : null, 'kpi-onyard-wow',
                lyWeek ? (lyWeek.on_yard || 0) : null, 'kpi-onyard-yoy');
+
+        // Populate cube info on each KPI tile — shows TOTAL cubic footage (units × wtavg_cube)
+        function setCubeInfo(id, totalCube) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.textContent = (totalCube != null && totalCube > 0) ? `⬡ ${fmtB(totalCube)}` : '';
+        }
+        setCubeInfo('kpi-floor-cube',     (latest.on_floor     || 0) * (latest.store_wtavg_cube       || 0));
+        setCubeInfo('kpi-backroom-cube',  (latest.backroom      || 0) * (latest.backroom_wtavg_cube    || 0));
+        setCubeInfo('kpi-store-cube',     (latest.store_oh      || 0) * (latest.store_wtavg_cube       || 0));
+        setCubeInfo('kpi-dcoh-cube',      (latest.dc_oh         || 0) * (latest.dc_oh_wtavg_cube       || 0));
+        setCubeInfo('kpi-reserved-cube',  (latest.dc_reserved   || 0) * (latest.dc_reserved_wtavg_cube || 0));
+        setCubeInfo('kpi-labeled-cube',   (latest.dc_labeled    || 0) * (latest.dc_lbl_wtavg_cube      || 0));
+        setCubeInfo('kpi-unlabeled-cube', (latest.dc_unlabeled  || 0) * (latest.dc_unlbl_wtavg_cube    || 0));
+        setCubeInfo('kpi-transit-cube',   (latest.in_transit    || 0) * (latest.transit_wtavg_cube     || 0));
+        setCubeInfo('kpi-fc-cube',        (latest.fc_oh         || 0) * (latest.fc_wtavg_cube          || 0));
+        setCubeInfo('kpi-onyard-cube',    (latest.on_yard       || 0) * (latest.on_yard_wtavg_cube     || 0));
     }
 
     function setKPI(id, value, prevValue, wowId, lyValue, yoyId) {
@@ -1217,7 +1322,24 @@
         return w.total_network || 0;
     }
 
+    function adjTotalCube(w) {
+        // Total cubic feet = sum of (units × wtavg_cube) across all channels
+        return (
+            (w.store_oh    || 0) * (w.store_wtavg_cube       || 0) +
+            (w.dc_reserved || 0) * (w.dc_reserved_wtavg_cube || 0) +
+            (w.in_transit  || 0) * (w.transit_wtavg_cube     || 0) +
+            (w.fc_oh       || 0) * (w.fc_wtavg_cube          || 0) +
+            (w.dc_oh       || 0) * (w.dc_oh_wtavg_cube       || 0) +
+            (w.dc_labeled  || 0) * (w.dc_lbl_wtavg_cube      || 0) +
+            (w.dc_unlabeled|| 0) * (w.dc_unlbl_wtavg_cube    || 0) +
+            (w.sto_to_dc   || 0) * (w.sto_wtavg_cube         || 0) +
+            (w.on_yard     || 0) * (w.on_yard_wtavg_cube     || 0)
+        );
+    }
+
     function updateTrendChart(weeks) {
+        const isCube = CHART_MODES.trend === 'cube';
+        const valueFn = isCube ? adjTotalCube : adjTotal;
         // Group by WM_YEAR → { year: [ {WM_WEEK, value} ] }
         const byYear = {};
         weeks.forEach(w => {
@@ -1225,7 +1347,7 @@
             if (!byYear[yr]) byYear[yr] = {};
             // If same week appears twice (shouldn't), sum them
             if (!byYear[yr][w.WM_WEEK]) byYear[yr][w.WM_WEEK] = 0;
-            byYear[yr][w.WM_WEEK] += adjTotal(w);
+            byYear[yr][w.WM_WEEK] += valueFn(w);
         });
 
         const years = Object.keys(byYear).sort();
@@ -1277,7 +1399,7 @@
                     callbacks: {
                         label: ctx => {
                             if (ctx.raw == null) return null;
-                            return ctx.dataset.label + ': ' + fmtM(ctx.raw);
+                            return ctx.dataset.label + ': ' + fmtM(ctx.raw) + (isCube ? ' cu.ft' : '');
                         },
                         afterBody: (items) => {
                             // Show YoY change if both years have data at this point
@@ -1303,14 +1425,13 @@
                     },
                     anchor: 'end',
                     align: function(ctx) {
-                        // Alternate top/bottom to avoid overlap between years
                         return ctx.datasetIndex === 0 ? 'bottom' : 'top';
                     },
                     offset: 4,
                     font: { size: 9, weight: '600' },
                     formatter: function(value) {
                         if (value == null) return '';
-                        return fmtB(value);
+                        return fmtB(value); // no cu.ft suffix — toggle button provides context
                     }
                 }
             }
@@ -1321,7 +1442,7 @@
     // Charts: Metric YoY (Store OH, DC OH, DC Labeled, Backroom)
     // Each chart shows FY25 vs FY26 lines aligned by WM_WEEK
     // ============================================================
-    function buildYoYChart(canvasId, weeks, metricKey) {
+    function buildYoYChart(canvasId, weeks, metricKey, yTickFmt, tooltipLabelFmt) {
         const byYear = {};
         weeks.forEach(w => {
             const yr = w.WM_YEAR;
@@ -1363,16 +1484,19 @@
             };
         });
 
+        const yTickCb = yTickFmt || (v => fmtB(v));
+        const ttLabel = tooltipLabelFmt || (ctx => ctx.raw == null ? null : ctx.dataset.label + ': ' + fmtM(ctx.raw));
+
         renderChart(canvasId, 'line', { labels, datasets }, {
             scales: {
-                y: { ticks: { callback: v => fmtB(v), color: '#e0e0e0' }, grid: { color: '#2a2a4a' } },
+                y: { ticks: { callback: yTickCb, color: '#e0e0e0' }, grid: { color: '#2a2a4a' } },
                 x: { ticks: { color: '#e0e0e0', maxRotation: 45, maxTicksLimit: 20 }, grid: { color: '#2a2a4a22' } }
             },
             plugins: {
                 tooltip: {
                     mode: 'index',
                     callbacks: {
-                        label: ctx => ctx.raw == null ? null : ctx.dataset.label + ': ' + fmtM(ctx.raw),
+                        label: ttLabel,
                         afterBody: (items) => {
                             if (items.length === 2 && items[0].raw != null && items[1].raw != null && items[0].raw > 0) {
                                 const pct = ((items[1].raw - items[0].raw) / items[0].raw * 100).toFixed(1);
@@ -1466,10 +1590,50 @@
     }
 
     function updateMetricYoYCharts(weeks) {
-        buildYoYChart('yoyStoreOHChart', weeks, 'store_oh');
-        buildYoYChart('yoyDCOHChart', weeks, 'dc_oh');
-        buildDCTypeYoYChart('yoyDCTypeChart', weeks);
-        buildYoYChart('yoyBackroomChart', weeks, 'backroom');
+        // Store OH chart: units or cube volume
+        const storeKey = CHART_MODES.storeoh === 'cube' ? 'store_oh_cube_vol' : 'store_oh';
+        const dcohKey  = CHART_MODES.dcoh    === 'cube' ? 'dc_oh_cube_vol'    : 'dc_oh';
+        const backKey  = CHART_MODES.backroom === 'cube' ? 'backroom_cube_vol' : 'backroom';
+
+        // Inject cube volume fields into weeks (units × wtavg_cube = total cu.ft)
+        const weeksWithCube = weeks.map(w => ({
+            ...w,
+            store_oh_cube_vol: (w.store_oh || 0) * (w.store_wtavg_cube || 0),
+            dc_oh_cube_vol:    (w.dc_oh    || 0) * (w.dc_oh_wtavg_cube || 0),
+            backroom_cube_vol: (w.backroom  || 0) * (w.backroom_wtavg_cube || 0)
+        }));
+
+        const isCube = (k) => k.endsWith('_cube_vol');
+        // No cu.ft suffix on y-axis or data labels — tooltip keeps it for precision
+        const yFmt = () => (v => fmtB(v));
+        const ttFmt = (k) => isCube(k)
+            ? (ctx => ctx.raw == null ? null : ctx.dataset.label + ': ' + fmtM(ctx.raw) + ' cu.ft')
+            : (ctx => ctx.raw == null ? null : ctx.dataset.label + ': ' + fmtM(ctx.raw));
+
+        buildYoYChart('yoyStoreOHChart', weeksWithCube, storeKey, yFmt(storeKey), ttFmt(storeKey));
+        buildYoYChart('yoyDCOHChart',    weeksWithCube, dcohKey,  yFmt(dcohKey),  ttFmt(dcohKey));
+        buildDCTypeYoYChart('yoyDCTypeChart', weeksWithCube);
+        buildYoYChart('yoyBackroomChart', weeksWithCube, backKey, yFmt(backKey), ttFmt(backKey));
+    }
+
+    // ── Chart mode toggle handlers ─────────────────────────────────
+    function setTrendMode(mode) {
+        CHART_MODES.trend = mode;
+        document.getElementById('trend-units-btn').classList.toggle('active', mode === 'units');
+        document.getElementById('trend-units-btn').className = mode === 'units'
+            ? 'btn btn-primary btn-sm active' : 'btn btn-outline-secondary btn-sm';
+        document.getElementById('trend-cube-btn').className = mode === 'cube'
+            ? 'btn btn-primary btn-sm active' : 'btn btn-outline-secondary btn-sm';
+        if (FILTERED) updateTrendChart(FILTERED);
+    }
+
+    function setChartMode(chart, mode) {
+        CHART_MODES[chart] = mode;
+        const uBtn = document.getElementById(`${chart}-units-btn`);
+        const cBtn = document.getElementById(`${chart}-cube-btn`);
+        if (uBtn) uBtn.className = mode === 'units' ? 'btn btn-primary btn-sm active' : 'btn btn-outline-secondary btn-sm';
+        if (cBtn) cBtn.className = mode === 'cube'  ? 'btn btn-primary btn-sm active' : 'btn btn-outline-secondary btn-sm';
+        if (FILTERED) updateMetricYoYCharts(FILTERED);
     }
 
     // ============================================================

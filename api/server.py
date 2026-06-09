@@ -946,7 +946,17 @@ class HistoricalCache:
             SUM(COALESCE(ON_YARD_REGIONAL_UNITS, 0)) AS on_yard_regional,
             SUM(COALESCE(ON_YARD_GROCERY_UNITS, 0)) AS on_yard_grocery,
             SUM(COALESCE(ON_YARD_FASHION_UNITS, 0)) AS on_yard_fashion,
-            SUM(COALESCE(ON_YARD_IMPORTS_UNITS, 0)) AS on_yard_imports
+            SUM(COALESCE(ON_YARD_IMPORTS_UNITS, 0)) AS on_yard_imports,
+            -- Weighted average cube per channel (units × cube / units = re-weighted avg)
+            SAFE_DIVIDE(SUM(COALESCE(STORE_OH_UNITS,0) * COALESCE(STORE_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(STORE_OH_UNITS,0)),0)) AS store_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(DC_RESERVED_UNITS,0) * COALESCE(DC_RESERVED_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(DC_RESERVED_UNITS,0)),0)) AS dc_reserved_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(IN_TRANSIT_UNITS,0) * COALESCE(TRANSIT_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(IN_TRANSIT_UNITS,0)),0)) AS transit_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(FC_OH_UNITS,0) * COALESCE(FC_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(FC_OH_UNITS,0)),0)) AS fc_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(DC_OH_UNITS,0) * COALESCE(DC_OH_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(DC_OH_UNITS,0)),0)) AS dc_oh_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(DC_LABELED_UNITS,0) * COALESCE(DC_LBL_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(DC_LABELED_UNITS,0)),0)) AS dc_lbl_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(DC_UNLABELED_UNITS,0) * COALESCE(DC_UNLBL_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(DC_UNLABELED_UNITS,0)),0)) AS dc_unlbl_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(STO_IN_TRANSIT_TO_DC_UNITS,0) * COALESCE(STO_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(STO_IN_TRANSIT_TO_DC_UNITS,0)),0)) AS sto_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(ON_YARD_UNITS,0) * COALESCE(ON_YARD_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(ON_YARD_UNITS,0)),0)) AS on_yard_wtavg_cube
         """
 
         fqn = f"`{HIST_PROJECT_ID}.{DATASET}.{HIST_TABLE}`"
@@ -995,7 +1005,17 @@ class HistoricalCache:
             SUM(COALESCE(ON_YARD_REGIONAL_UNITS, 0)) AS on_yard_regional,
             SUM(COALESCE(ON_YARD_GROCERY_UNITS, 0)) AS on_yard_grocery,
             SUM(COALESCE(ON_YARD_FASHION_UNITS, 0)) AS on_yard_fashion,
-            SUM(COALESCE(ON_YARD_IMPORTS_UNITS, 0)) AS on_yard_imports
+            SUM(COALESCE(ON_YARD_IMPORTS_UNITS, 0)) AS on_yard_imports,
+            -- Weighted average cube per channel
+            SAFE_DIVIDE(SUM(COALESCE(STORE_OH_UNITS,0) * COALESCE(STORE_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(STORE_OH_UNITS,0)),0)) AS store_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(DC_RESERVED_UNITS,0) * COALESCE(DC_RESERVED_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(DC_RESERVED_UNITS,0)),0)) AS dc_reserved_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(IN_TRANSIT_UNITS,0) * COALESCE(TRANSIT_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(IN_TRANSIT_UNITS,0)),0)) AS transit_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(FC_OH_UNITS,0) * COALESCE(FC_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(FC_OH_UNITS,0)),0)) AS fc_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(DC_OH_UNITS,0) * COALESCE(DC_OH_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(DC_OH_UNITS,0)),0)) AS dc_oh_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(DC_LABELED_UNITS,0) * COALESCE(DC_LBL_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(DC_LABELED_UNITS,0)),0)) AS dc_lbl_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(DC_UNLABELED_UNITS,0) * COALESCE(DC_UNLBL_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(DC_UNLABELED_UNITS,0)),0)) AS dc_unlbl_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(STO_IN_TRANSIT_TO_DC_UNITS,0) * COALESCE(STO_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(STO_IN_TRANSIT_TO_DC_UNITS,0)),0)) AS sto_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(ON_YARD_UNITS,0) * COALESCE(ON_YARD_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(ON_YARD_UNITS,0)),0)) AS on_yard_wtavg_cube
         """
         q4 = f"""SELECT BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU,
                         OMNI_DEPT_NBR AS dept_nbr, OMNI_DEPT_DESC AS department,
@@ -1017,6 +1037,16 @@ class HistoricalCache:
         core_queries = {'enterprise': q1, 'sbu': q2, 'dept': q3}
         results = {}
 
+        def _strip_cube_columns(sql: str) -> str:
+            """Remove SAFE_DIVIDE cube lines from SQL for tables without cube columns."""
+            import re as _re
+            lines = sql.split('\n')
+            clean = [ln for ln in lines if 'WTAVG_CUBE' not in ln.upper()]
+            result = '\n'.join(clean)
+            # Remove any trailing comma left on the last column before FROM/GROUP/ORDER
+            result = _re.sub(r',\s*\n(\s*(FROM|GROUP BY|ORDER BY))', r'\n\1', result, flags=_re.IGNORECASE)
+            return result
+
         def run_query(name, sql):
             try:
                 t_start = time.time()
@@ -1025,6 +1055,18 @@ class HistoricalCache:
                 print(f"[HIST] [OK] {name}: {len(df):,} rows in {elapsed}s", flush=True)
                 return df
             except Exception as e:
+                err_str = str(e)
+                if "Unrecognized name" in err_str and "WTAVG_CUBE" in err_str:
+                    # Table doesn't have cube columns (e.g. old table on Posit) — retry without them
+                    print(f"[HIST] [WARN] {name}: cube columns not in table, retrying without cube...", flush=True)
+                    sql_no_cube = _strip_cube_columns(sql)
+                    try:
+                        df = client.query(sql_no_cube).to_dataframe()
+                        print(f"[HIST] [OK] {name} (no-cube): {len(df):,} rows", flush=True)
+                        return df
+                    except Exception as e2:
+                        print(f"[HIST] [ERR] {name} fallback FAILED: {e2}", flush=True)
+                        return None
                 print(f"[HIST] [ERR] {name} FAILED: {e}", flush=True)
                 return None
 

@@ -88,6 +88,12 @@
     </style>
 </head>
 <body>
+    <!-- Hide navbar when loaded inside index.html iframe -->
+    <script>
+        if (window.self !== window.top) {
+            document.write('<style>nav.navbar{display:none!important}</style>');
+        }
+    </script>
     <nav class="navbar navbar-expand-lg navbar-dark" style="background: var(--walmart-blue);">
         <div class="container-fluid">
             <a class="navbar-brand" href="#"><i class="bi bi-graph-up me-2"></i>Where's My Stuff — Historical Trends</a>

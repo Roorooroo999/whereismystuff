@@ -580,11 +580,18 @@
                     historicalView.style.display = 'block';
                     historicalView.offsetHeight;
                     historicalView.classList.add('visible');
-                    // Lazy-load iframe
-                    if (!historicalLoaded) {
-                        const iframe = document.getElementById('historical-iframe');
+                    // Lazy-load iframe (or reload if it drifted to another page)
+                    const histIframe = document.getElementById('historical-iframe');
+                    let needHistLoad = !historicalLoaded;
+                    if (!needHistLoad) {
+                        try {
+                            const loc = histIframe.contentWindow.location.href;
+                            if (!loc.includes('historical.html')) needHistLoad = true;
+                        } catch(e) { /* cross-origin — assume ok */ }
+                    }
+                    if (needHistLoad) {
                         const path = window.location.pathname;
-                        iframe.src = path.endsWith('.html') || path.endsWith('.htm')
+                        histIframe.src = path.endsWith('.html') || path.endsWith('.htm')
                             ? path.replace(/[^\/]+$/, 'historical.html')
                             : path + '/historical.html';
                         historicalLoaded = true;

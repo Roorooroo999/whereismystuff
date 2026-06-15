@@ -18,12 +18,14 @@
         .kpi-card .sub-value { font-size: 0.65rem; font-weight: 500; opacity: 0.85; }
         .bg-onorder { background: linear-gradient(135deg, #0369a1, #0284c7); }
         .bg-onyard { background: linear-gradient(135deg, #991b1b, #dc2626); }
+        .bg-stodc { background: linear-gradient(135deg, #b45309, #d97706); }
         .bg-intransit { background: linear-gradient(135deg, #0891b2, #06b6d4); }
         .bg-indc { background: linear-gradient(135deg, #0069d9, #007bff); }
         .bg-fcoh { background: linear-gradient(135deg, #4338ca, #6d28d9); }
         .bg-backroom { background: linear-gradient(135deg, #856404, #c49a09); }
         .bg-onfloor { background: linear-gradient(135deg, #2d6a4f, #40916c); }
         .bg-total { background: linear-gradient(135deg, #1e3a5f, #2c5282); }
+        .kpi-cube { font-size: 0.6rem; font-weight: 500; opacity: 0.8; margin-top: 2px; }
         .chart-container { background: var(--bg-card); border-radius: 10px; padding: 15px; margin-bottom: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
         .chart-title { font-weight: 600; margin-bottom: 10px; color: var(--text-light); font-size: 0.95rem; }
         .filter-section { margin-bottom: 12px; }
@@ -199,6 +201,16 @@
                             <div class="label">On Yard</div>
                             <div class="sub-value" id="kpi-onyard-wow"></div>
                             <div class="sub-value" id="kpi-onyard-yoy"></div>
+                            <div class="kpi-cube" id="kpi-onyard-cube"></div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-lg">
+                        <div class="kpi-card bg-stodc" data-bucket="dc_to_dc" onclick="toggleBucketFilter('dc_to_dc')">
+                            <div class="value" id="kpi-stodc">-</div>
+                            <div class="label">DC In Transit</div>
+                            <div class="sub-value" id="kpi-stodc-wow"></div>
+                            <div class="sub-value" id="kpi-stodc-yoy"></div>
+                            <div class="kpi-cube" id="kpi-stodc-cube"></div>
                         </div>
                     </div>
                     <div class="col-6 col-lg">
@@ -207,6 +219,7 @@
                             <div class="label">In DC</div>
                             <div class="sub-value" id="kpi-indc-wow"></div>
                             <div class="sub-value" id="kpi-indc-yoy"></div>
+                            <div class="kpi-cube" id="kpi-indc-cube"></div>
                         </div>
                     </div>
                     <div class="col-6 col-lg">
@@ -215,6 +228,7 @@
                             <div class="label">In Transit</div>
                             <div class="sub-value" id="kpi-intransit-wow"></div>
                             <div class="sub-value" id="kpi-intransit-yoy"></div>
+                            <div class="kpi-cube" id="kpi-intransit-cube"></div>
                         </div>
                     </div>
                     <div class="col-6 col-lg">
@@ -223,6 +237,7 @@
                             <div class="label">FC (eComm)</div>
                             <div class="sub-value" id="kpi-fcoh-wow"></div>
                             <div class="sub-value" id="kpi-fcoh-yoy"></div>
+                            <div class="kpi-cube" id="kpi-fcoh-cube"></div>
                         </div>
                     </div>
                     <div class="col-6 col-lg">
@@ -231,6 +246,7 @@
                             <div class="label">Backroom</div>
                             <div class="sub-value" id="kpi-backroom-wow"></div>
                             <div class="sub-value" id="kpi-backroom-yoy"></div>
+                            <div class="kpi-cube" id="kpi-backroom-cube"></div>
                         </div>
                     </div>
                     <div class="col-6 col-lg">
@@ -239,6 +255,7 @@
                             <div class="label">On Floor</div>
                             <div class="sub-value" id="kpi-onfloor-wow"></div>
                             <div class="sub-value" id="kpi-onfloor-yoy"></div>
+                            <div class="kpi-cube" id="kpi-onfloor-cube"></div>
                         </div>
                     </div>
                     <div class="col-6 col-lg">
@@ -284,6 +301,7 @@
                             <div class="text-muted" style="font-size:0.65rem;" id="stacked-legend">
                                 <span style="color:#0284c7;">■</span> On Order &nbsp;
                                 <span style="color:#dc2626;">■</span> On Yard &nbsp;
+                                <span style="color:#d97706;">■</span> DC In Transit &nbsp;
                                 <span style="color:#007bff;">■</span> In DC &nbsp;
                                 <span style="color:#06b6d4;">■</span> In Transit &nbsp;
                                 <span style="color:#6d28d9;">■</span> FC (eComm) &nbsp;
@@ -318,6 +336,15 @@
                     </div>
                 </div>
                 <div class="row">
+                    <div class="col-md-6">
+                        <div class="chart-container" style="height: 320px;">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div class="chart-title"><i class="bi bi-arrow-left-right me-1"></i>DC In Transit (STO to DC) — YoY</div>
+                                <div class="text-muted" style="font-size:0.65rem;"><span style="color:#6cb2eb;">●</span> FY25 &nbsp; <span style="color:#ffc220;">●</span> FY26</div>
+                            </div>
+                            <canvas id="stoDCChart"></canvas>
+                        </div>
+                    </div>
                     <div class="col-md-6">
                         <div class="chart-container" style="height: 320px;">
                             <div class="d-flex justify-content-between align-items-center">
@@ -383,6 +410,7 @@
                                     <th>FY</th>
                                     <th class="text-end">On Order</th>
                                     <th class="text-end">On Yard</th>
+                                    <th class="text-end">DC In Transit</th>
                                     <th class="text-end">In DC</th>
                                     <th class="text-end">In Transit</th>
                                     <th class="text-end">FC (eComm)</th>
@@ -423,7 +451,9 @@
                                     <select class="form-select form-select-sm" id="bucket-drill-position" onchange="renderBucketDrilldown()">
                                         <option value="total_pipeline">Total Pipeline</option>
                                         <option value="on_yard">On Yard</option>
+                                        <option value="dc_to_dc">DC In Transit</option>
                                         <option value="in_dc">In DC</option>
+                                        <option value="in_transit">In Transit</option>
                                         <option value="fc_oh">FC (eComm)</option>
                                         <option value="backroom">Backroom</option>
                                         <option value="on_floor">On Floor</option>
@@ -594,12 +624,22 @@
     const BUCKET_NAMES = {
         open_orders: 'On Order',
         on_yard: 'On Yard',
+        dc_to_dc: 'DC In Transit',
         in_dc: 'In DC',
         in_transit: 'In Transit',
         fc_oh: 'FC (eComm)',
         backroom: 'Backroom',
         on_floor: 'On Floor'
     };
+
+    // Format cube total (cubic feet) for KPI cards
+    function fmtCubeTotal(v) {
+        if (v == null || v <= 0) return '';
+        if (v >= 1e9) return `Cube: ${(v / 1e9).toFixed(2)}B`;
+        if (v >= 1e6) return `Cube: ${(v / 1e6).toFixed(1)}M`;
+        if (v >= 1e3) return `Cube: ${(v / 1e3).toFixed(1)}K`;
+        return `Cube: ${v.toFixed(1)}`;
+    }
 
     // Toggle bucket filter
     function toggleBucketFilter(bucket) {
@@ -1110,18 +1150,48 @@
             if (!wk) return;
 
             if (!weeklyData[wk]) {
-                weeklyData[wk] = { wm_week: wk, open_orders: 0, on_yard: 0, in_transit: 0, in_dc: 0, fc_oh: 0, backroom: 0, on_floor: 0 };
+                weeklyData[wk] = {
+                    wm_week: wk, open_orders: 0, on_yard: 0, dc_to_dc: 0,
+                    in_transit: 0, in_dc: 0, fc_oh: 0, backroom: 0, on_floor: 0,
+                    // Cube numerators (units × wtavg_cube) for weighted-average recomputation
+                    _cnum_on_yard: 0, _cnum_dc_to_dc: 0, _cnum_in_transit: 0,
+                    _cnum_in_dc: 0, _cnum_fc_oh: 0, _cnum_backroom: 0, _cnum_on_floor: 0
+                };
             }
 
             // In DC = DC OH + DC Reserved + DC Labeled + DC Unlabeled
             const inDC = (r.dc_oh || 0) + (r.dc_reserved || 0) + (r.dc_labeled || 0) + (r.dc_unlabeled || 0);
 
-            weeklyData[wk].on_floor += r.on_floor || 0;
-            weeklyData[wk].backroom += r.backroom || 0;
-            weeklyData[wk].in_dc += inDC;
-            weeklyData[wk].fc_oh += r.fc_oh || 0;
+            weeklyData[wk].on_floor   += r.on_floor   || 0;
+            weeklyData[wk].backroom   += r.backroom   || 0;
+            weeklyData[wk].in_dc      += inDC;
+            weeklyData[wk].fc_oh      += r.fc_oh      || 0;
             weeklyData[wk].in_transit += r.in_transit || 0;
-            weeklyData[wk].on_yard += r.on_yard || 0;
+            weeklyData[wk].on_yard    += r.on_yard    || 0;
+            weeklyData[wk].dc_to_dc   += r.sto_to_dc  || 0;
+
+            // Cube numerators (accumulate so we can re-derive weighted avg across SBUs/depts)
+            weeklyData[wk]._cnum_on_yard    += (r.on_yard    || 0) * (r.on_yard_wtavg_cube    || 0);
+            weeklyData[wk]._cnum_dc_to_dc   += (r.sto_to_dc  || 0) * (r.sto_wtavg_cube        || 0);
+            weeklyData[wk]._cnum_in_transit += (r.in_transit || 0) * (r.transit_wtavg_cube    || 0);
+            weeklyData[wk]._cnum_fc_oh      += (r.fc_oh      || 0) * (r.fc_wtavg_cube         || 0);
+            weeklyData[wk]._cnum_backroom   += (r.backroom   || 0) * (r.store_wtavg_cube      || 0);
+            weeklyData[wk]._cnum_on_floor   += (r.on_floor   || 0) * (r.store_wtavg_cube      || 0);
+            weeklyData[wk]._cnum_in_dc      += (r.dc_oh      || 0) * (r.dc_oh_wtavg_cube      || 0)
+                                             + (r.dc_reserved || 0) * (r.dc_reserved_wtavg_cube || 0)
+                                             + (r.dc_labeled  || 0) * (r.dc_lbl_wtavg_cube     || 0)
+                                             + (r.dc_unlabeled|| 0) * (r.dc_unlbl_wtavg_cube   || 0);
+        });
+
+        // Compute final weighted-average cube totals (total cubic feet per bucket per week)
+        Object.values(weeklyData).forEach(w => {
+            w.cube_on_yard    = w.on_yard    > 0 ? w._cnum_on_yard    : null;
+            w.cube_dc_to_dc   = w.dc_to_dc   > 0 ? w._cnum_dc_to_dc   : null;
+            w.cube_in_transit = w.in_transit > 0 ? w._cnum_in_transit : null;
+            w.cube_in_dc      = w.in_dc      > 0 ? w._cnum_in_dc      : null;
+            w.cube_fc_oh      = w.fc_oh      > 0 ? w._cnum_fc_oh      : null;
+            w.cube_backroom   = w.backroom   > 0 ? w._cnum_backroom   : null;
+            w.cube_on_floor   = w.on_floor   > 0 ? w._cnum_on_floor   : null;
         });
 
         // Add open orders from on-order data
@@ -1170,7 +1240,10 @@
             if (!weeklyData[histWeekKey]) {
                 weeklyData[histWeekKey] = {
                     wm_week: histWeekKey,
-                    open_orders: 0, on_yard: 0, in_transit: 0, in_dc: 0, fc_oh: 0, backroom: 0, on_floor: 0
+                    open_orders: 0, on_yard: 0, dc_to_dc: 0,
+                    in_transit: 0, in_dc: 0, fc_oh: 0, backroom: 0, on_floor: 0,
+                    _cnum_on_yard: 0, _cnum_dc_to_dc: 0, _cnum_in_transit: 0,
+                    _cnum_in_dc: 0, _cnum_fc_oh: 0, _cnum_backroom: 0, _cnum_on_floor: 0
                 };
             }
 
@@ -1267,6 +1340,7 @@
         renderStackedChart(byYear);
         renderYoYChart('onOrderChart', byYear, 'open_orders', 'On Order');
         renderYoYChart('onYardChart', byYear, 'on_yard', 'On Yard');
+        renderYoYChart('stoDCChart', byYear, 'dc_to_dc', 'DC In Transit');
         renderYoYChart('inDCChart', byYear, 'in_dc', 'In DC');
         renderYoYChart('inTransitChart', byYear, 'in_transit', 'In Transit');
         renderYoYChart('fcohChart', byYear, 'fc_oh', 'FC (eComm)');
@@ -1288,15 +1362,29 @@
 
         document.getElementById('kpi-onorder').textContent = fmtM(current.open_orders || 0);
         document.getElementById('kpi-onyard').textContent = fmtM(current.on_yard || 0);
+        document.getElementById('kpi-stodc').textContent = fmtM(current.dc_to_dc || 0);
         document.getElementById('kpi-intransit').textContent = fmtM(current.in_transit || 0);
         document.getElementById('kpi-indc').textContent = fmtM(current.in_dc || 0);
         document.getElementById('kpi-fcoh').textContent = fmtM(current.fc_oh || 0);
         document.getElementById('kpi-backroom').textContent = fmtM(current.backroom || 0);
         document.getElementById('kpi-onfloor').textContent = fmtM(current.on_floor || 0);
 
-        const totalCur = (current.open_orders || 0) + (current.on_yard || 0) + (current.in_transit || 0) + (current.in_dc || 0) + (current.fc_oh || 0) + (current.backroom || 0) + (current.on_floor || 0);
-        const totalWow = (wow.open_orders || 0) + (wow.on_yard || 0) + (wow.in_transit || 0) + (wow.in_dc || 0) + (wow.fc_oh || 0) + (wow.backroom || 0) + (wow.on_floor || 0);
-        const totalYoy = (yoy.open_orders || 0) + (yoy.on_yard || 0) + (yoy.in_transit || 0) + (yoy.in_dc || 0) + (yoy.fc_oh || 0) + (yoy.backroom || 0) + (yoy.on_floor || 0);
+        // Cube info per bucket (total cubic feet = units × wtavg_cube)
+        const setCubeEl = (id, cubeVal) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = fmtCubeTotal(cubeVal);
+        };
+        setCubeEl('kpi-onyard-cube',    current.cube_on_yard);
+        setCubeEl('kpi-stodc-cube',     current.cube_dc_to_dc);
+        setCubeEl('kpi-indc-cube',      current.cube_in_dc);
+        setCubeEl('kpi-intransit-cube', current.cube_in_transit);
+        setCubeEl('kpi-fcoh-cube',      current.cube_fc_oh);
+        setCubeEl('kpi-backroom-cube',  current.cube_backroom);
+        setCubeEl('kpi-onfloor-cube',   current.cube_on_floor);
+
+        const totalCur = (current.open_orders || 0) + (current.on_yard || 0) + (current.dc_to_dc || 0) + (current.in_transit || 0) + (current.in_dc || 0) + (current.fc_oh || 0) + (current.backroom || 0) + (current.on_floor || 0);
+        const totalWow = (wow.open_orders || 0) + (wow.on_yard || 0) + (wow.dc_to_dc || 0) + (wow.in_transit || 0) + (wow.in_dc || 0) + (wow.fc_oh || 0) + (wow.backroom || 0) + (wow.on_floor || 0);
+        const totalYoy = (yoy.open_orders || 0) + (yoy.on_yard || 0) + (yoy.dc_to_dc || 0) + (yoy.in_transit || 0) + (yoy.in_dc || 0) + (yoy.fc_oh || 0) + (yoy.backroom || 0) + (yoy.on_floor || 0);
         document.getElementById('kpi-total').textContent = fmtM(totalCur);
 
         const setChange = (wowId, yoyId, cur, wowVal, yoyVal) => {
@@ -1310,6 +1398,7 @@
 
         setChange('kpi-onorder-wow', 'kpi-onorder-yoy', current.open_orders, wow.open_orders, yoy.open_orders);
         setChange('kpi-onyard-wow', 'kpi-onyard-yoy', current.on_yard, wow.on_yard, yoy.on_yard);
+        setChange('kpi-stodc-wow', 'kpi-stodc-yoy', current.dc_to_dc, wow.dc_to_dc, yoy.dc_to_dc);
         setChange('kpi-intransit-wow', 'kpi-intransit-yoy', current.in_transit, wow.in_transit, yoy.in_transit);
         setChange('kpi-indc-wow', 'kpi-indc-yoy', current.in_dc, wow.in_dc, yoy.in_dc);
         setChange('kpi-fcoh-wow', 'kpi-fcoh-yoy', current.fc_oh, wow.fc_oh, yoy.fc_oh);
@@ -1345,9 +1434,9 @@
         for (let w = 1; w <= 52; w++) weeks.push(w);
         const labels = weeks.map(w => `WK${String(w).padStart(2, '0')}`);
 
-        const buckets = ['open_orders', 'on_yard', 'in_dc', 'in_transit', 'fc_oh', 'backroom', 'on_floor'];
-        const colors = { open_orders: '#0284c7', on_yard: '#dc2626', in_dc: '#007bff', in_transit: '#06b6d4', fc_oh: '#6d28d9', backroom: '#c49a09', on_floor: '#40916c' };
-        const names = { open_orders: 'On Order', on_yard: 'On Yard', in_dc: 'In DC', in_transit: 'In Transit', fc_oh: 'FC (eComm)', backroom: 'Backroom', on_floor: 'On Floor' };
+        const buckets = ['open_orders', 'on_yard', 'dc_to_dc', 'in_dc', 'in_transit', 'fc_oh', 'backroom', 'on_floor'];
+        const colors = { open_orders: '#0284c7', on_yard: '#dc2626', dc_to_dc: '#d97706', in_dc: '#007bff', in_transit: '#06b6d4', fc_oh: '#6d28d9', backroom: '#c49a09', on_floor: '#40916c' };
+        const names = { open_orders: 'On Order', on_yard: 'On Yard', dc_to_dc: 'DC In Transit', in_dc: 'In DC', in_transit: 'In Transit', fc_oh: 'FC (eComm)', backroom: 'Backroom', on_floor: 'On Floor' };
 
         const datasets = [];
 
@@ -1630,11 +1719,12 @@
             const fy25 = byYear[2025]?.[wk];
 
             if (fy26 && (fy26.on_floor > 0 || fy26.in_dc > 0)) {
-                const total = (fy26.open_orders || 0) + (fy26.on_yard || 0) + (fy26.in_dc || 0) + (fy26.in_transit || 0) + (fy26.fc_oh || 0) + (fy26.backroom || 0) + (fy26.on_floor || 0);
+                const total = (fy26.open_orders || 0) + (fy26.on_yard || 0) + (fy26.dc_to_dc || 0) + (fy26.in_dc || 0) + (fy26.in_transit || 0) + (fy26.fc_oh || 0) + (fy26.backroom || 0) + (fy26.on_floor || 0);
                 tbody.innerHTML += `<tr>
                     <td>WK${String(wk).padStart(2, '0')}</td><td>FY26</td>
                     <td class="text-end">${fmtM(fy26.open_orders)}</td>
                     <td class="text-end">${fmtM(fy26.on_yard)}</td>
+                    <td class="text-end">${fmtM(fy26.dc_to_dc)}</td>
                     <td class="text-end">${fmtM(fy26.in_dc)}</td>
                     <td class="text-end">${fmtM(fy26.in_transit)}</td>
                     <td class="text-end">${fmtM(fy26.fc_oh)}</td>
@@ -1644,11 +1734,12 @@
                 </tr>`;
             }
             if (fy25 && (fy25.on_floor > 0 || fy25.in_dc > 0)) {
-                const total = (fy25.open_orders || 0) + (fy25.on_yard || 0) + (fy25.in_dc || 0) + (fy25.in_transit || 0) + (fy25.fc_oh || 0) + (fy25.backroom || 0) + (fy25.on_floor || 0);
+                const total = (fy25.open_orders || 0) + (fy25.on_yard || 0) + (fy25.dc_to_dc || 0) + (fy25.in_dc || 0) + (fy25.in_transit || 0) + (fy25.fc_oh || 0) + (fy25.backroom || 0) + (fy25.on_floor || 0);
                 tbody.innerHTML += `<tr style="opacity:0.7;">
                     <td>WK${String(wk).padStart(2, '0')}</td><td>FY25</td>
                     <td class="text-end">${fmtM(fy25.open_orders)}</td>
                     <td class="text-end">${fmtM(fy25.on_yard)}</td>
+                    <td class="text-end">${fmtM(fy25.dc_to_dc)}</td>
                     <td class="text-end">${fmtM(fy25.in_dc)}</td>
                     <td class="text-end">${fmtM(fy25.in_transit)}</td>
                     <td class="text-end">${fmtM(fy25.fc_oh)}</td>
@@ -1663,12 +1754,12 @@
     function exportCSV() {
         const filters = getFilters();
         const data = buildBucketsData(filters);
-        let csv = 'Week,FY,On Order,On Yard,In DC,In Transit,FC (eComm),Backroom,On Floor,Total\n';
+        let csv = 'Week,FY,On Order,On Yard,DC In Transit,In DC,In Transit,FC (eComm),Backroom,On Floor,Total\n';
         data.forEach(r => {
             const year = parseInt(String(r.wm_week).substring(0, 4));
             const wkNum = parseInt(String(r.wm_week).slice(-2));
-            const total = (r.open_orders || 0) + (r.on_yard || 0) + (r.in_dc || 0) + (r.in_transit || 0) + (r.fc_oh || 0) + (r.backroom || 0) + (r.on_floor || 0);
-            csv += `WK${String(wkNum).padStart(2, '0')},FY${year === 2026 ? '26' : '25'},${r.open_orders || 0},${r.on_yard || 0},${r.in_dc || 0},${r.in_transit || 0},${r.fc_oh || 0},${r.backroom || 0},${r.on_floor || 0},${total}\n`;
+            const total = (r.open_orders || 0) + (r.on_yard || 0) + (r.dc_to_dc || 0) + (r.in_dc || 0) + (r.in_transit || 0) + (r.fc_oh || 0) + (r.backroom || 0) + (r.on_floor || 0);
+            csv += `WK${String(wkNum).padStart(2, '0')},FY${year === 2026 ? '26' : '25'},${r.open_orders || 0},${r.on_yard || 0},${r.dc_to_dc || 0},${r.in_dc || 0},${r.in_transit || 0},${r.fc_oh || 0},${r.backroom || 0},${r.on_floor || 0},${total}\n`;
         });
         const blob = new Blob([csv], { type: 'text/csv' });
         const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'inventory_buckets.csv'; a.click();
@@ -1688,7 +1779,9 @@
     const POSITION_NAMES = {
         total_pipeline: 'Total Pipeline',
         on_yard: 'On Yard',
+        dc_to_dc: 'DC In Transit',
         in_dc: 'In DC',
+        in_transit: 'In Transit',
         fc_oh: 'FC (eComm)',
         backroom: 'Backroom',
         on_floor: 'On Floor'

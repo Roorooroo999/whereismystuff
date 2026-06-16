@@ -450,11 +450,13 @@
                                     <label class="filter-label">Inventory Position</label>
                                     <select class="form-select form-select-sm" id="bucket-drill-position" onchange="renderBucketDrilldown()">
                                         <option value="total_pipeline">Total Pipeline</option>
+                                        <option value="open_orders">On Order</option>
                                         <option value="on_yard">On Yard</option>
                                         <option value="dc_to_dc">DC In Transit</option>
                                         <option value="in_dc">In DC</option>
                                         <option value="in_transit">In Transit</option>
                                         <option value="fc_oh">FC (eComm)</option>
+                                        <option value="store_oh">Store OH</option>
                                         <option value="backroom">Backroom</option>
                                         <option value="on_floor">On Floor</option>
                                     </select>
@@ -935,7 +937,10 @@
         populateDeptFilter();
 
         // Preload hist catg in background so category dropdown is instant on dept selection
-        loadHistCatgBackground();
+        loadHistCatgBackground(() => {
+            // When catg data arrives, refresh catg drill aggregations
+            if (BUCKET_DRILL_DATA.latestWeek) loadBucketDrillData();
+        });
     }
 
     // Populate department filter - shows all depts, filtered by SBU if selected
@@ -1778,13 +1783,15 @@
 
     const POSITION_NAMES = {
         total_pipeline: 'Total Pipeline',
-        on_yard: 'On Yard',
-        dc_to_dc: 'DC In Transit',
-        in_dc: 'In DC',
-        in_transit: 'In Transit',
-        fc_oh: 'FC (eComm)',
-        backroom: 'Backroom',
-        on_floor: 'On Floor'
+        open_orders:    'On Order',
+        on_yard:        'On Yard',
+        dc_to_dc:       'DC In Transit',
+        in_dc:          'In DC',
+        in_transit:     'In Transit',
+        fc_oh:          'FC (eComm)',
+        store_oh:       'Store OH',
+        backroom:       'Backroom',
+        on_floor:       'On Floor'
     };
 
     // Pre-load and aggregate bucket drill data (called once when data loads)
@@ -1844,7 +1851,7 @@
                         on_floor: 0, backroom: 0, store_oh: 0,
                         dc_oh: 0, dc_reserved: 0, dc_labeled: 0, dc_unlabeled: 0,
                         in_transit: 0, sto_to_dc: 0, on_yard: 0, fc_oh: 0,
-                        total_network: 0
+                        total_network: 0, open_orders: 0
                     };
                 }
                 agg[key].on_floor += r.on_floor || 0;
@@ -1886,6 +1893,45 @@
             BUCKET_DRILL_DATA.catg.priorWoW = aggregate(HIST_DATA.by_catg, r => r.category, priorWoWYear, priorWoWWeek);
             BUCKET_DRILL_DATA.catg.priorYoY = aggregate(HIST_DATA.by_catg, r => r.category, priorYoYYear, priorYoYWeek);
             console.log('[CHANGE] Category aggregated:', Object.keys(BUCKET_DRILL_DATA.catg.current).length, 'current');
+        }
+
+        // Merge open_orders from ONORDER_DATA into each aggregation level
+        // ONORDER wm_week format: 12618 = FY126 (2026) WK18; 12518 = FY125 (2025) WK18
+        if (ONORDER_DATA) {
+            const toOnorderWk = (yr, wk) => (yr === 2026 ? 126 : 125) * 100 + wk;
+
+            function mergeOnorder(aggObj, onorderSrc, keyFn, yr, wk) {
+                if (!onorderSrc || !Array.isArray(onorderSrc)) return;
+                const targetWk = toOnorderWk(yr, wk);
+                onorderSrc.forEach(r => {
+                    if (r.wm_week !== targetWk) return;
+                    const rSBU = r.sbu || r.SBU || '';
+                    if (HIDDEN_SBUS.includes(rSBU)) return;
+                    const key = keyFn(r);
+                    if (!key) return;
+                    if (!aggObj[key]) {
+                        aggObj[key] = { key, SBU: rSBU, dept: r.department || '', catg: r.category || '',
+                            on_floor: 0, backroom: 0, store_oh: 0, dc_oh: 0, dc_reserved: 0,
+                            dc_labeled: 0, dc_unlabeled: 0, in_transit: 0, sto_to_dc: 0,
+                            on_yard: 0, fc_oh: 0, total_network: 0, open_orders: 0 };
+                    }
+                    aggObj[key].open_orders += r.units_ordered || 0;
+                });
+            }
+
+            // SBU level
+            mergeOnorder(BUCKET_DRILL_DATA.sbu.current, ONORDER_DATA.by_sbu, r => r.sbu, latestWeek.WM_YEAR, latestWeek.WM_WEEK);
+            mergeOnorder(BUCKET_DRILL_DATA.sbu.priorWoW, ONORDER_DATA.by_sbu, r => r.sbu, priorWoWYear, priorWoWWeek);
+            mergeOnorder(BUCKET_DRILL_DATA.sbu.priorYoY, ONORDER_DATA.by_sbu, r => r.sbu, priorYoYYear, priorYoYWeek);
+
+            // Dept level
+            if (ONORDER_DATA.by_dept) {
+                mergeOnorder(BUCKET_DRILL_DATA.dept.current, ONORDER_DATA.by_dept, r => r.department, latestWeek.WM_YEAR, latestWeek.WM_WEEK);
+                mergeOnorder(BUCKET_DRILL_DATA.dept.priorWoW, ONORDER_DATA.by_dept, r => r.department, priorWoWYear, priorWoWWeek);
+                mergeOnorder(BUCKET_DRILL_DATA.dept.priorYoY, ONORDER_DATA.by_dept, r => r.department, priorYoYYear, priorYoYWeek);
+            }
+
+            console.log('[CHANGE] Open orders merged into drill data');
         }
 
         console.log('[CHANGE] loadBucketDrillData complete!');
@@ -2000,6 +2046,9 @@
 
     function switchBucketDrillView() {
         BUCKET_DRILL_VIEW = document.getElementById('bucket-drill-view').value;
+        if (BUCKET_DRILL_VIEW === 'catg' && !HIST_CATG_LOADED) {
+            loadHistCatgBackground(() => renderBucketDrilldown());
+        }
         renderBucketDrilldown();
     }
 
@@ -2080,21 +2129,85 @@
             }
             document.getElementById('bucket-breadcrumb-path').innerHTML = breadcrumb;
 
-            // Get pre-aggregated data for the selected view
-            const dataSet = BUCKET_DRILL_DATA[view];
-            const current = dataSet.current;
-            const prior = compare === 'wow' ? dataSet.priorWoW : dataSet.priorYoY;
+            // Get data for selected view
+            // - catg: on-demand aggregation from by_catg (filtered by sbuFilter + deptFilter)
+            // - sbu/dept: pre-aggregated in BUCKET_DRILL_DATA
+            let current, prior;
 
-            console.log('[CHANGE] Using pre-aggregated data:', view, '| current:', Object.keys(current).length, '| prior:', Object.keys(prior).length);
+            if (view === 'catg') {
+                if (!HIST_CATG_LOADED) {
+                    const iTbody = document.getElementById('bucket-drill-inc-tbody');
+                    const dTbody = document.getElementById('bucket-drill-dec-tbody');
+                    if (iTbody) iTbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted"><i class="bi bi-hourglass-split me-1"></i>Loading categories...</td></tr>';
+                    if (dTbody) dTbody.innerHTML = '';
+                    loadHistCatgBackground(() => renderBucketDrilldown());
+                    return;
+                }
+                const lw = BUCKET_DRILL_DATA.latestWeek;
+                if (!lw) { console.warn('[CHANGE] No latestWeek for catg drill'); return; }
+                const priorWoWWk = lw.WM_WEEK > 1 ? lw.WM_WEEK - 1 : 52;
+                const priorWoWYr = lw.WM_WEEK > 1 ? lw.WM_YEAR : lw.WM_YEAR - 1;
+                const aggCatg = (yr, wk) => {
+                    const a = {};
+                    (HIST_DATA.by_catg || [])
+                        .filter(r => Number(r.WM_YEAR) === yr && Number(r.WM_WEEK) === wk
+                                  && !HIDDEN_SBUS.includes(r.SBU)
+                                  && (!sbuFilter || r.SBU === sbuFilter)
+                                  && (!deptFilter || r.department === deptFilter))
+                        .forEach(r => {
+                            const key = r.category; if (!key) return;
+                            if (!a[key]) a[key] = { key, SBU: r.SBU || '', dept: r.department || '',
+                                on_floor: 0, backroom: 0, store_oh: 0, dc_oh: 0, dc_reserved: 0,
+                                dc_labeled: 0, dc_unlabeled: 0, in_transit: 0, sto_to_dc: 0,
+                                on_yard: 0, fc_oh: 0, total_network: 0, open_orders: 0 };
+                            a[key].on_floor    += r.on_floor    || 0; a[key].backroom  += r.backroom   || 0;
+                            a[key].store_oh    += r.store_oh    || 0; a[key].dc_oh      += r.dc_oh      || 0;
+                            a[key].dc_reserved += r.dc_reserved || 0; a[key].dc_labeled += r.dc_labeled || 0;
+                            a[key].dc_unlabeled+= r.dc_unlabeled|| 0; a[key].in_transit += r.in_transit || 0;
+                            a[key].sto_to_dc   += r.sto_to_dc   || 0; a[key].on_yard    += r.on_yard    || 0;
+                            a[key].fc_oh       += r.fc_oh       || 0; a[key].total_network += r.total_network || 0;
+                        });
+                    // Merge open_orders from ONORDER catg data
+                    if (ONORDER_DATA?.by_catg) {
+                        const targetWk = (yr === 2026 ? 126 : 125) * 100 + wk;
+                        ONORDER_DATA.by_catg
+                            .filter(r => r.wm_week === targetWk
+                                      && (!sbuFilter || r.sbu === sbuFilter)
+                                      && (!deptFilter || r.department === deptFilter))
+                            .forEach(r => {
+                                const key = r.category; if (!key) return;
+                                if (!a[key]) a[key] = { key, SBU: r.sbu || '', dept: r.department || '',
+                                    on_floor: 0, backroom: 0, store_oh: 0, dc_oh: 0, dc_reserved: 0,
+                                    dc_labeled: 0, dc_unlabeled: 0, in_transit: 0, sto_to_dc: 0,
+                                    on_yard: 0, fc_oh: 0, total_network: 0, open_orders: 0 };
+                                a[key].open_orders += r.units_ordered || 0;
+                            });
+                    }
+                    return a;
+                };
+                current = aggCatg(lw.WM_YEAR, lw.WM_WEEK);
+                prior = compare === 'wow'
+                    ? aggCatg(priorWoWYr, priorWoWWk)
+                    : aggCatg(lw.WM_YEAR - 1, lw.WM_WEEK);
+                console.log('[CHANGE] Catg on-demand:', Object.keys(current).length, 'current,', Object.keys(prior).length, 'prior');
+            } else {
+                const dataSet = BUCKET_DRILL_DATA[view];
+                current = dataSet.current;
+                prior = compare === 'wow' ? dataSet.priorWoW : dataSet.priorYoY;
+                console.log('[CHANGE] Pre-agg data:', view, '| current:', Object.keys(current).length, '| prior:', Object.keys(prior).length);
+            }
 
             // Helper to get position value from aggregated record
             const getPositionValue = (rec) => {
                 if (!rec) return 0;
                 if (position === 'total_pipeline') {
                     return (rec.on_floor || 0) + (rec.backroom || 0) + (rec.dc_oh || 0) + (rec.dc_reserved || 0) +
-                           (rec.dc_labeled || 0) + (rec.dc_unlabeled || 0) + (rec.fc_oh || 0) + (rec.on_yard || 0);
+                           (rec.dc_labeled || 0) + (rec.dc_unlabeled || 0) + (rec.fc_oh || 0) + (rec.on_yard || 0) +
+                           (rec.in_transit || 0) + (rec.sto_to_dc || 0);
                 } else if (position === 'in_dc') {
                     return (rec.dc_oh || 0) + (rec.dc_reserved || 0) + (rec.dc_labeled || 0) + (rec.dc_unlabeled || 0);
+                } else if (position === 'dc_to_dc') {
+                    return rec.sto_to_dc || 0;
                 }
                 return rec[position] || 0;
             };

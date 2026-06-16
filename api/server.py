@@ -27,6 +27,17 @@ from pathlib import Path
 logger = logging.getLogger("uvicorn.error")
 
 
+def _df_records(df) -> list:
+    """Convert DataFrame to records list with NaN/Inf replaced by None (valid JSON null).
+
+    SAFE_DIVIDE in BigQuery returns NULL when denominator=0, which pandas reads as
+    float NaN.  Python's json.dumps serialises NaN as the literal 'NaN' which is not
+    valid JSON and breaks browser JSON.parse().  Replacing with None → 'null' fixes this.
+    """
+    import pandas as pd
+    return df.where(pd.notnull(df), None).to_dict(orient="records")
+
+
 # Custom JSON encoder to handle BigQuery Decimal/numpy types
 class SafeJSONEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -1197,9 +1208,9 @@ class HistoricalCache:
                 "weeks": len(dates)
             },
             "sbu_list": list(sbu_list),
-            "enterprise": self.enterprise_df.to_dict(orient="records") if self.enterprise_df is not None else [],
-            "by_sbu": self.sbu_df.to_dict(orient="records") if self.sbu_df is not None else [],
-            "by_dept": self.dept_df.to_dict(orient="records") if self.dept_df is not None else [],
+            "enterprise": _df_records(self.enterprise_df) if self.enterprise_df is not None else [],
+            "by_sbu": _df_records(self.sbu_df) if self.sbu_df is not None else [],
+            "by_dept": _df_records(self.dept_df) if self.dept_df is not None else [],
             "by_catg": [],           # fetched separately via /api/historical/catg
         }
 
@@ -1220,7 +1231,7 @@ class HistoricalCache:
         t0 = time.time()
 
         result = {
-            "by_catg": self.catg_df.to_dict(orient="records") if self.catg_df is not None else [],
+            "by_catg": _df_records(self.catg_df) if self.catg_df is not None else [],
         }
 
         self._cached_catg_bytes = result  # cache the dict (field repurposed)
@@ -1248,10 +1259,10 @@ class HistoricalCache:
                 "weeks": len(dates)
             },
             "sbu_list": list(sbu_list),
-            "enterprise": self.enterprise_df.to_dict(orient="records") if self.enterprise_df is not None else [],
-            "by_sbu": self.sbu_df.to_dict(orient="records") if self.sbu_df is not None else [],
-            "by_dept": self.dept_df.to_dict(orient="records") if self.dept_df is not None else [],
-            "by_catg": self.catg_df.to_dict(orient="records") if self.catg_df is not None else [],
+            "enterprise": _df_records(self.enterprise_df) if self.enterprise_df is not None else [],
+            "by_sbu": _df_records(self.sbu_df) if self.sbu_df is not None else [],
+            "by_dept": _df_records(self.dept_df) if self.dept_df is not None else [],
+            "by_catg": _df_records(self.catg_df) if self.catg_df is not None else [],
         }
 
         logger.info(f"[HIST] Full response dict built in {round(time.time() - t0, 2)}s")
@@ -1635,9 +1646,9 @@ class OnOrderCache:
                 "channel_options": ["STORE", "ECOMM"],
                 "dsd_options": ["DSD", "NON-DSD"]
             },
-            "enterprise": self.enterprise_df.to_dict(orient="records") if self.enterprise_df is not None else [],
-            "by_sbu": self.sbu_df.to_dict(orient="records") if self.sbu_df is not None else [],
-            "by_dept": self.dept_df.to_dict(orient="records") if self.dept_df is not None else [],
+            "enterprise": _df_records(self.enterprise_df) if self.enterprise_df is not None else [],
+            "by_sbu": _df_records(self.sbu_df) if self.sbu_df is not None else [],
+            "by_dept": _df_records(self.dept_df) if self.dept_df is not None else [],
             "by_catg": [],  # fetched separately via /api/on-order/catg
         }
         logger.info("[ONORDER] Lite response built")
@@ -1646,7 +1657,7 @@ class OnOrderCache:
     def to_catg_response(self) -> dict:
         """Catg-grain response — lazy-loaded by frontend."""
         return {
-            "by_catg": self.catg_df.to_dict(orient="records") if self.catg_df is not None else [],
+            "by_catg": _df_records(self.catg_df) if self.catg_df is not None else [],
             "loading": self.catg_df is None,
         }
 
@@ -1674,10 +1685,10 @@ class OnOrderCache:
                 "channel_options": ["STORE", "ECOMM"],
                 "dsd_options": ["DSD", "NON-DSD"]
             },
-            "enterprise": self.enterprise_df.to_dict(orient="records") if self.enterprise_df is not None else [],
-            "by_sbu": self.sbu_df.to_dict(orient="records") if self.sbu_df is not None else [],
-            "by_dept": self.dept_df.to_dict(orient="records") if self.dept_df is not None else [],
-            "by_catg": self.catg_df.to_dict(orient="records") if self.catg_df is not None else [],
+            "enterprise": _df_records(self.enterprise_df) if self.enterprise_df is not None else [],
+            "by_sbu": _df_records(self.sbu_df) if self.sbu_df is not None else [],
+            "by_dept": _df_records(self.dept_df) if self.dept_df is not None else [],
+            "by_catg": _df_records(self.catg_df) if self.catg_df is not None else [],
         }
 
         logger.info(f"[ONORDER] JSON response built in {round(time.time() - t0, 2)}s")
@@ -2312,7 +2323,7 @@ async def get_dc_lookup(dc_nbr: str = Query(..., description="DC number to look 
             if "BUS_DT" in df.columns:
                 df["BUS_DT"] = df["BUS_DT"].astype(str)
             desc = df["DC_DESC"].iloc[0] if "DC_DESC" in df.columns else f"DC {dc_nbr}"
-            rows = df.drop(columns=["DC_NBR", "DC_DESC"], errors="ignore").to_dict(orient="records")
+            rows = _df_records(df.drop(columns=["DC_NBR", "DC_DESC"], errors="ignore"))
             return SafeJSONResponse(content={"dc_nbr": dc_nbr, "label": desc, "source": "dc_table", "rows": rows})
     except Exception as e:
         logger.warning(f"[DC-LOOKUP] DC table query failed ({e}), falling back to dept_df")
@@ -2333,7 +2344,7 @@ async def get_dc_lookup(dc_nbr: str = Query(..., description="DC number to look 
             grp["BUS_DT"] = grp["BUS_DT"].astype(str)
             dept_name = matches["department"].iloc[0] if "department" in matches.columns else f"Dept {dc_nbr}"
             sbu = matches["SBU"].iloc[0] if "SBU" in matches.columns else None
-            rows = grp.to_dict(orient="records")
+            rows = _df_records(grp)
             return SafeJSONResponse(content={"dc_nbr": dc_nbr, "label": dept_name, "SBU": sbu, "source": "dept_df", "rows": rows})
 
     raise HTTPException(status_code=404, detail=f"No data found for DC/Dept {dc_nbr}")

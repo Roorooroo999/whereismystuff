@@ -1432,7 +1432,7 @@
             if (!pri || pri === 0) return { text: '-', cls: 'wow-neutral' };
             const pct = ((cur - pri) / pri * 100).toFixed(1);
             const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '—';
-            const cls = pct > 0 ? 'wow-negative' : pct < 0 ? 'wow-positive' : 'wow-neutral';
+            const cls = pct > 0 ? 'wow-positive' : pct < 0 ? 'wow-negative' : 'wow-neutral';
             return { text: `${label}: ${arrow} ${Math.abs(pct)}%`, cls };
         };
 
@@ -1470,7 +1470,7 @@
                 if (!c || !p || p <= 0) return '';
                 const pct = ((c - p) / p * 100).toFixed(1);
                 const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '—';
-                const cls = pct > 0 ? 'wow-negative' : pct < 0 ? 'wow-positive' : 'wow-neutral';
+                const cls = pct > 0 ? 'wow-positive' : pct < 0 ? 'wow-negative' : 'wow-neutral';
                 return `<span class="${cls}">Cube ${label}: ${arrow} ${Math.abs(pct)}%</span>`;
             };
             const wowEl = document.getElementById(wowId);

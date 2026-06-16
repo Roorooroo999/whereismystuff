@@ -1309,7 +1309,7 @@
         if (wowEl && prevValue != null && prevValue > 0) {
             const pct = ((value - prevValue) / prevValue * 100).toFixed(1);
             const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '—';
-            const cls = pct > 0 ? 'wow-negative' : pct < 0 ? 'wow-positive' : 'wow-neutral';
+            const cls = pct > 0 ? 'wow-positive' : pct < 0 ? 'wow-negative' : 'wow-neutral';
             wowEl.innerHTML = `<span class="${cls}">WoW: ${arrow} ${Math.abs(pct)}%</span>`;
         } else if (wowEl) {
             wowEl.textContent = '';
@@ -1319,7 +1319,7 @@
         if (yoyEl && lyValue != null && lyValue > 0) {
             const pct = ((value - lyValue) / lyValue * 100).toFixed(1);
             const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '—';
-            const cls = pct > 0 ? 'wow-negative' : pct < 0 ? 'wow-positive' : 'wow-neutral';
+            const cls = pct > 0 ? 'wow-positive' : pct < 0 ? 'wow-negative' : 'wow-neutral';
             yoyEl.innerHTML = `<span class="${cls}">YoY: ${arrow} ${Math.abs(pct)}% <span style="opacity:0.7">(LY: ${fmtB(lyValue)})</span></span>`;
         } else if (yoyEl) {
             yoyEl.textContent = '';
@@ -3530,7 +3530,7 @@
             if (!pri || pri === 0) return { text: '-', cls: 'wow-neutral' };
             const pct = ((cur - pri) / pri * 100).toFixed(1);
             const sign = pct > 0 ? '+' : '';
-            const cls = pct > 0 ? 'wow-negative' : pct < 0 ? 'wow-positive' : 'wow-neutral';
+            const cls = pct > 0 ? 'wow-positive' : pct < 0 ? 'wow-negative' : 'wow-neutral';
             return { text: `YoY: ${sign}${pct}%`, cls };
         };
 
@@ -3878,7 +3878,7 @@
             const yoyData = yoyAgg[row.label] || { units_ordered: 0 };
             const change = row.units_ordered - yoyData.units_ordered;
             const fillRate = row.units_ordered > 0 ? ((row.units_received / row.units_ordered) * 100).toFixed(1) : '0.0';
-            const changeClass = change > 0 ? 'wow-negative' : change < 0 ? 'wow-positive' : 'wow-neutral';
+            const changeClass = change > 0 ? 'wow-positive' : change < 0 ? 'wow-negative' : 'wow-neutral';
 
             const tr = document.createElement('tr');
             tr.innerHTML = `

@@ -1251,9 +1251,8 @@
                                              + (r.dc_unlabeled|| 0) * (r.dc_unlbl_wtavg_cube   || 0);
         });
 
-        // Compute final weighted-average cube totals (total cubic feet per bucket per week)
+        // Compute final weighted-average cube totals for inventory buckets (NOT open_orders — merged after)
         Object.values(weeklyData).forEach(w => {
-            w.cube_open_orders = w.open_orders > 0 ? w._cnum_open_orders : null;
             w.cube_on_yard    = w.on_yard    > 0 ? w._cnum_on_yard    : null;
             w.cube_dc_to_dc   = w.dc_to_dc   > 0 ? w._cnum_dc_to_dc   : null;
             w.cube_in_transit = w.in_transit > 0 ? w._cnum_in_transit : null;
@@ -1261,6 +1260,7 @@
             w.cube_fc_oh      = w.fc_oh      > 0 ? w._cnum_fc_oh      : null;
             w.cube_backroom   = w.backroom   > 0 ? w._cnum_backroom   : null;
             w.cube_on_floor   = w.on_floor   > 0 ? w._cnum_on_floor   : null;
+            w.cube_open_orders = null; // will be set after on-order merge below
         });
 
         // Add open orders from on-order data
@@ -1319,6 +1319,11 @@
             weeklyData[histWeekKey].open_orders += r.units_ordered || 0;
             // cube_ordered is pre-summed total cubic feet in the table — accumulate directly
             weeklyData[histWeekKey]._cnum_open_orders += r.cube_ordered || 0;
+        });
+
+        // IMPORTANT: cube_open_orders must be computed AFTER on-order merge (open_orders was 0 before)
+        Object.values(weeklyData).forEach(w => {
+            w.cube_open_orders = w._cnum_open_orders > 0 ? w._cnum_open_orders : null;
         });
 
         console.log('[BUCKETS] Built data:', Object.keys(weeklyData).length, 'weeks');

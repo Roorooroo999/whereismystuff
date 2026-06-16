@@ -1620,6 +1620,21 @@ class OnOrderCache:
                 print(f"[ONORDER] [OK] {name}: {len(df):,} rows in {elapsed}s", flush=True)
                 return df
             except Exception as e:
+                err_str = str(e)
+                if "Unrecognized name" in err_str and "wtavg_cube" in err_str.lower():
+                    # wtavg_cube column not yet in ONORDER table — retry without cube
+                    print(f"[ONORDER] [WARN] {name}: wtavg_cube not in table, retrying without cube...", flush=True)
+                    import re as _re
+                    lines = sql.split('\n')
+                    clean = '\n'.join(ln for ln in lines if 'wtavg_cube' not in ln.lower())
+                    clean = _re.sub(r',(\s*\n\s*(?:FROM|GROUP|ORDER))', r'\1', clean)
+                    try:
+                        df = client.query(clean).to_dataframe()
+                        print(f"[ONORDER] [OK] {name} (no cube): {len(df):,} rows", flush=True)
+                        return df
+                    except Exception as e2:
+                        print(f"[ONORDER] [ERR] {name} retry failed: {e2}", flush=True)
+                        return None
                 print(f"[ONORDER] [ERR] {name} FAILED: {e}", flush=True)
                 return None
 

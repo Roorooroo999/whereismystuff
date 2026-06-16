@@ -787,14 +787,14 @@
             const histReady = health.historical_cache?.ready;
             const onorderReady = health.onorder_cache?.ready;
 
-            if (!histReady || !onorderReady) {
+            // Only block on HIST — on-order loads in background after render
+            if (!histReady) {
                 loadRetryCount++;
                 const elapsed = Math.round(loadRetryCount * RETRY_DELAY / 1000);
-                const notReady = [!histReady && 'inventory', !onorderReady && 'on-order'].filter(Boolean).join(' & ');
-                console.log('[BUCKETS] Cache not ready (' + notReady + '), retry', loadRetryCount, '(' + elapsed + 's elapsed)');
+                console.log('[BUCKETS] Hist not ready, retry', loadRetryCount, '(' + elapsed + 's elapsed)');
                 setStatus('<i class="bi bi-hourglass-split me-1"></i>Cache warming... (' + elapsed + 's)');
                 const loadingP = loadingEl.querySelector('p');
-                if (loadingP) loadingP.textContent = 'Loading ' + notReady + ' data... (' + elapsed + 's elapsed, please wait)';
+                if (loadingP) loadingP.textContent = 'Loading inventory data... (' + elapsed + 's elapsed, please wait)';
                 if (loadRetryCount <= MAX_RETRIES) {
                     setTimeout(loadData, RETRY_DELAY);
                 } else {
@@ -803,23 +803,21 @@
                 return;
             }
 
-            // Both caches ready — load data in parallel
+            // HIST ready — load it immediately and render
             setStatus('<i class="bi bi-download me-1"></i>Loading data...');
-            const [histResp, onorderResp] = await Promise.all([
-                fetch(apiBase + '/api/historical'),
-                fetch(apiBase + '/api/on-order')
-            ]);
-
+            const histResp = await fetch(apiBase + '/api/historical');
             if (!histResp.ok) throw new Error('Historical API returned ' + histResp.status);
-
             HIST_DATA = await histResp.json();
 
-            // On-order: graceful fallback if still not ready (rare race condition)
-            if (onorderResp.ok) {
-                ONORDER_DATA = await onorderResp.json();
+            // On-order: load immediately if ready, otherwise render with empty and poll in background
+            if (onorderReady) {
+                const onorderResp = await fetch(apiBase + '/api/on-order');
+                ONORDER_DATA = onorderResp.ok ? await onorderResp.json()
+                    : { enterprise: [], by_sbu: [], by_dept: [], by_catg: [] };
             } else {
-                console.warn('[BUCKETS] On-order returned', onorderResp.status, '— rendering without on-order data');
+                console.log('[BUCKETS] On-order not ready yet — rendering without it, will load in background');
                 ONORDER_DATA = { enterprise: [], by_sbu: [], by_dept: [], by_catg: [] };
+                loadOnorderBackground();  // polls until ready, then re-renders
             }
 
             console.log('[BUCKETS] HIST:', HIST_DATA.by_sbu?.length || 0, 'SBU rows | ONORDER:', ONORDER_DATA.by_sbu?.length || 0, 'SBU rows');
@@ -850,6 +848,50 @@
 
     // Lazy-load hist catg from /api/historical/catg (needed for category filter dropdown + chart data)
     const MAX_HIST_CATG_RETRIES = 20;
+    // Background loader for on-order data (when not ready at initial render time)
+    let onorderBgLoading = false;
+    let onorderBgRetries = 0;
+    const MAX_ONORDER_BG_RETRIES = 40; // 2 min total
+    function loadOnorderBackground() {
+        if (onorderBgLoading) return;
+        onorderBgLoading = true;
+        onorderBgRetries = 0;
+        const apiBase = window.location.pathname.replace(/\/dashboard\/.*$/, '');
+        function tryLoad() {
+            fetch(apiBase + '/api/health')
+                .then(r => r.json())
+                .then(health => {
+                    if (!health.onorder_cache?.ready) {
+                        onorderBgRetries++;
+                        if (onorderBgRetries < MAX_ONORDER_BG_RETRIES) {
+                            setTimeout(tryLoad, 3000);
+                        } else {
+                            onorderBgLoading = false;
+                            console.warn('[BUCKETS] On-order never became ready after background wait');
+                        }
+                        return;
+                    }
+                    return fetch(apiBase + '/api/on-order');
+                })
+                .then(r => r && r.ok ? r.json() : null)
+                .then(data => {
+                    if (!data) return;
+                    ONORDER_DATA = data;
+                    onorderBgLoading = false;
+                    console.log('[BUCKETS] On-order loaded in background:', ONORDER_DATA.by_sbu?.length || 0, 'SBU rows');
+                    // Re-render charts and KPIs now that on-order data is available
+                    renderCharts();
+                    initBucketDrillFilters();
+                })
+                .catch(e => {
+                    onorderBgRetries++;
+                    if (onorderBgRetries < MAX_ONORDER_BG_RETRIES) setTimeout(tryLoad, 3000);
+                    else onorderBgLoading = false;
+                });
+        }
+        setTimeout(tryLoad, 3000); // first check after 3s
+    }
+
     let histCatgRetryCount = 0;
     function loadHistCatgBackground(onDone) {
         if (HIST_CATG_LOADED) { if (onDone) onDone(); return; }

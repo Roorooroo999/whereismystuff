@@ -193,6 +193,7 @@
                             <div class="label">On Order</div>
                             <div class="sub-value" id="kpi-onorder-wow"></div>
                             <div class="sub-value" id="kpi-onorder-yoy"></div>
+                            <div class="kpi-cube" id="kpi-onorder-cube"></div>
                         </div>
                     </div>
                     <div class="col-6 col-lg">
@@ -1159,7 +1160,7 @@
                     wm_week: wk, open_orders: 0, on_yard: 0, dc_to_dc: 0,
                     in_transit: 0, in_dc: 0, fc_oh: 0, backroom: 0, on_floor: 0,
                     // Cube numerators (units × wtavg_cube) for weighted-average recomputation
-                    _cnum_on_yard: 0, _cnum_dc_to_dc: 0, _cnum_in_transit: 0,
+                    _cnum_open_orders: 0, _cnum_on_yard: 0, _cnum_dc_to_dc: 0, _cnum_in_transit: 0,
                     _cnum_in_dc: 0, _cnum_fc_oh: 0, _cnum_backroom: 0, _cnum_on_floor: 0
                 };
             }
@@ -1190,6 +1191,7 @@
 
         // Compute final weighted-average cube totals (total cubic feet per bucket per week)
         Object.values(weeklyData).forEach(w => {
+            w.cube_open_orders = w.open_orders > 0 ? w._cnum_open_orders : null;
             w.cube_on_yard    = w.on_yard    > 0 ? w._cnum_on_yard    : null;
             w.cube_dc_to_dc   = w.dc_to_dc   > 0 ? w._cnum_dc_to_dc   : null;
             w.cube_in_transit = w.in_transit > 0 ? w._cnum_in_transit : null;
@@ -1247,12 +1249,13 @@
                     wm_week: histWeekKey,
                     open_orders: 0, on_yard: 0, dc_to_dc: 0,
                     in_transit: 0, in_dc: 0, fc_oh: 0, backroom: 0, on_floor: 0,
-                    _cnum_on_yard: 0, _cnum_dc_to_dc: 0, _cnum_in_transit: 0,
+                    _cnum_open_orders: 0, _cnum_on_yard: 0, _cnum_dc_to_dc: 0, _cnum_in_transit: 0,
                     _cnum_in_dc: 0, _cnum_fc_oh: 0, _cnum_backroom: 0, _cnum_on_floor: 0
                 };
             }
 
             weeklyData[histWeekKey].open_orders += r.units_ordered || 0;
+            weeklyData[histWeekKey]._cnum_open_orders += (r.units_ordered || 0) * (r.wtavg_cube || 0);
         });
 
         console.log('[BUCKETS] Built data:', Object.keys(weeklyData).length, 'weeks');
@@ -1379,6 +1382,7 @@
             const el = document.getElementById(id);
             if (el) el.textContent = fmtCubeTotal(cubeVal);
         };
+        setCubeEl('kpi-onorder-cube',   current.cube_open_orders);
         setCubeEl('kpi-onyard-cube',    current.cube_on_yard);
         setCubeEl('kpi-stodc-cube',     current.cube_dc_to_dc);
         setCubeEl('kpi-indc-cube',      current.cube_in_dc);

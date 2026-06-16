@@ -32,10 +32,20 @@ def _df_records(df) -> list:
 
     SAFE_DIVIDE in BigQuery returns NULL when denominator=0, which pandas reads as
     float NaN.  Python's json.dumps serialises NaN as the literal 'NaN' which is not
-    valid JSON and breaks browser JSON.parse().  Replacing with None → 'null' fixes this.
+    valid JSON and breaks browser JSON.parse().
+
+    NOTE: df.where(pd.notnull(df), None) does NOT work for float columns — pandas
+    silently converts None back to NaN in float dtype.  Must post-process the records.
     """
-    import pandas as pd
-    return df.where(pd.notnull(df), None).to_dict(orient="records")
+    import math
+    records = df.to_dict(orient="records")
+    clean = []
+    for rec in records:
+        clean.append({
+            k: (None if isinstance(v, float) and (math.isnan(v) or math.isinf(v)) else v)
+            for k, v in rec.items()
+        })
+    return clean
 
 
 # Custom JSON encoder to handle BigQuery Decimal/numpy types
@@ -1389,7 +1399,8 @@ class OnOrderCache:
                     SUM(COALESCE(vnpk_received, 0)) AS vnpk_received,
                     SUM(COALESCE(units_received, 0)) AS units_received,
                     SUM(COALESCE(vnpk_open, 0)) AS vnpk_open,
-                    SUM(COALESCE(units_open, 0)) AS units_open
+                    SUM(COALESCE(units_open, 0)) AS units_open,
+                    SAFE_DIVIDE(SUM(COALESCE(units_ordered,0) * COALESCE(wtavg_cube,0)), NULLIF(SUM(COALESCE(units_ordered,0)),0)) AS wtavg_cube
                 FROM {fqn}
                 WHERE wm_week <= 12701 AND OMNI_CATG_NBR IS NOT NULL
                 GROUP BY wm_week, sbu, dept_nbr, department, catg_nbr, category, replen_ind, channel_ind, dsd_ind
@@ -1479,7 +1490,8 @@ class OnOrderCache:
             SUM(COALESCE(vnpk_received, 0)) AS vnpk_received,
             SUM(COALESCE(units_received, 0)) AS units_received,
             SUM(COALESCE(vnpk_open, 0)) AS vnpk_open,
-            SUM(COALESCE(units_open, 0)) AS units_open
+            SUM(COALESCE(units_open, 0)) AS units_open,
+            SAFE_DIVIDE(SUM(COALESCE(units_ordered,0) * COALESCE(wtavg_cube,0)), NULLIF(SUM(COALESCE(units_ordered,0)),0)) AS wtavg_cube
         """
 
         # Enterprise level - total by week with indicator breakdowns

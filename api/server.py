@@ -1339,8 +1339,9 @@ class OnOrderCache:
                 self.sbu_df.to_parquet(self.CACHE_DIR / "onorder_sbu.parquet")
             if self.dept_df is not None:
                 self.dept_df.to_parquet(self.CACHE_DIR / "onorder_dept.parquet")
-            # Save metadata
-            metadata = {"loaded_date": self.loaded_date, "loaded_at": self.loaded_at}
+            # Save metadata (include columns so we can detect stale pre-cube caches)
+            cols = list(self.enterprise_df.columns) if self.enterprise_df is not None else []
+            metadata = {"loaded_date": self.loaded_date, "loaded_at": self.loaded_at, "columns": cols}
             with open(self.CACHE_DIR / "onorder_metadata.json", "w") as f:
                 json.dump(metadata, f)
             print(f"[ONORDER] [DISK] Saved core cache to disk in {round(time.time() - t0, 1)}s", flush=True)
@@ -1375,6 +1376,12 @@ class OnOrderCache:
 
             if is_stale and not stale_ok:
                 print(f"[ONORDER] Disk cache is stale ({cached_date} vs {today})", flush=True)
+                return False
+
+            # Invalidate cache if wtavg_cube is missing (old cache pre-cube feature)
+            cached_cols = metadata.get("columns", [])
+            if "wtavg_cube" not in cached_cols:
+                print("[ONORDER] Disk cache missing wtavg_cube column, will refresh from BQ", flush=True)
                 return False
 
             t0 = time.time()

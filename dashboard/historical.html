@@ -1044,6 +1044,8 @@
             w.dc_unlbl_wtavg_cube    = w.dc_unlabeled > 0? w._cube_num_dc_unlbl / w.dc_unlabeled : null;
             w.sto_wtavg_cube         = w.sto_to_dc > 0   ? w._cube_num_sto / w.sto_to_dc : null;
             w.on_yard_wtavg_cube     = w.on_yard > 0     ? w._cube_num_on_yard / w.on_yard : null;
+            // On Floor cube volume = Store cube volume − Backroom cube volume
+            w.on_floor_cube_vol      = w._cube_num_store - w._cube_num_backroom;
         });
 
         let weeks = Object.values(weekMap).sort((a,b) => a.BUS_DT.localeCompare(b.BUS_DT));
@@ -1286,7 +1288,7 @@
             if (!el) return;
             el.textContent = (totalCube != null && totalCube > 0) ? `Cube: ${fmtB(totalCube)}` : '';
         }
-        setCubeInfo('kpi-floor-cube',     (latest.on_floor     || 0) * (latest.on_floor_wtavg_cube    || 0));
+        setCubeInfo('kpi-floor-cube', latest.on_floor_cube_vol > 0 ? latest.on_floor_cube_vol : null);
         setCubeInfo('kpi-backroom-cube',  (latest.backroom      || 0) * (latest.backroom_wtavg_cube    || 0));
         setCubeInfo('kpi-store-cube',     (latest.store_oh      || 0) * (latest.store_wtavg_cube       || 0));
         setCubeInfo('kpi-dcoh-cube',      (latest.dc_oh         || 0) * (latest.dc_oh_wtavg_cube       || 0));

@@ -1678,6 +1678,15 @@ class OnOrderCache:
         core_rows = sum(len(df) for df in [self.enterprise_df, self.sbu_df, self.dept_df] if df is not None)
         print(f"[ONORDER] Core data ready: {core_rows:,} rows. is_ready=True", flush=True)
 
+        # Diagnostic: confirm cube_ordered column is present and has non-zero data
+        if self.enterprise_df is not None and 'cube_ordered' in self.enterprise_df.columns:
+            non_zero = int((self.enterprise_df['cube_ordered'] > 0).sum())
+            total_rows = len(self.enterprise_df)
+            cube_sum = float(self.enterprise_df['cube_ordered'].sum())
+            print(f"[ONORDER] [CUBE_OK] cube_ordered present: {non_zero}/{total_rows} non-zero rows, total={cube_sum:,.0f} cu-ft", flush=True)
+        else:
+            print(f"[ONORDER] [CUBE_MISSING] cube_ordered NOT in enterprise df — on-order cube will be blank", flush=True)
+
         # Save core data to disk (catg saved separately after bg thread)
         self._save_to_disk()
 

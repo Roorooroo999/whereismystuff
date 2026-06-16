@@ -1180,8 +1180,8 @@
             weeklyData[wk]._cnum_dc_to_dc   += (r.sto_to_dc  || 0) * (r.sto_wtavg_cube        || 0);
             weeklyData[wk]._cnum_in_transit += (r.in_transit || 0) * (r.transit_wtavg_cube    || 0);
             weeklyData[wk]._cnum_fc_oh      += (r.fc_oh      || 0) * (r.fc_wtavg_cube         || 0);
-            weeklyData[wk]._cnum_backroom   += (r.backroom   || 0) * (r.store_wtavg_cube      || 0);
-            weeklyData[wk]._cnum_on_floor   += (r.on_floor   || 0) * (r.store_wtavg_cube      || 0);
+            weeklyData[wk]._cnum_backroom   += (r.backroom   || 0) * (r.backroom_wtavg_cube   || 0);
+            weeklyData[wk]._cnum_on_floor   += (r.on_floor   || 0) * (r.on_floor_wtavg_cube  || 0);
             weeklyData[wk]._cnum_in_dc      += (r.dc_oh      || 0) * (r.dc_oh_wtavg_cube      || 0)
                                              + (r.dc_reserved || 0) * (r.dc_reserved_wtavg_cube || 0)
                                              + (r.dc_labeled  || 0) * (r.dc_lbl_wtavg_cube     || 0)

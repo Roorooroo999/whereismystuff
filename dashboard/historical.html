@@ -1021,7 +1021,7 @@
             STO_DC_KEYS.forEach(k => { w[k] += r[k] || 0; });
             // Cube numerators (accumulate units × wtavg_cube for re-weighting)
             w._cube_num_store    += (r.store_oh || 0) * (r.store_wtavg_cube || 0);
-            w._cube_num_backroom += (r.backroom || 0) * (r.store_wtavg_cube || 0); // same cube as store
+            w._cube_num_backroom += (r.backroom || 0) * (r.backroom_wtavg_cube || 0);
             w._cube_num_dc_reserved += (r.dc_reserved || 0) * (r.dc_reserved_wtavg_cube || 0);
             w._cube_num_transit  += (r.in_transit || 0) * (r.transit_wtavg_cube || 0);
             w._cube_num_fc       += (r.fc_oh || 0) * (r.fc_wtavg_cube || 0);
@@ -1286,7 +1286,7 @@
             if (!el) return;
             el.textContent = (totalCube != null && totalCube > 0) ? `Cube: ${fmtB(totalCube)}` : '';
         }
-        setCubeInfo('kpi-floor-cube',     (latest.on_floor     || 0) * (latest.store_wtavg_cube       || 0));
+        setCubeInfo('kpi-floor-cube',     (latest.on_floor     || 0) * (latest.on_floor_wtavg_cube    || 0));
         setCubeInfo('kpi-backroom-cube',  (latest.backroom      || 0) * (latest.backroom_wtavg_cube    || 0));
         setCubeInfo('kpi-store-cube',     (latest.store_oh      || 0) * (latest.store_wtavg_cube       || 0));
         setCubeInfo('kpi-dcoh-cube',      (latest.dc_oh         || 0) * (latest.dc_oh_wtavg_cube       || 0));

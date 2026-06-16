@@ -1440,6 +1440,11 @@
         document.getElementById('kpi-backroom').textContent = fmtM(current.backroom || 0);
         document.getElementById('kpi-onfloor').textContent = fmtM(current.on_floor || 0);
 
+        // Diagnostic: log on-order cube value for debugging
+        console.log('[BUCKETS] [CUBE_DIAG] cube_open_orders=', current.cube_open_orders,
+            '| open_orders=', current.open_orders,
+            '| onorder_sample:', ONORDER_DATA?.by_sbu?.slice(0,1).map(r => ({wk: r.wm_week, cube: r.cube_ordered, units: r.units_ordered})));
+
         // Cube info per bucket (total cubic feet = units × wtavg_cube)
         const setCubeEl = (id, cubeVal) => {
             const el = document.getElementById(id);

@@ -282,6 +282,9 @@
                             <div class="label">Total Pipeline</div>
                             <div class="sub-value" id="kpi-total-wow"></div>
                             <div class="sub-value" id="kpi-total-yoy"></div>
+                            <div class="kpi-cube" id="kpi-total-cube"></div>
+                            <div class="sub-value kpi-cube-chg" id="kpi-total-cube-wow"></div>
+                            <div class="sub-value kpi-cube-chg" id="kpi-total-cube-yoy"></div>
                         </div>
                     </div>
                 </div>
@@ -1478,6 +1481,13 @@
         const totalWow = (wow.open_orders || 0) + (wow.on_yard || 0) + (wow.dc_to_dc || 0) + (wow.in_transit || 0) + (wow.in_dc || 0) + (wow.fc_oh || 0) + (wow.backroom || 0) + (wow.on_floor || 0);
         const totalYoy = (yoy.open_orders || 0) + (yoy.on_yard || 0) + (yoy.dc_to_dc || 0) + (yoy.in_transit || 0) + (yoy.in_dc || 0) + (yoy.fc_oh || 0) + (yoy.backroom || 0) + (yoy.on_floor || 0);
         document.getElementById('kpi-total').textContent = fmtM(totalCur);
+        // Total Pipeline cube (sum across all buckets)
+        const cubeFn = (d) => (d.cube_open_orders || 0) + (d.cube_on_yard || 0) + (d.cube_dc_to_dc || 0) + (d.cube_in_transit || 0) + (d.cube_in_dc || 0) + (d.cube_fc_oh || 0) + (d.cube_backroom || 0) + (d.cube_on_floor || 0);
+        const totalCubeCur = cubeFn(current);
+        const totalCubeWow = cubeFn(wow);
+        const totalCubeYoy = cubeFn(yoy);
+        setCubeEl('kpi-total-cube', totalCubeCur > 0 ? totalCubeCur : null);
+        setCubeChange('kpi-total-cube-wow', 'kpi-total-cube-yoy', totalCubeCur, totalCubeWow, totalCubeYoy);
 
         const setChange = (wowId, yoyId, cur, wowVal, yoyVal) => {
             const w = calcPct(cur, wowVal, 'WoW');

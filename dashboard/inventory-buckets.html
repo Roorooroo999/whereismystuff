@@ -1297,7 +1297,8 @@
             }
 
             weeklyData[histWeekKey].open_orders += r.units_ordered || 0;
-            weeklyData[histWeekKey]._cnum_open_orders += (r.units_ordered || 0) * (r.wtavg_cube || 0);
+            // cube_ordered is pre-summed total cubic feet in the table — accumulate directly
+            weeklyData[histWeekKey]._cnum_open_orders += r.cube_ordered || 0;
         });
 
         console.log('[BUCKETS] Built data:', Object.keys(weeklyData).length, 'weeks');

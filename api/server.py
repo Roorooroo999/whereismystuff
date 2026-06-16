@@ -1378,10 +1378,10 @@ class OnOrderCache:
                 print(f"[ONORDER] Disk cache is stale ({cached_date} vs {today})", flush=True)
                 return False
 
-            # Invalidate cache if wtavg_cube is missing (old cache pre-cube feature)
+            # Invalidate cache if cube columns are missing (old cache pre-cube feature)
             cached_cols = metadata.get("columns", [])
-            if "wtavg_cube" not in cached_cols:
-                print("[ONORDER] Disk cache missing wtavg_cube column, will refresh from BQ", flush=True)
+            if "cube_ordered" not in cached_cols:
+                print("[ONORDER] Disk cache missing cube_ordered column, will refresh from BQ", flush=True)
                 return False
 
             t0 = time.time()
@@ -1432,7 +1432,8 @@ class OnOrderCache:
                     SUM(COALESCE(units_received, 0)) AS units_received,
                     SUM(COALESCE(vnpk_open, 0)) AS vnpk_open,
                     SUM(COALESCE(units_open, 0)) AS units_open,
-                    SAFE_DIVIDE(SUM(COALESCE(units_ordered,0) * COALESCE(wtavg_cube,0)), NULLIF(SUM(COALESCE(units_ordered,0)),0)) AS wtavg_cube
+                    SUM(COALESCE(cube_ordered, 0)) AS cube_ordered,
+                    SUM(COALESCE(cube_open, 0)) AS cube_open
                 FROM {fqn}
                 WHERE wm_week <= 12701 AND OMNI_CATG_NBR IS NOT NULL
                 GROUP BY wm_week, sbu, dept_nbr, department, catg_nbr, category, replen_ind, channel_ind, dsd_ind
@@ -1538,7 +1539,8 @@ class OnOrderCache:
             SUM(COALESCE(units_received, 0)) AS units_received,
             SUM(COALESCE(vnpk_open, 0)) AS vnpk_open,
             SUM(COALESCE(units_open, 0)) AS units_open,
-            SAFE_DIVIDE(SUM(COALESCE(units_ordered,0) * COALESCE(wtavg_cube,0)), NULLIF(SUM(COALESCE(units_ordered,0)),0)) AS wtavg_cube
+            SUM(COALESCE(cube_ordered, 0)) AS cube_ordered,
+            SUM(COALESCE(cube_open, 0)) AS cube_open
         """
 
         # Enterprise level - total by week with indicator breakdowns
@@ -1628,12 +1630,12 @@ class OnOrderCache:
                 return df
             except Exception as e:
                 err_str = str(e)
-                if "Unrecognized name" in err_str and "wtavg_cube" in err_str.lower():
-                    # wtavg_cube column not yet in ONORDER table — retry without cube
-                    print(f"[ONORDER] [WARN] {name}: wtavg_cube not in table, retrying without cube...", flush=True)
+                if "Unrecognized name" in err_str and ("cube_ordered" in err_str.lower() or "cube_open" in err_str.lower()):
+                    # cube_ordered/cube_open not yet in ONORDER table — retry without cube columns
+                    print(f"[ONORDER] [WARN] {name}: cube columns not in table, retrying without cube...", flush=True)
                     import re as _re
                     lines = sql.split('\n')
-                    clean = '\n'.join(ln for ln in lines if 'wtavg_cube' not in ln.lower())
+                    clean = '\n'.join(ln for ln in lines if 'cube_ordered' not in ln.lower() and 'cube_open' not in ln.lower())
                     clean = _re.sub(r',(\s*\n\s*(?:FROM|GROUP|ORDER))', r'\1', clean)
                     try:
                         df = client.query(clean).to_dataframe()

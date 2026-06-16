@@ -25,7 +25,8 @@
 --   units_received  INT64    - Units received
 --   vnpk_open       INT64    - Vendor packs open (ordered - received)
 --   units_open      INT64    - Units open
---   wtavg_cube      FLOAT64  - Weighted avg cubic feet per unit (pkg vol / 1728, weighted by units ordered)
+--   cube_ordered    FLOAT64  - Total cubic feet ordered (units_ordered × item_cube)
+--   cube_open       FLOAT64  - Total cubic feet open (units_open × item_cube)
 --
 -- Indicators:
 --   - replen_ind: REPLEN/NON-REPLEN based on ITEM_REPLENISHABLE_IND
@@ -217,11 +218,9 @@ SELECT
   SUM(pol.VNPK_ORD_QTY - COALESCE(pol.VNPK_RCV_QTY, 0)) AS vnpk_open,
   SUM((pol.VNPK_ORD_QTY - COALESCE(pol.VNPK_RCV_QTY, 0)) * pol.VNPK_QTY) AS units_open,
 
-  -- Weighted average cubic feet per unit (units ordered × item cube / total units ordered)
-  SAFE_DIVIDE(
-    SUM(pol.VNPK_ORD_QTY * pol.VNPK_QTY * COALESCE(dims.item_cube, 0)),
-    NULLIF(SUM(pol.VNPK_ORD_QTY * pol.VNPK_QTY), 0)
-  ) AS wtavg_cube
+  -- Total cubic feet ordered / open
+  SUM(pol.VNPK_ORD_QTY * pol.VNPK_QTY * COALESCE(dims.item_cube, 0))                                    AS cube_ordered,
+  SUM((pol.VNPK_ORD_QTY - COALESCE(pol.VNPK_RCV_QTY, 0)) * pol.VNPK_QTY * COALESCE(dims.item_cube, 0)) AS cube_open
 
 FROM `wmt-edw-prod.US_WM_OMS_VM.OMS_PURCHASE_ORDER` po
 JOIN `wmt-edw-prod.US_WM_OMS_VM.OMS_PO_LINE` pol

@@ -2203,6 +2203,30 @@ async def search_items(
 
 
 # ============================================================
+# WCNP Kubernetes probe endpoints
+# /health  → liveness  (is the process alive?)
+# /ready   → readiness (is the BQ cache loaded and ready to serve?)
+# ============================================================
+
+@app.get("/health")
+async def liveness():
+    """Kubernetes liveness probe — always returns 200 if the process is running."""
+    return {"status": "UP"}
+
+
+@app.get("/ready")
+async def readiness():
+    """Kubernetes readiness probe — returns 200 only when BQ caches are loaded."""
+    if cache.is_ready and hist_cache.is_ready:
+        return {"status": "READY"}
+    from fastapi import Response
+    return JSONResponse(
+        status_code=503,
+        content={"status": "NOT_READY", "cache": cache.is_ready, "hist_cache": hist_cache.is_ready}
+    )
+
+
+# ============================================================
 # Cache status & manual refresh
 # ============================================================
 

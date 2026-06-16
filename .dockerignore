@@ -1,0 +1,31 @@
+# Ignore everything by default
+**
+
+# Allow only what the Dockerfile needs
+!Dockerfile
+!api/requirements.txt
+!api/server.py
+!api/__init__.py
+!api/fetch_historical.py
+!dashboard/index.html
+!dashboard/historical.html
+!dashboard/inventory-buckets.html
+!dashboard/custom.scss
+
+# Never include secrets or credentials
+service-account.json
+*.key
+*.pem
+.env
+.env.*
+
+# No dev/local files
+*.log
+__pycache__/
+*.pyc
+*.pyo
+.cache/
+api/.cache/
+api/__pycache__/
+*.bak
+server.log

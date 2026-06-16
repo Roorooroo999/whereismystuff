@@ -1,0 +1,92 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# KITT Configuration — Where's My Stuff Dashboard
+# WCNP Migration from Posit Connect → AssortmentIntelligence Stage
+#
+# FILL IN before deploying:
+#   owner.group           → your AD Security Group (from ServiceNow)
+#   notify.slack.channel  → your team's public Slack channel
+#   deploy.namespace      → your reserved WCNP namespace (from DX Console)
+#   stages[stage].target.cluster_id → actual cluster ID from DX Console
+#
+# DX Console to reserve namespace: https://console.dx.walmart.com/wcnp
+# Slack for status:                #merch-execution-cicd
+# ══════════════════════════════════════════════════════════════════════════════
+
+profiles:
+  - basic-docker-build   # KITT builds from our custom Dockerfile (Python on Alpine GBI)
+
+owner:
+  group: YOUR-AD-SECURITY-GROUP   # ← REPLACE: e.g. wmt-total-inventory-team
+
+notify:
+  slack:
+    channelName: YOUR-TEAM-SLACK-CHANNEL   # ← REPLACE: must be a PUBLIC channel
+
+deploy:
+  namespace: wheres-my-stuff   # ← REPLACE with your reserved namespace (max 48 chars)
+
+  helm:
+    values:
+      replicas: 2
+
+      # Resource requests & limits (required with basic-docker-build — no GBI profile defaults)
+      min:
+        cpu: 250m
+        memory: 512Mi
+      max:
+        cpu: 1000m
+        memory: 2Gi
+
+      # Kubernetes liveness probe — is the process alive?
+      livenessProbe:
+        path: "/health"
+        initialDelaySeconds: 60    # FastAPI + BQ cache load takes ~30-60s
+        periodSeconds: 30
+        failureThreshold: 3
+
+      # Kubernetes readiness probe — ready to serve traffic?
+      readinessProbe:
+        path: "/ready"
+        initialDelaySeconds: 30
+        periodSeconds: 15
+        failureThreshold: 6        # Allow up to 90s for BQ cache warm-up
+
+      # Port the container listens on
+      port: 8080
+
+      # Environment variables (non-secret)
+      env:
+        PROJECT_ID: "wmt-execution-intel-prod"
+        HIST_PROJECT_ID: "wmt-execution-intel-prod"
+        DATASET: "WM_AD_HOC"
+        TABLE: "WHERES_MY_STUFF_ROLLUP"
+        HIST_TABLE: "R0C0JUG_WMUS_HIST_COMBINED"
+        DC_HIST_TABLE: "R0C0JUG_WMUS_HIST_DC_LEVEL"
+        ONORDER_TABLE: "R0C0JUG_WMUS_HIST_ONORDER"
+        PYTHONUNBUFFERED: "1"
+
+      # Secrets (BigQuery service account credentials)
+      # Store GOOGLE_CREDENTIALS in WCNP Vault, reference here:
+      # secretEnv:
+      #   GOOGLE_CREDENTIALS:
+      #     secretName: wheres-my-stuff-bq-creds
+      #     key: credentials.json
+
+      # Ping Federation (OIDC) auth — handled by WCNP ingress sidecar
+      # Configure via the AssortmentIntelligence boilerplate's PingFed settings
+
+  stages:
+    # ── STAGE environment (AssortmentIntelligence server) ─────────────────────
+    - name: stage
+      target:
+        cluster_id: ["YOUR-STAGE-CLUSTER-ID"]   # ← REPLACE: from DX Console (e.g. scus-stage-a2)
+      flows: [release]
+
+    # ── PRODUCTION (add after stage validation) ───────────────────────────────
+    # - name: prod
+    #   target:
+    #     cluster_id: ["YOUR-PROD-CLUSTER-ID"]
+    #   flows: [release]
+    #   approvers:
+    #     groups:
+    #       - YOUR-AD-APPROVER-GROUP

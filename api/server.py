@@ -817,21 +817,25 @@ class HistoricalCache:
         except Exception as e:
             print(f"[HIST] [WARN] Failed to save catg to disk: {e}", flush=True)
 
-    def _load_from_disk(self) -> bool:
-        """Load DataFrames from parquet cache. Returns True if core data loaded successfully."""
+    def _load_from_disk(self, stale_ok: bool = False) -> bool:
+        """Load DataFrames from parquet cache. Returns True if core data loaded successfully.
+
+        stale_ok=True: load even if cache date doesn't match today (caller will refresh in background).
+        """
         try:
             metadata_file = self.CACHE_DIR / "metadata.json"
             if not metadata_file.exists():
                 print("[HIST] No disk cache found", flush=True)
                 return False
 
-            # Check if cache is from today (don't serve stale data)
             with open(metadata_file) as f:
                 metadata = json.load(f)
             cached_date = metadata.get("loaded_date")
             today = datetime.now().strftime("%Y-%m-%d")
-            if cached_date != today:
-                print(f"[HIST] Disk cache is stale ({cached_date} vs {today}), will refresh", flush=True)
+            is_stale = cached_date != today
+
+            if is_stale and not stale_ok:
+                print(f"[HIST] Disk cache is stale ({cached_date} vs {today})", flush=True)
                 return False
 
             # Invalidate cache if cube columns are missing (old cache pre-cube feature)
@@ -855,7 +859,8 @@ class HistoricalCache:
             self.loaded_date = cached_date
             self.loaded_at = metadata.get("loaded_at")
             elapsed = round(time.time() - t0, 1)
-            print(f"[HIST] [FAST] Loaded from disk cache in {elapsed}s (cached at {cached_date})"
+            stale_tag = " [STALE]" if is_stale else ""
+            print(f"[HIST] [FAST{stale_tag}] Loaded from disk in {elapsed}s (cached {cached_date})"
                   f"{' [catg missing]' if self.catg_df is None else ''}", flush=True)
             return True
         except Exception as e:
@@ -899,19 +904,34 @@ class HistoricalCache:
         self._cached_catg_bytes = None
         t0 = time.time()
 
-        # STEP 1: Try loading from disk cache first (instant ~1s)
-        if not force_refresh and self._load_from_disk():
+        # STEP 1: Try fresh disk cache (same-day, instant ~1s)
+        if not force_refresh and self._load_from_disk(stale_ok=False):
             self.is_loading = False
             self.load_time_sec = round(time.time() - t0, 1)
             if self.catg_df is None:
-                # Core loaded from disk but catg parquet was missing — load catg from BQ in background
                 print(f"[HIST] [OK] Core ready from disk, catg missing — loading from BQ in background...", flush=True)
                 self._start_catg_bg_load()
             else:
                 print(f"[HIST] [OK] Ready to serve from disk cache!", flush=True)
-            return  # Core data is ready to serve
+            return
 
-        # STEP 2: No cache or stale - load from BigQuery
+        # STEP 1b: Stale disk cache exists — serve immediately, refresh in background
+        if not force_refresh and self._load_from_disk(stale_ok=True):
+            self.is_loading = False
+            self.load_time_sec = round(time.time() - t0, 1)
+            print(f"[HIST] Serving stale disk cache; BQ refresh starting in background...", flush=True)
+
+            def _hist_bg_refresh():
+                try:
+                    client = self._get_client()
+                    self._do_load(client, time.time())
+                except Exception as e:
+                    print(f"[HIST] [BG] Refresh failed: {e}", flush=True)
+
+            threading.Thread(target=_hist_bg_refresh, daemon=True, name="hist-stale-refresh").start()
+            return
+
+        # STEP 2: No disk cache — must query BQ
         print(f"[HIST] Loading fresh data from BigQuery...", flush=True)
         try:
             client = self._get_client()
@@ -1336,8 +1356,11 @@ class OnOrderCache:
         except Exception as e:
             print(f"[ONORDER] [WARN] Failed to save catg to disk: {e}", flush=True)
 
-    def _load_from_disk(self) -> bool:
-        """Load DataFrames from parquet cache. Returns True if successful."""
+    def _load_from_disk(self, stale_ok: bool = False) -> bool:
+        """Load DataFrames from parquet cache. Returns True if successful.
+
+        stale_ok=True: load even if cache date doesn't match today (caller refreshes in background).
+        """
         try:
             metadata_file = self.CACHE_DIR / "onorder_metadata.json"
             if not metadata_file.exists():
@@ -1348,8 +1371,10 @@ class OnOrderCache:
                 metadata = json.load(f)
             cached_date = metadata.get("loaded_date")
             today = datetime.now().strftime("%Y-%m-%d")
-            if cached_date != today:
-                print(f"[ONORDER] Disk cache is stale ({cached_date} vs {today}), will refresh", flush=True)
+            is_stale = cached_date != today
+
+            if is_stale and not stale_ok:
+                print(f"[ONORDER] Disk cache is stale ({cached_date} vs {today})", flush=True)
                 return False
 
             t0 = time.time()
@@ -1357,18 +1382,18 @@ class OnOrderCache:
             self.sbu_df = pd.read_parquet(self.CACHE_DIR / "onorder_sbu.parquet")
             self.dept_df = pd.read_parquet(self.CACHE_DIR / "onorder_dept.parquet")
 
-            # Load catg only if parquet exists (first run: missing, bg thread will populate it)
             catg_file = self.CACHE_DIR / "onorder_catg.parquet"
             if catg_file.exists():
                 self.catg_df = pd.read_parquet(catg_file)
             else:
-                self.catg_df = None  # Background thread will load from BQ
+                self.catg_df = None
 
             self.loaded_date = cached_date
             self.loaded_at = metadata.get("loaded_at")
             elapsed = round(time.time() - t0, 1)
-            catg_info = f"{len(self.catg_df):,} catg rows" if self.catg_df is not None else "catg pending (bg thread)"
-            print(f"[ONORDER] [FAST] Loaded from disk cache in {elapsed}s ({catg_info})", flush=True)
+            stale_tag = " [STALE]" if is_stale else ""
+            catg_info = f"{len(self.catg_df):,} catg rows" if self.catg_df is not None else "catg pending"
+            print(f"[ONORDER] [FAST{stale_tag}] Loaded from disk in {elapsed}s ({catg_info})", flush=True)
             return True
         except Exception as e:
             print(f"[ONORDER] [WARN] Failed to load from disk cache: {e}", flush=True)
@@ -1447,19 +1472,34 @@ class OnOrderCache:
         self._cached_lite_response = None
         t0 = time.time()
 
-        # STEP 1: Try loading from disk cache first
-        if not force_refresh and self._load_from_disk():
+        # STEP 1: Try fresh disk cache (same-day, instant ~0.5s)
+        if not force_refresh and self._load_from_disk(stale_ok=False):
             self.is_loading = False
             self.load_time_sec = round(time.time() - t0, 1)
             if self.catg_df is None:
-                # catg.parquet missing — load from BQ in background thread
                 self._start_catg_bg_load()
             else:
                 print(f"[ONORDER] [OK] Ready to serve from disk cache!", flush=True)
             return
 
-        # STEP 2: Load from BigQuery
-        print(f"[ONORDER] Loading fresh data from BigQuery...", flush=True)
+        # STEP 1b: Stale disk cache — serve immediately, refresh in background
+        if not force_refresh and self._load_from_disk(stale_ok=True):
+            self.is_loading = False
+            self.load_time_sec = round(time.time() - t0, 1)
+            print(f"[ONORDER] Serving stale disk cache; BQ refresh starting in background...", flush=True)
+
+            def _onorder_bg_refresh():
+                try:
+                    client = self._get_client()
+                    self._do_load(client, time.time())
+                except Exception as e:
+                    print(f"[ONORDER] [BG] Refresh failed: {e}", flush=True)
+
+            threading.Thread(target=_onorder_bg_refresh, daemon=True, name="onorder-stale-refresh").start()
+            return
+
+        # STEP 2: No disk cache — load from BigQuery (first-ever run)
+        print(f"[ONORDER] No disk cache; loading from BigQuery...", flush=True)
         try:
             client = self._get_client()
         except Exception as e:

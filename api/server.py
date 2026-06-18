@@ -2590,7 +2590,7 @@ async def refresh_onorder_cache():
 _sto_dc_cache: Optional[dict] = None
 _sto_dc_cache_date: Optional[str] = None
 _sto_dc_loading: bool = False
-STO_DC_CACHE_DIR = Path(__file__).parent / ".cache"
+STO_DC_CACHE_DIR = Path(os.environ.get("WMS_CACHE_DIR", str(Path(__file__).parent / ".cache")))
 
 
 def _sto_dc_get_client():

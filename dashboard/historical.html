@@ -2284,6 +2284,13 @@
 
         try {
             const res = await fetch('/api/sto-dc');
+            // 503 = server still loading from BQ — auto-retry instead of throwing
+            if (res.status === 503) {
+                _stoDcLoading = false;
+                if (loadingEl) loadingEl.textContent = 'DC data loading on server… auto-retrying in 10s.';
+                setTimeout(loadStoDcData, 10000);
+                return;
+            }
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
             // Server returns loading=true while still warming from BQ — auto-retry in 8s

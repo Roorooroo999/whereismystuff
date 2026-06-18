@@ -251,6 +251,10 @@ LEFT JOIN item_dims dims
 WHERE po.COUNTRY_CODE = 'US'
   AND pol.PO_LINE_STATUS_CD NOT IN (1300)  -- Exclude cancelled
   AND po.PO_TYPE_CD NOT IN (77,73,53)      -- Exclude per business rules
+  AND (
+    COALESCE(CAST(po.BOOKING_PO_NBR AS STRING), '0') = '0'                -- domestic POs (BOOKING_PO_NBR = 0 or NULL)
+    OR CAST(po.OMS_PO_NBR AS STRING) = CAST(po.BOOKING_PO_NBR AS STRING)  -- imports: original booking PO only (excludes distributed child POs)
+  )
 
 GROUP BY
   cal.WM_YR_WK,

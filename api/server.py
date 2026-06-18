@@ -2570,12 +2570,28 @@ async def get_onorder_catg():
 
 
 @app.post("/api/cache/refresh-onorder")
-async def refresh_onorder_cache():
-    """Manual on-order cache refresh."""
+async def refresh_onorder_cache(force: bool = False):
+    """Manual on-order cache refresh.
+
+    Use ?force=true to bypass the parquet disk cache and re-query BigQuery directly.
+    Required after rebuilding the source BQ table on the same day (otherwise the
+    same-day parquet would be served instead of fresh data).
+    """
     try:
+        if force:
+            # Delete on-order parquet files so load() goes straight to BQ
+            import shutil
+            for fname in ["onorder_enterprise.parquet", "onorder_sbu.parquet",
+                          "onorder_dept.parquet", "onorder_catg.parquet", "onorder_metadata.json"]:
+                p = onorder_cache.CACHE_DIR / fname
+                if p.exists():
+                    p.unlink()
+                    print(f"[ONORDER] Deleted stale parquet: {fname}", flush=True)
+            print("[ONORDER] Force-refresh: parquet cleared, will query BQ", flush=True)
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, onorder_cache.load)
-        return {"status": "success", "rows": len(onorder_cache.enterprise_df) if onorder_cache.enterprise_df is not None else 0}
+        return {"status": "success", "force": force,
+                "rows": len(onorder_cache.enterprise_df) if onorder_cache.enterprise_df is not None else 0}
     except Exception as e:
         logger.error(f"[ONORDER] Manual refresh failed: {e}")
         return {"status": "error", "message": str(e)}

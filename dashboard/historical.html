@@ -901,7 +901,18 @@
             attempt++;
             try {
                 const resp = await fetch(catgUrl);
-                if (!resp.ok) throw new Error(`catg API ${resp.status}`);
+                // 503 = main cache still starting; treat as "still loading" → retry (don't throw)
+                if (!resp.ok) {
+                    console.warn('[HIST] Catg API returned', resp.status, '— retry', attempt, '/', MAX_CATG_RETRIES);
+                    if (attempt < MAX_CATG_RETRIES) { setTimeout(tryLoad, 5000); }
+                    else {
+                        CATG_LOADING = false;
+                        console.warn('[HIST] Catg gave up after', MAX_CATG_RETRIES, 'retries (server errors)');
+                        const cbs = _catgCallbacks.splice(0);
+                        cbs.forEach(cb => { try { cb(); } catch(e) {} });
+                    }
+                    return;
+                }
                 const catgData = await resp.json();
 
                 // Server signals catg BQ query is still running — retry
@@ -934,10 +945,16 @@
                     loadDCDrilldownData();
                 }
             } catch (e) {
-                CATG_LOADING = false;
-                console.warn('[HIST] Could not lazy-load catg data:', e.message);
-                const cbs = _catgCallbacks.splice(0);
-                cbs.forEach(cb => { try { cb(); } catch(e2) {} });
+                // Network/parse error — retry instead of immediately flushing with empty data
+                console.warn('[HIST] Catg fetch error:', e.message, '— retry', attempt, '/', MAX_CATG_RETRIES);
+                if (attempt < MAX_CATG_RETRIES) {
+                    setTimeout(tryLoad, 5000);
+                } else {
+                    CATG_LOADING = false;
+                    console.warn('[HIST] Catg exhausted all retries');
+                    const cbs = _catgCallbacks.splice(0);
+                    cbs.forEach(cb => { try { cb(); } catch(e2) {} });
+                }
             }
         };
 
@@ -2436,13 +2453,16 @@
             const u = bySbu[sbu] || 0;
             const p = prior[sbu] || 0;
             const chg = u - p;
-            const pct = total > 0 ? (u/total*100).toFixed(1) : 0;
+            const chgPct = p > 0 ? (chg / p * 100) : null;
+            const fmtChgPct = v => v == null ? '—' : (v >= 0
+                ? `<span class="wow-positive">▲ ${Math.abs(v).toFixed(1)}%</span>`
+                : `<span class="wow-negative">▼ ${Math.abs(v).toFixed(1)}%</span>`);
             return `<tr>
                 <td>${sbu}</td>
                 <td class="text-end">${fmtM(u)}</td>
                 <td class="text-end" style="color:var(--text-muted);">${p ? fmtM(p) : '—'}</td>
                 <td class="text-end">${p ? fmtChg(chg) : '—'}</td>
-                <td class="text-end" style="color:var(--text-muted);">${pct}%</td>
+                <td class="text-end">${p ? fmtChgPct(chgPct) : '—'}</td>
             </tr>`;
         }).join('') + `<tr style="border-top:1px solid #2a2a4a; font-weight:700;">
             <td>TOTAL</td>

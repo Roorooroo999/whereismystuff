@@ -1018,7 +1018,7 @@
     }
 
     // Lazy-load hist catg from /api/historical/catg (needed for category filter dropdown + chart data)
-    const MAX_HIST_CATG_RETRIES = 20;
+    const MAX_HIST_CATG_RETRIES = 60; // 60 × 3s = 3 min (backend retries take up to 210s)
     let _histCatgCallbacks = [];       // queued callbacks waiting for catg load
     let _onorderCatgCallbacks = [];    // queued callbacks waiting for on-order catg load
     // Background loader for on-order data (when not ready at initial render time)
@@ -1080,7 +1080,13 @@
         const apiBase = window.location.pathname.replace(/\/dashboard\/.*$/, '');
         function tryLoad() {
             fetch(apiBase + '/api/historical/catg')
-                .then(r => r.json())
+                .then(r => {
+                    // CRITICAL: check r.ok BEFORE r.json(). FastAPI 503 returns valid JSON
+                    // {"detail":"..."} — without this check the old code parsed that as success,
+                    // set HIST_CATG_LOADED=true with empty data, and never retried.
+                    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                    return r.json();
+                })
                 .then(data => {
                     if (data.loading) {
                         histCatgRetryCount++;
@@ -1089,7 +1095,6 @@
                         } else {
                             HIST_CATG_LOADING = false;
                             console.warn('[BUCKETS] Hist catg timed out — flushing callbacks');
-                            // Flush callbacks even on timeout so late-selecting users get a retry
                             const cbs = _histCatgCallbacks.splice(0);
                             cbs.forEach(cb => { try { cb(); } catch(e) {} });
                         }
@@ -1103,18 +1108,24 @@
                     cbs.forEach(cb => { try { cb(); } catch(e) {} });
                 })
                 .catch(e => {
-                    HIST_CATG_LOADING = false;
-                    console.warn('[BUCKETS] Hist catg fetch failed:', e);
-                    // Flush callbacks on error so they can retry
-                    const cbs = _histCatgCallbacks.splice(0);
-                    cbs.forEach(cb => { try { cb(); } catch(e2) {} });
+                    // Retry on any error — DO NOT set HIST_CATG_LOADED=true with empty data
+                    histCatgRetryCount++;
+                    console.warn('[BUCKETS] Hist catg error:', e.message, '— retry', histCatgRetryCount, '/', MAX_HIST_CATG_RETRIES);
+                    if (histCatgRetryCount < MAX_HIST_CATG_RETRIES) {
+                        setTimeout(tryLoad, 3000);
+                    } else {
+                        HIST_CATG_LOADING = false;
+                        console.warn('[BUCKETS] Hist catg exhausted all retries');
+                        const cbs = _histCatgCallbacks.splice(0);
+                        cbs.forEach(cb => { try { cb(); } catch(e2) {} });
+                    }
                 });
         }
         tryLoad();
     }
 
     // Lazy-load on-order catg (~316K rows) only when user filters to category level
-    const MAX_ONORDER_CATG_RETRIES = 20; // 60s total
+    const MAX_ONORDER_CATG_RETRIES = 60; // 60 × 3s = 3 min
     let onorderCatgRetryCount = 0;
     function loadOnorderCatgBackground(onDone) {
         if (ONORDER_CATG_LOADED) { if (onDone) onDone(); return; }
@@ -1126,7 +1137,10 @@
         const apiBase = window.location.pathname.replace(/\/dashboard\/.*$/, '');
         function tryLoad() {
             fetch(apiBase + '/api/on-order/catg')
-                .then(r => r.json())
+                .then(r => {
+                    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                    return r.json();
+                })
                 .then(data => {
                     if (data.loading) {
                         onorderCatgRetryCount++;
@@ -1148,11 +1162,17 @@
                     cbs.forEach(cb => { try { cb(); } catch(e) {} });
                 })
                 .catch(e => {
-                    ONORDER_CATG_LOADING = false;
-                    console.warn('[BUCKETS] On-order catg fetch failed:', e);
-                    // Flush callbacks on error
-                    const cbs = _onorderCatgCallbacks.splice(0);
-                    cbs.forEach(cb => { try { cb(); } catch(e2) {} });
+                    // Retry on error — DO NOT mark loaded with empty data
+                    onorderCatgRetryCount++;
+                    console.warn('[BUCKETS] On-order catg error:', e.message, '— retry', onorderCatgRetryCount, '/', MAX_ONORDER_CATG_RETRIES);
+                    if (onorderCatgRetryCount < MAX_ONORDER_CATG_RETRIES) {
+                        setTimeout(tryLoad, 3000);
+                    } else {
+                        ONORDER_CATG_LOADING = false;
+                        console.warn('[BUCKETS] On-order catg exhausted all retries');
+                        const cbs = _onorderCatgCallbacks.splice(0);
+                        cbs.forEach(cb => { try { cb(); } catch(e2) {} });
+                    }
                 });
         }
         tryLoad();

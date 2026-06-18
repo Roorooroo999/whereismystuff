@@ -76,6 +76,27 @@
         .tab-content > .tab-pane { display: none; }
         .tab-content > .tab-pane.active { display: block; }
         .tab-content > .tab-pane.show.active { display: block; opacity: 1; }
+        /* On Order tab — filter label groups */
+        .filter-label-group { display:flex; flex-direction:column; gap:2px; }
+        .filter-label-group .flg-label { font-size:0.62rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:#64748b; padding-left:2px; }
+        .filter-row { display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end; }
+        /* On Order scope buttons */
+        #rank-scope-past.active  { background:rgba(59,130,246,0.18); border-color:#3b82f6; color:#60a5fa; }
+        #rank-scope-future       { border-color:rgba(245,158,11,0.35); color:rgba(245,158,11,0.7); }
+        #rank-scope-future.active{ background:rgba(245,158,11,0.18); border-color:#f59e0b; color:#f59e0b; }
+        /* On Order ranking badges */
+        .rank-badge { display:inline-block; font-size:0.68rem; padding:1px 7px; border-radius:10px; font-weight:700; }
+        .rank-badge.rb-pos { background:rgba(248,113,113,0.15); color:#f87171; }
+        .rank-badge.rb-neg { background:rgba(74,222,128,0.15); color:#4ade80; }
+        .rank-badge.rb-neu { background:rgba(148,163,184,0.1); color:#94a3b8; }
+        /* On Order context strip */
+        .onorder-ctx-strip { background:rgba(99,102,241,0.08); border:1px solid rgba(99,102,241,0.2); border-radius:8px; padding:8px 14px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:0.75rem; color:#94a3b8; }
+        .onorder-ctx-strip .ctx-tag { background:rgba(99,102,241,0.15); color:#a5b4fc; padding:2px 8px; border-radius:6px; font-size:0.68rem; font-weight:600; }
+        /* On Order sidebar sync banner */
+        .onorder-sync-banner { background:rgba(245,158,11,0.07); border:1px solid rgba(245,158,11,0.25); border-radius:8px; padding:8px 14px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:0.75rem; color:#fcd34d; }
+        .onorder-sync-banner .sync-tag { background:rgba(245,158,11,0.15); color:#fbbf24; padding:2px 8px; border-radius:6px; font-size:0.68rem; font-weight:600; }
+        .btn-sync-sidebar { background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.4); color:#fbbf24; border-radius:6px; padding:2px 10px; font-size:0.7rem; font-weight:600; cursor:pointer; transition:all 0.15s; }
+        .btn-sync-sidebar:hover { background:rgba(245,158,11,0.25); color:#fde68a; }
         /* View Toggle - Centered (matches index.html) */
         .view-toggle { display: inline-flex; gap: 4px; margin-left: 16px; }
         .view-toggle .btn-view {
@@ -302,10 +323,10 @@
                         <a class="nav-link active" data-bs-toggle="tab" href="#tab-pipeline"><i class="bi bi-stack me-1"></i>Pipeline View</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" data-bs-toggle="tab" href="#tab-change-analysis"><i class="bi bi-arrow-left-right me-1"></i>Change Analysis</a>
+                        <a class="nav-link" data-bs-toggle="tab" href="#tab-on-order" id="tab-on-order-link"><i class="bi bi-box-seam me-1"></i>On Order</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" data-bs-toggle="tab" href="#tab-on-order" id="tab-on-order-link"><i class="bi bi-box-seam me-1"></i>On Order</a>
+                        <a class="nav-link" data-bs-toggle="tab" href="#tab-change-analysis"><i class="bi bi-arrow-left-right me-1"></i>Change Analysis</a>
                     </li>
                 </ul>
 
@@ -612,74 +633,129 @@
 
                     <!-- Tab 3: On Order Breakdown -->
                     <div class="tab-pane fade" id="tab-on-order">
-                        <div class="chart-container mb-3" style="padding: 16px;">
-                            <div class="d-flex justify-content-between align-items-center mb-3">
-                                <div class="chart-title mb-0"><i class="bi bi-box-seam me-1"></i>On Order — Import vs Domestic</div>
-                                <div style="font-size:0.75rem; color:var(--text-muted);" id="onorder-tab-week-label"></div>
-                            </div>
 
-                            <!-- Import / Domestic toggle -->
-                            <div class="d-flex gap-2 mb-3 flex-wrap">
-                                <select id="onorder-tab-week-select" class="form-select form-select-sm" style="max-width:160px; background:#1a1a2e; color:#e2e8f0; border-color:#2a2a4a;">
-                                    <!-- Populated by JS -->
-                                </select>
-                                <select id="onorder-tab-sbu-filter" class="form-select form-select-sm" style="max-width:160px; background:#1a1a2e; color:#e2e8f0; border-color:#2a2a4a;">
-                                    <option value="">All SBUs</option>
-                                </select>
-                            </div>
+                        <!-- Context strip -->
+                        <div class="onorder-ctx-strip mb-2">
+                            <i class="bi bi-box-seam" style="color:#a5b4fc; font-size:1rem;"></i>
+                            <span>Purchase order lines — weekly units on order vs LY</span>
+                            <span class="ctx-tag"><i class="bi bi-slash-circle me-1"></i>Excl. DSD</span>
+                            <span class="ctx-tag"><i class="bi bi-calendar-week me-1"></i>FY25 &amp; FY26</span>
+                            <span class="ctx-tag"><i class="bi bi-arrow-left-right me-1"></i>Import / Domestic</span>
+                            <span class="ctx-tag"><i class="bi bi-globe2 me-1"></i>Enterprise scope</span>
+                        </div>
+                        <!-- Sidebar filter sync banner — shown when Pipeline sidebar has active SBU/Dept filters -->
+                        <div class="onorder-sync-banner mb-3" id="onorder-sidebar-sync-banner" style="display:none;">
+                            <i class="bi bi-funnel-fill" style="font-size:0.9rem;"></i>
+                            <span>Pipeline sidebar has active filters:</span>
+                            <span class="sync-tag" id="onorder-sync-sbu-tag" style="display:none;"></span>
+                            <span class="sync-tag" id="onorder-sync-dept-tag" style="display:none;"></span>
+                            <span style="color:#94a3b8; font-size:0.7rem;">— This tab shows <strong style="color:#fcd34d;">enterprise-wide</strong> on-order (sidebar filters don't apply here)</span>
+                            <button class="btn-sync-sidebar ms-auto" id="onorder-sync-dept-btn" style="display:none;" onclick="syncOnOrderDeptFromSidebar()">
+                                <i class="bi bi-arrows-collapse me-1"></i>Sync Dept Filter
+                            </button>
+                        </div>
 
-                            <!-- Summary tiles: Import vs Domestic -->
-                            <div class="row g-2 mb-3">
-                                <div class="col-6 col-md-3">
-                                    <div class="kpi-card p-3" style="background:#1e2a40; border-radius:8px; border:1px solid #2a3a5a;">
-                                        <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">Import</div>
-                                        <div id="onorder-import-units" style="font-size:1.4rem; font-weight:700; color:#60a5fa;">—</div>
-                                        <div id="onorder-import-pct" style="font-size:0.75rem; color:var(--text-muted);">—% of total</div>
-                                    </div>
+                        <!-- YoY Weekly On Order Trend Chart -->
+                        <div class="chart-container mb-3" style="padding:18px; border:1px solid #1e2d4a;" id="onorder-trend-card">
+                            <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-3">
+                                <div>
+                                    <div class="chart-title mb-0"><i class="bi bi-graph-up me-1" style="color:#60a5fa;"></i>Weekly On Order — YoY Trend</div>
+                                    <div style="font-size:0.7rem; color:#475569; margin-top:3px;">Units ordered per week · excl. DSD</div>
                                 </div>
-                                <div class="col-6 col-md-3">
-                                    <div class="kpi-card p-3" style="background:#1e2a40; border-radius:8px; border:1px solid #2a3a5a;">
-                                        <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">Domestic</div>
-                                        <div id="onorder-domestic-units" style="font-size:1.4rem; font-weight:700; color:#a78bfa;">—</div>
-                                        <div id="onorder-domestic-pct" style="font-size:0.75rem; color:var(--text-muted);">—% of total</div>
+                                <div class="filter-row">
+                                    <div class="filter-label-group">
+                                        <span class="flg-label"><i class="bi bi-layers me-1"></i>View</span>
+                                        <select id="onorder-trend-view" class="form-select form-select-sm" style="min-width:120px; background:#0f0f1a; color:#e2e8f0; border-color:#2a2a4a;">
+                                            <option value="enterprise">Enterprise</option>
+                                            <option value="sbu">By SBU</option>
+                                        </select>
                                     </div>
-                                </div>
-                                <div class="col-6 col-md-3">
-                                    <div class="kpi-card p-3" style="background:#1e2a40; border-radius:8px; border:1px solid #2a3a5a;">
-                                        <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">eComm (ONLINE)</div>
-                                        <div id="onorder-ecomm-units" style="font-size:1.4rem; font-weight:700; color:#34d399;">—</div>
-                                        <div id="onorder-ecomm-pct" style="font-size:0.75rem; color:var(--text-muted);">—% of total</div>
+                                    <div class="filter-label-group" id="onorder-sbu-wrap" style="display:none;">
+                                        <span class="flg-label">SBU</span>
+                                        <select id="onorder-trend-sbu" class="form-select form-select-sm" style="min-width:140px; background:#0f0f1a; color:#e2e8f0; border-color:#2a2a4a;">
+                                            <option value="">All SBUs</option>
+                                        </select>
                                     </div>
-                                </div>
-                                <div class="col-6 col-md-3">
-                                    <div class="kpi-card p-3" style="background:#1e2a40; border-radius:8px; border:1px solid #2a3a5a;">
-                                        <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">DSD</div>
-                                        <div id="onorder-dsd-units" style="font-size:1.4rem; font-weight:700; color:#fbbf24;">—</div>
-                                        <div id="onorder-dsd-pct" style="font-size:0.75rem; color:var(--text-muted);">—% of total</div>
+                                    <div class="filter-label-group">
+                                        <span class="flg-label"><i class="bi bi-grid me-1"></i>Dept</span>
+                                        <select id="onorder-trend-dept" class="form-select form-select-sm" style="min-width:150px; background:#0f0f1a; color:#e2e8f0; border-color:#2a2a4a;">
+                                            <option value="">All Depts</option>
+                                        </select>
+                                    </div>
+                                    <div class="filter-label-group">
+                                        <span class="flg-label"><i class="bi bi-globe me-1"></i>Origin</span>
+                                        <select id="onorder-trend-import" class="form-select form-select-sm" style="min-width:130px; background:#0f0f1a; color:#e2e8f0; border-color:#2a2a4a;">
+                                            <option value="">Import + Domestic</option>
+                                            <option value="IMPORT">Import Only</option>
+                                            <option value="DOMESTIC">Domestic Only</option>
+                                        </select>
                                     </div>
                                 </div>
                             </div>
+                            <div style="font-size:0.68rem; color:#475569; margin-bottom:8px; display:flex; gap:14px; flex-wrap:wrap;">
+                                <span><span style="color:#60a5fa; font-size:0.9em;">━━</span> FY26 Total</span>
+                                <span><span style="color:#60a5fa; opacity:0.45; font-size:0.9em;">╌╌</span> FY25 Total</span>
+                                <span><span style="color:#f59e0b; font-size:0.9em;">╌╌</span> FY26 Import</span>
+                                <span><span style="color:#a78bfa; font-size:0.9em;">╌╌</span> FY26 Domestic</span>
+                            </div>
+                            <canvas id="onorderTrendChart" height="70"></canvas>
+                        </div>
 
-                            <!-- SBU breakdown table -->
+                        <!-- WoW / YoY Ranking Table -->
+                        <div class="chart-container mb-3" style="padding:18px; border:1px solid #1e2d4a;" id="onorder-ranking-card">
+                            <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-3">
+                                <div>
+                                    <div class="chart-title mb-0"><i class="bi bi-trophy me-1" style="color:#fbbf24;"></i>On Order — WoW / YoY Ranking</div>
+                                    <div style="font-size:0.7rem; color:#475569; margin-top:3px;" id="onorder-ranking-subtitle">Sorted by YoY % change</div>
+                                </div>
+                                <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end;">
+                                    <div class="filter-label-group">
+                                        <span class="flg-label"><i class="bi bi-calendar3 me-1"></i>Scope</span>
+                                        <div class="btn-group btn-group-sm">
+                                            <button type="button" class="btn btn-outline-secondary active" id="rank-scope-current" onclick="setRankingScope('current')" title="Current anchor week only">Current Wk</button>
+                                            <button type="button" class="btn btn-outline-secondary" id="rank-scope-past" onclick="setRankingScope('past4')" title="4 weeks ending at anchor">◀ Past 4</button>
+                                            <button type="button" class="btn btn-outline-secondary" id="rank-scope-future" onclick="setRankingScope('future4')" title="4 weeks after anchor (forward POs)">Future 4 ▶</button>
+                                        </div>
+                                    </div>
+                                    <div class="filter-label-group">
+                                        <span class="flg-label"><i class="bi bi-diagram-2 me-1"></i>View by</span>
+                                        <div class="btn-group btn-group-sm">
+                                            <button type="button" class="btn btn-outline-secondary active" id="rank-view-sbu" onclick="setRankingView('sbu')">SBU</button>
+                                            <button type="button" class="btn btn-outline-secondary" id="rank-view-dept" onclick="setRankingView('dept')">Dept</button>
+                                        </div>
+                                    </div>
+                                    <div class="filter-label-group">
+                                        <span class="flg-label"><i class="bi bi-globe me-1"></i>Origin</span>
+                                        <select id="onorder-rank-import" class="form-select form-select-sm" style="min-width:130px; background:#0f0f1a; color:#e2e8f0; border-color:#2a2a4a;">
+                                            <option value="">Import + Domestic</option>
+                                            <option value="IMPORT">Import Only</option>
+                                            <option value="DOMESTIC">Domestic Only</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
                             <div style="overflow-x:auto;">
                                 <table class="table table-dark table-sm table-hover mb-0" style="font-size:0.78rem;">
                                     <thead>
-                                        <tr style="color:var(--text-muted); border-bottom:1px solid #2a2a4a;">
-                                            <th>SBU</th>
-                                            <th class="text-end">Total On Order</th>
-                                            <th class="text-end">Import</th>
-                                            <th class="text-end">Domestic</th>
-                                            <th class="text-end">Import %</th>
-                                            <th class="text-end">eComm</th>
-                                            <th class="text-end">DSD</th>
+                                        <tr style="color:#64748b; border-bottom:1px solid #1e2d4a; font-size:0.7rem; text-transform:uppercase; letter-spacing:0.04em;">
+                                            <th style="width:28px;">#</th>
+                                            <th id="rank-col-name">SBU</th>
+                                            <th class="text-end">TY Units</th>
+                                            <th class="text-end">LY Units</th>
+                                            <th class="text-end">YoY Δ</th>
+                                            <th class="text-end">YoY %</th>
+                                            <th class="text-end">WoW Δ</th>
+                                            <th class="text-end">WoW %</th>
                                         </tr>
                                     </thead>
-                                    <tbody id="onorder-sbu-table-body">
-                                        <tr><td colspan="7" class="text-center text-muted py-3">Loading on order data...</td></tr>
+                                    <tbody id="onorder-ranking-body">
+                                        <tr><td colspan="8" class="text-center text-muted py-3">Loading...</td></tr>
                                     </tbody>
+                                    <tfoot id="onorder-ranking-total" style="border-top:1px solid #2a2a4a; font-weight:600; color:#94a3b8; font-size:0.75rem;"></tfoot>
                                 </table>
                             </div>
                         </div>
+
                     </div><!-- End tab-on-order -->
 
                 </div><!-- End tab-content -->
@@ -943,6 +1019,8 @@
 
     // Lazy-load hist catg from /api/historical/catg (needed for category filter dropdown + chart data)
     const MAX_HIST_CATG_RETRIES = 20;
+    let _histCatgCallbacks = [];       // queued callbacks waiting for catg load
+    let _onorderCatgCallbacks = [];    // queued callbacks waiting for on-order catg load
     // Background loader for on-order data (when not ready at initial render time)
     let onorderBgLoading = false;
     let onorderBgRetries = 0;
@@ -977,6 +1055,10 @@
                     // Re-render charts and KPIs now that on-order data is available
                     renderCharts();
                     initBucketDrillFilters();
+                    // Preload on-order catg in background for change analysis category view
+                    loadOnorderCatgBackground(() => {
+                        if (BUCKET_DRILL_DATA.latestWeek) loadBucketDrillData();
+                    });
                 })
                 .catch(e => {
                     onorderBgRetries++;
@@ -990,7 +1072,9 @@
     let histCatgRetryCount = 0;
     function loadHistCatgBackground(onDone) {
         if (HIST_CATG_LOADED) { if (onDone) onDone(); return; }
-        if (HIST_CATG_LOADING) return;
+        // Queue callback regardless — will be flushed when load completes
+        if (onDone) _histCatgCallbacks.push(onDone);
+        if (HIST_CATG_LOADING) return;  // already in flight, callback queued above
         HIST_CATG_LOADING = true;
         histCatgRetryCount = 0;
         const apiBase = window.location.pathname.replace(/\/dashboard\/.*$/, '');
@@ -1004,7 +1088,10 @@
                             setTimeout(tryLoad, 3000);
                         } else {
                             HIST_CATG_LOADING = false;
-                            console.warn('[BUCKETS] Hist catg timed out');
+                            console.warn('[BUCKETS] Hist catg timed out — flushing callbacks');
+                            // Flush callbacks even on timeout so late-selecting users get a retry
+                            const cbs = _histCatgCallbacks.splice(0);
+                            cbs.forEach(cb => { try { cb(); } catch(e) {} });
                         }
                         return;
                     }
@@ -1012,11 +1099,15 @@
                     HIST_CATG_LOADED = true;
                     HIST_CATG_LOADING = false;
                     console.log('[BUCKETS] Hist catg loaded:', HIST_DATA.by_catg.length, 'rows');
-                    if (onDone) onDone();
+                    const cbs = _histCatgCallbacks.splice(0);
+                    cbs.forEach(cb => { try { cb(); } catch(e) {} });
                 })
                 .catch(e => {
                     HIST_CATG_LOADING = false;
                     console.warn('[BUCKETS] Hist catg fetch failed:', e);
+                    // Flush callbacks on error so they can retry
+                    const cbs = _histCatgCallbacks.splice(0);
+                    cbs.forEach(cb => { try { cb(); } catch(e2) {} });
                 });
         }
         tryLoad();
@@ -1027,6 +1118,8 @@
     let onorderCatgRetryCount = 0;
     function loadOnorderCatgBackground(onDone) {
         if (ONORDER_CATG_LOADED) { if (onDone) onDone(); return; }
+        // Queue callback — flushed on load complete
+        if (onDone) _onorderCatgCallbacks.push(onDone);
         if (ONORDER_CATG_LOADING) return;
         ONORDER_CATG_LOADING = true;
         onorderCatgRetryCount = 0;
@@ -1041,7 +1134,9 @@
                             setTimeout(tryLoad, 3000);
                         } else {
                             ONORDER_CATG_LOADING = false;
-                            console.warn('[BUCKETS] On-order catg timed out');
+                            console.warn('[BUCKETS] On-order catg timed out — flushing callbacks');
+                            const cbs = _onorderCatgCallbacks.splice(0);
+                            cbs.forEach(cb => { try { cb(); } catch(e) {} });
                         }
                         return;
                     }
@@ -1049,11 +1144,15 @@
                     ONORDER_CATG_LOADED = true;
                     ONORDER_CATG_LOADING = false;
                     console.log('[BUCKETS] On-order catg loaded:', ONORDER_DATA.by_catg.length, 'rows');
-                    if (onDone) onDone();
+                    const cbs = _onorderCatgCallbacks.splice(0);
+                    cbs.forEach(cb => { try { cb(); } catch(e) {} });
                 })
                 .catch(e => {
                     ONORDER_CATG_LOADING = false;
                     console.warn('[BUCKETS] On-order catg fetch failed:', e);
+                    // Flush callbacks on error
+                    const cbs = _onorderCatgCallbacks.splice(0);
+                    cbs.forEach(cb => { try { cb(); } catch(e2) {} });
                 });
         }
         tryLoad();
@@ -1074,11 +1173,17 @@
         // Preload ALL departments (aligned with Historical view)
         populateDeptFilter();
 
-        // Preload hist catg in background so category dropdown is instant on dept selection
+        // Preload hist catg in background — populate catg dropdown + refresh drill aggregations when ready
         loadHistCatgBackground(() => {
-            // When catg data arrives, refresh catg drill aggregations
             if (BUCKET_DRILL_DATA.latestWeek) loadBucketDrillData();
+            // Also refresh catg dropdown if a dept is already selected
+            const selectedDepts = Array.from(document.getElementById('dept-filter').selectedOptions).map(o => o.value);
+            if (selectedDepts.length > 0) { populateCatgFilter(); updateFilterUI(); }
         });
+        // Eagerly start on-order catg bg load so Change Analysis catg view is ready sooner
+        if (ONORDER_DATA && ONORDER_DATA.by_sbu && ONORDER_DATA.by_sbu.length > 0) {
+            loadOnorderCatgBackground(() => { if (BUCKET_DRILL_DATA.latestWeek) loadBucketDrillData(); });
+        }
     }
 
     // Populate department filter - shows all depts, filtered by SBU if selected
@@ -1368,7 +1473,10 @@
             onorderSource = ONORDER_DATA?.by_sbu || [];
         }
 
-        console.log('[BUCKETS] On-order source records:', onorderSource.length);
+        // Always exclude DSD from all on-order views (KPI, charts, table)
+        onorderSource = onorderSource.filter(r => r.dsd_ind !== 'DSD');
+
+        console.log('[BUCKETS] On-order source records (excl DSD):', onorderSource.length);
 
         onorderSource.forEach(r => {
             const onorderWk = r.wm_week;
@@ -1417,6 +1525,8 @@
             clearTimeout(RENDER_DEBOUNCE_TIMER);
         }
         RENDER_DEBOUNCE_TIMER = setTimeout(_doRenderCharts, RENDER_DEBOUNCE_MS);
+        // Always refresh On Order sidebar banner when filters change
+        updateOnOrderSidebarBanner();
     }
 
     function _doRenderCharts() {
@@ -2087,6 +2197,7 @@
                 const targetWk = toOnorderWk(yr, wk);
                 onorderSrc.forEach(r => {
                     if (r.wm_week !== targetWk) return;
+                    if (r.dsd_ind === 'DSD') return; // exclude DSD from all on-order views
                     const rSBU = r.sbu || r.SBU || '';
                     if (HIDDEN_SBUS.includes(rSBU)) return;
                     const key = keyFn(r);
@@ -2111,6 +2222,13 @@
                 mergeOnorder(BUCKET_DRILL_DATA.dept.current, ONORDER_DATA.by_dept, r => r.department, latestWeek.WM_YEAR, latestWeek.WM_WEEK);
                 mergeOnorder(BUCKET_DRILL_DATA.dept.priorWoW, ONORDER_DATA.by_dept, r => r.department, priorWoWYear, priorWoWWeek);
                 mergeOnorder(BUCKET_DRILL_DATA.dept.priorYoY, ONORDER_DATA.by_dept, r => r.department, priorYoYYear, priorYoYWeek);
+            }
+
+            // Category level (loaded lazily — may not be ready yet, will re-run when ready)
+            if (ONORDER_DATA.by_catg) {
+                mergeOnorder(BUCKET_DRILL_DATA.catg.current, ONORDER_DATA.by_catg, r => r.category, latestWeek.WM_YEAR, latestWeek.WM_WEEK);
+                mergeOnorder(BUCKET_DRILL_DATA.catg.priorWoW, ONORDER_DATA.by_catg, r => r.category, priorWoWYear, priorWoWWeek);
+                mergeOnorder(BUCKET_DRILL_DATA.catg.priorYoY, ONORDER_DATA.by_catg, r => r.category, priorYoYYear, priorYoYWeek);
             }
 
             console.log('[CHANGE] Open orders merged into drill data');
@@ -2325,8 +2443,14 @@
                     loadHistCatgBackground(() => renderBucketDrilldown());
                     return;
                 }
-                const lw = BUCKET_DRILL_DATA.latestWeek;
+                // Catg data may lag SBU by 1 week — use the max week actually present in catg data
+                const catgFy26Rows = (HIST_DATA.by_catg || []).filter(r => Number(r.WM_YEAR) === 2026);
+                const catgMaxWk = catgFy26Rows.length ? Math.max(...catgFy26Rows.map(r => Number(r.WM_WEEK))) : null;
+                const lw = catgMaxWk
+                    ? { WM_YEAR: 2026, WM_WEEK: catgMaxWk }
+                    : BUCKET_DRILL_DATA.latestWeek;
                 if (!lw) { console.warn('[CHANGE] No latestWeek for catg drill'); return; }
+                console.log('[CHANGE] Catg using latest week WK' + lw.WM_WEEK + ' (SBU latest: WK' + (BUCKET_DRILL_DATA.latestWeek?.WM_WEEK) + ')');
                 const priorWoWWk = lw.WM_WEEK > 1 ? lw.WM_WEEK - 1 : 52;
                 const priorWoWYr = lw.WM_WEEK > 1 ? lw.WM_YEAR : lw.WM_YEAR - 1;
                 const aggCatg = (yr, wk) => {
@@ -2349,11 +2473,12 @@
                             a[key].sto_to_dc   += r.sto_to_dc   || 0; a[key].on_yard    += r.on_yard    || 0;
                             a[key].fc_oh       += r.fc_oh       || 0; a[key].total_network += r.total_network || 0;
                         });
-                    // Merge open_orders from ONORDER catg data
-                    if (ONORDER_DATA?.by_catg) {
+                    // Merge open_orders from ONORDER catg data (only when loaded)
+                    if (ONORDER_CATG_LOADED && ONORDER_DATA?.by_catg && ONORDER_DATA.by_catg.length > 0) {
                         const targetWk = (yr === 2026 ? 126 : 125) * 100 + wk;
                         ONORDER_DATA.by_catg
                             .filter(r => r.wm_week === targetWk
+                                      && r.dsd_ind !== 'DSD'
                                       && (!sbuFilter || r.sbu === sbuFilter)
                                       && (!deptFilter || r.department === deptFilter))
                             .forEach(r => {
@@ -2364,6 +2489,9 @@
                                     on_yard: 0, fc_oh: 0, total_network: 0, open_orders: 0 };
                                 a[key].open_orders += r.units_ordered || 0;
                             });
+                    } else if (!ONORDER_CATG_LOADED) {
+                        // Trigger bg load so next render has on-order catg
+                        loadOnorderCatgBackground(() => renderBucketDrilldown());
                     }
                     return a;
                 };
@@ -2656,142 +2784,357 @@
                     onorderPane.style.opacity = '1';
                     onorderPane.classList.add('show', 'active');
                 }
+                updateOnOrderSidebarBanner();
                 setTimeout(renderOnOrderTab, 100);
             });
         }
     });
 
     // ══════════════════════════════════════════════════════════════════════
-    // On Order Tab — Import vs Domestic breakdown
+    // On Order Tab
     // ══════════════════════════════════════════════════════════════════════
     function renderOnOrderTab() {
-        if (!ONORDER_DATA || !ONORDER_DATA.by_sbu) {
-            document.getElementById('onorder-sbu-table-body').innerHTML =
-                '<tr><td colspan="7" class="text-center text-muted py-3">On Order data not loaded yet. Please wait...</td></tr>';
-            return;
+        if (!ONORDER_DATA || !ONORDER_DATA.by_sbu) return;
+
+        // Render trend chart and ranking table
+        renderOnOrderTrendChart();
+        renderOnOrderRankingTable();
+
+        // Wire up filter listeners (once)
+        const trendView = document.getElementById('onorder-trend-view');
+        const trendImport = document.getElementById('onorder-trend-import');
+        const trendDept = document.getElementById('onorder-trend-dept');
+        const rankImport = document.getElementById('onorder-rank-import');
+        if (trendView && !trendView._wired) { trendView.addEventListener('change', renderOnOrderTrendChart); trendView._wired = true; }
+        if (trendImport && !trendImport._wired) { trendImport.addEventListener('change', renderOnOrderTrendChart); trendImport._wired = true; }
+        if (trendDept && !trendDept._wired) {
+            // Populate dept options from by_dept data
+            if (ONORDER_DATA.by_dept && ONORDER_DATA.by_dept.length > 0 && trendDept.options.length <= 1) {
+                const depts = [...new Set(ONORDER_DATA.by_dept.map(r => r.department).filter(Boolean))].sort();
+                depts.forEach(d => { const o = document.createElement('option'); o.value = d; o.textContent = d; trendDept.appendChild(o); });
+            }
+            trendDept.addEventListener('change', renderOnOrderTrendChart);
+            trendDept._wired = true;
+        }
+        if (rankImport && !rankImport._wired) { rankImport.addEventListener('change', renderOnOrderRankingTable); rankImport._wired = true; }
+    }
+
+    // ============================================================
+    // On Order — YoY Trend Chart
+    // ============================================================
+    let _onorderTrendChart = null;
+
+    function renderOnOrderTrendChart() {
+        if (!ONORDER_DATA || !ONORDER_DATA.by_sbu) return;
+        const importFilter = document.getElementById('onorder-trend-import')?.value || '';
+        const deptFilter = document.getElementById('onorder-trend-dept')?.value || '';
+        const viewMode = document.getElementById('onorder-trend-view')?.value || 'enterprise';
+        const sbuSel = document.getElementById('onorder-trend-sbu');
+        const sbuFilter = sbuSel?.value || '';
+
+        // When dept is selected, use by_dept data (no SBU breakdown available at dept level)
+        const useDeptData = deptFilter && ONORDER_DATA.by_dept && ONORDER_DATA.by_dept.length > 0;
+
+        // Show/hide SBU sub-filter (disable when dept filter active)
+        const sbuWrap = document.getElementById('onorder-sbu-wrap');
+        if (sbuSel) {
+            const showSbu = viewMode === 'sbu' && !useDeptData;
+            sbuSel.style.display = showSbu ? '' : 'none';
+            if (sbuWrap) sbuWrap.style.display = showSbu ? '' : 'none';
+            if (sbuSel.options.length <= 1) {
+                const sbus = [...new Set(ONORDER_DATA.by_sbu.map(r => r.sbu).filter(s => s && s !== 'OTHER' && s !== 'UNASSIGNED'))].sort();
+                sbus.forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; sbuSel.appendChild(o); });
+                sbuSel.addEventListener('change', renderOnOrderTrendChart);
+            }
         }
 
-        const fmtM = v => {
-            if (!v) return '—';
-            const abs = Math.abs(v);
-            if (abs >= 1e9) return (v / 1e9).toFixed(2) + 'B';
-            if (abs >= 1e6) return (v / 1e6).toFixed(1) + 'M';
-            if (abs >= 1e3) return (v / 1e3).toFixed(0) + 'K';
-            return v.toLocaleString();
-        };
-        const fmtPct = (n, d) => d > 0 ? (n / d * 100).toFixed(1) + '%' : '—';
+        const fmtTip = v => { if (!v) return null; const a = Math.abs(v); return (a >= 1e6 ? (v/1e6).toFixed(1)+'M' : a >= 1e3 ? (v/1e3).toFixed(0)+'K' : v.toLocaleString()); };
 
-        // Populate week selector with available weeks from ONORDER_DATA
-        const weekSel = document.getElementById('onorder-tab-week-select');
-        const weeks = [...new Set(ONORDER_DATA.by_sbu.map(r => r.wm_week))].sort((a,b) => b - a);
-        if (weekSel.options.length === 0) {
-            weeks.slice(0, 20).forEach(wk => {
-                const fy = parseInt(String(wk).substring(0, 3)); // 125 or 126
-                const wkNum = parseInt(String(wk).substring(3, 5));
-                const label = `FY${fy === 126 ? '26' : '25'} WK${String(wkNum).padStart(2,'0')}`;
-                const opt = document.createElement('option');
-                opt.value = wk;
-                opt.textContent = label;
-                weekSel.appendChild(opt);
-            });
-            weekSel.addEventListener('change', renderOnOrderTab);
-        }
+        // Build week-level totals, split by year — always exclude DSD
+        // If dept filter active: use by_dept filtered to that dept (forces enterprise view)
+        let src = useDeptData
+            ? ONORDER_DATA.by_dept.filter(r => r.dsd_ind !== 'DSD' && r.department === deptFilter)
+            : ONORDER_DATA.by_sbu.filter(r => r.dsd_ind !== 'DSD');
+        if (importFilter) src = src.filter(r => r.import_ind === importFilter);
+        if (!useDeptData && viewMode === 'sbu' && sbuFilter) src = src.filter(r => r.sbu === sbuFilter);
 
-        // Populate SBU filter
-        const sbuSel = document.getElementById('onorder-tab-sbu-filter');
-        if (sbuSel.options.length <= 1) {
-            const sbus = [...new Set(ONORDER_DATA.by_sbu.map(r => r.sbu))].sort();
-            sbus.forEach(s => {
-                const opt = document.createElement('option');
-                opt.value = s; opt.textContent = s;
-                sbuSel.appendChild(opt);
-            });
-            sbuSel.addEventListener('change', renderOnOrderTab);
-        }
-
-        const selectedWk = parseInt(weekSel.value) || weeks[0];
-        const selectedSbu = sbuSel.value;
-
-        // Filter records for selected week
-        let rows = ONORDER_DATA.by_sbu.filter(r => r.wm_week === selectedWk);
-        if (selectedSbu) rows = rows.filter(r => r.sbu === selectedSbu);
-
-        // Aggregate by import_ind and channel_ind/dsd_ind
-        let totalUnits = 0, importUnits = 0, domesticUnits = 0, ecommUnits = 0, dsdUnits = 0;
-        const bySbu = {};
-
-        rows.forEach(r => {
-            const units = r.units_ordered || 0;
-            totalUnits += units;
-            // import_ind: 'IMPORT' or 'DOMESTIC' (may be undefined if table not yet rebuilt)
-            if (r.import_ind === 'IMPORT') importUnits += units;
-            else domesticUnits += units;
-            if (r.channel_ind === 'ECOMM') ecommUnits += units;
-            if (r.dsd_ind === 'DSD') dsdUnits += units;
-
-            const sbu = r.sbu || 'OTHER';
-            if (!bySbu[sbu]) bySbu[sbu] = { total: 0, import: 0, domestic: 0, ecomm: 0, dsd: 0 };
-            bySbu[sbu].total += units;
-            if (r.import_ind === 'IMPORT') bySbu[sbu].import += units;
-            else bySbu[sbu].domestic += units;
-            if (r.channel_ind === 'ECOMM') bySbu[sbu].ecomm += units;
-            if (r.dsd_ind === 'DSD') bySbu[sbu].dsd += units;
+        const fy25 = {}, fy26 = {};
+        src.forEach(r => {
+            const wk = r.wm_week; const units = r.units_ordered || 0;
+            if (wk >= 12500 && wk < 12600) { const n = wk % 100; fy25[n] = (fy25[n] || 0) + units; }
+            else if (wk >= 12600) { const n = wk % 100; fy26[n] = (fy26[n] || 0) + units; }
         });
 
-        // Note: import_ind requires table rebuild — show notice if all null
-        const hasImportData = rows.some(r => r.import_ind != null);
+        // Collect all week numbers present in either year, sorted
+        const allWkNums = [...new Set([...Object.keys(fy25), ...Object.keys(fy26)].map(Number))].sort((a,b) => a-b);
+        const labels = allWkNums.map(w => `WK${String(w).padStart(2,'0')}`);
 
-        // Update summary tiles
-        document.getElementById('onorder-import-units').textContent = fmtM(importUnits);
-        document.getElementById('onorder-domestic-units').textContent = fmtM(domesticUnits);
-        document.getElementById('onorder-ecomm-units').textContent = fmtM(ecommUnits);
-        document.getElementById('onorder-dsd-units').textContent = fmtM(dsdUnits);
-        document.getElementById('onorder-import-pct').textContent = fmtPct(importUnits, totalUnits) + ' of total';
-        document.getElementById('onorder-domestic-pct').textContent = fmtPct(domesticUnits, totalUnits) + ' of total';
-        document.getElementById('onorder-ecomm-pct').textContent = fmtPct(ecommUnits, totalUnits) + ' of total';
-        document.getElementById('onorder-dsd-pct').textContent = fmtPct(dsdUnits, totalUnits) + ' of total';
+        const SBU_COLORS = { CONSUMABLES:'#60a5fa', FRESH:'#34d399', CAC:'#f87171', PANTRY:'#fbbf24', HARDLINES:'#a78bfa', HOME:'#fb923c', FASHION:'#e879f9', ETS:'#2dd4bf' };
 
-        // Update week label
-        const fy = parseInt(String(selectedWk).substring(0, 3));
-        const wkNum = parseInt(String(selectedWk).substring(3, 5));
-        document.getElementById('onorder-tab-week-label').textContent =
-            `FY${fy === 126 ? '26' : '25'} WK${String(wkNum).padStart(2,'0')} — Total: ${fmtM(totalUnits)} units`;
+        let datasets;
+        if (!useDeptData && viewMode === 'sbu' && !sbuFilter) {
+            // One line per SBU — FY26 only
+            const sbuWkMap = {};
+            let s2 = ONORDER_DATA.by_sbu.filter(r => r.wm_week >= 12600 && r.dsd_ind !== 'DSD');
+            if (importFilter) s2 = s2.filter(r => r.import_ind === importFilter);
+            s2.forEach(r => {
+                if (!r.sbu || r.sbu === 'OTHER' || r.sbu === 'UNASSIGNED') return;
+                const n = r.wm_week % 100;
+                if (!sbuWkMap[r.sbu]) sbuWkMap[r.sbu] = {};
+                sbuWkMap[r.sbu][n] = (sbuWkMap[r.sbu][n] || 0) + (r.units_ordered || 0);
+            });
+            datasets = Object.entries(sbuWkMap).map(([sbu, wkMap]) => ({
+                label: sbu,
+                data: allWkNums.map(w => wkMap[w] || null),
+                borderColor: SBU_COLORS[sbu] || '#94a3b8',
+                backgroundColor: 'transparent',
+                borderWidth: 2, pointRadius: 2, fill: false, tension: 0.3, spanGaps: true
+            }));
+        } else {
+            const labelSuffix = (deptFilter ? ` — ${deptFilter}` : '') + (importFilter ? ` (${importFilter})` : '');
+            datasets = [
+                { label: 'FY26' + labelSuffix, data: allWkNums.map(w => fy26[w] || null), borderColor: '#60a5fa', backgroundColor: '#60a5fa15', borderWidth: 2.5, pointRadius: 2, fill: false, tension: 0.3, spanGaps: true },
+                { label: 'FY25' + labelSuffix, data: allWkNums.map(w => fy25[w] || null), borderColor: '#60a5fa80', backgroundColor: 'transparent', borderWidth: 1.5, borderDash: [5,3], pointRadius: 1.5, fill: false, tension: 0.3, spanGaps: true }
+            ];
+            // Overlay Import vs Domestic breakdown lines if not already import-filtered
+            if (!importFilter) {
+                const fy26i = {}, fy26d = {};
+                const importSrc = useDeptData
+                    ? ONORDER_DATA.by_dept.filter(r => r.wm_week >= 12600 && r.dsd_ind !== 'DSD' && r.department === deptFilter)
+                    : ONORDER_DATA.by_sbu.filter(r => r.wm_week >= 12600 && r.dsd_ind !== 'DSD');
+                importSrc.forEach(r => {
+                    const n = r.wm_week % 100; const u = r.units_ordered || 0;
+                    if (r.import_ind === 'IMPORT') fy26i[n] = (fy26i[n] || 0) + u;
+                    else fy26d[n] = (fy26d[n] || 0) + u;
+                });
+                if (Object.values(fy26i).some(v => v > 0)) {
+                    datasets.push(
+                        { label: 'FY26 Import', data: allWkNums.map(w => fy26i[w] || null), borderColor: '#f59e0b', backgroundColor: 'transparent', borderWidth: 1.5, borderDash: [3,2], pointRadius: 1, fill: false, tension: 0.3, spanGaps: true },
+                        { label: 'FY26 Domestic', data: allWkNums.map(w => fy26d[w] || null), borderColor: '#a78bfa', backgroundColor: 'transparent', borderWidth: 1.5, borderDash: [3,2], pointRadius: 1, fill: false, tension: 0.3, spanGaps: true }
+                    );
+                }
+            }
+        }
 
-        // SBU table
-        const tbody = document.getElementById('onorder-sbu-table-body');
-        const sbuOrder = ['CONSUMABLES','FRESH','CAC','PANTRY','HARDLINES','HOME','FASHION','ETS','OTHER'];
-        const sortedSbus = Object.keys(bySbu).sort((a, b) =>
-            (sbuOrder.indexOf(a) + 1 || 99) - (sbuOrder.indexOf(b) + 1 || 99));
+        const ctx = document.getElementById('onorderTrendChart');
+        if (!ctx) return;
+        if (_onorderTrendChart) { _onorderTrendChart.destroy(); _onorderTrendChart = null; }
+        _onorderTrendChart = new Chart(ctx, {
+            type: 'line',
+            data: { labels, datasets },
+            options: {
+                responsive: true, maintainAspectRatio: true,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { labels: { color: '#94a3b8', font: { size: 10 }, boxWidth: 12 } },
+                    tooltip: { callbacks: { label: c => { const v = c.raw; return v ? `${c.dataset.label}: ${fmtTip(v)}` : null; } } }
+                },
+                scales: {
+                    x: { ticks: { color: '#94a3b8', font: { size: 9 }, maxRotation: 45 }, grid: { color: '#1a1a2e' } },
+                    y: { ticks: { color: '#94a3b8', font: { size: 10 }, callback: v => v >= 1e6 ? (v/1e6).toFixed(0)+'M' : v >= 1e3 ? (v/1e3).toFixed(0)+'K' : v }, grid: { color: '#2a2a4a' } }
+                }
+            }
+        });
+    }
 
-        if (sortedSbus.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">No data for selected week.</td></tr>';
+    // ============================================================
+    // On Order — WoW/YoY Ranking Table
+    // ============================================================
+    // Convert HIST_DATA WM_YR_WK_NBR (YYYYWW e.g. 202619) → ONORDER wm_week (FYWKK e.g. 12619)
+    function histWkToOrderWk(yyyyww) {
+        const yr = Math.floor(yyyyww / 100);   // 2026
+        const wk = yyyyww % 100;               // 19
+        return (yr - 1900) * 100 + wk;         // 12619
+    }
+
+    // Returns the anchor week (current inventory cutoff) in ONORDER wm_week format
+    function getAnchorWeek() {
+        if (HIST_DATA && HIST_DATA.by_sbu && HIST_DATA.by_sbu.length) {
+            const yyyywws = HIST_DATA.by_sbu.map(r => r.WM_YR_WK_NBR).filter(Boolean);
+            if (yyyywws.length) return histWkToOrderWk(Math.max(...yyyywws));
+        }
+        // Fallback: latest FY26 week in ONORDER (exclude far-future, cap at 12660)
+        const fy26 = (ONORDER_DATA?.by_sbu || []).map(r => r.wm_week).filter(w => w >= 12600 && w <= 12660);
+        return fy26.length ? Math.max(...fy26) : 12620;
+    }
+
+    let RANKING_SCOPE = 'current'; // 'current' or 'past4'
+    let RANKING_VIEW = 'sbu';
+
+    // ============================================================
+    // SIDEBAR SYNC BANNER — updates when On Order tab is shown
+    // ============================================================
+    function updateOnOrderSidebarBanner() {
+        const banner  = document.getElementById('onorder-sidebar-sync-banner');
+        const sbuTag  = document.getElementById('onorder-sync-sbu-tag');
+        const deptTag = document.getElementById('onorder-sync-dept-tag');
+        const syncBtn = document.getElementById('onorder-sync-dept-btn');
+        if (!banner) return;
+
+        const filters = getFilters();
+        const hasSbu  = filters.sbus.length > 0;
+        const hasDept = filters.depts.length > 0;
+
+        if (!hasSbu && !hasDept) {
+            banner.style.display = 'none';
             return;
         }
 
-        const noImportNote = !hasImportData
-            ? '<tr><td colspan="7" class="text-center py-2" style="font-size:0.72rem; color:#fbbf24;"><i class="bi bi-exclamation-triangle me-1"></i>Import/Domestic split requires BQ table rebuild with new <code>import_ind</code> column</td></tr>'
-            : '';
+        // Show banner
+        banner.style.display = 'flex';
 
-        tbody.innerHTML = noImportNote + sortedSbus.map(sbu => {
-            const d = bySbu[sbu];
-            return `<tr>
-                <td><span class="fw-semibold">${sbu}</span></td>
-                <td class="text-end">${fmtM(d.total)}</td>
-                <td class="text-end" style="color:#60a5fa;">${fmtM(d.import)}</td>
-                <td class="text-end" style="color:#a78bfa;">${fmtM(d.domestic)}</td>
-                <td class="text-end">${fmtPct(d.import, d.total)}</td>
-                <td class="text-end" style="color:#34d399;">${fmtM(d.ecomm)}</td>
-                <td class="text-end" style="color:#fbbf24;">${fmtM(d.dsd)}</td>
-            </tr>`;
-        }).join('') +
-        `<tr style="border-top:1px solid #2a2a4a; font-weight:700;">
-            <td>TOTAL</td>
-            <td class="text-end">${fmtM(totalUnits)}</td>
-            <td class="text-end" style="color:#60a5fa;">${fmtM(importUnits)}</td>
-            <td class="text-end" style="color:#a78bfa;">${fmtM(domesticUnits)}</td>
-            <td class="text-end">${fmtPct(importUnits, totalUnits)}</td>
-            <td class="text-end" style="color:#34d399;">${fmtM(ecommUnits)}</td>
-            <td class="text-end" style="color:#fbbf24;">${fmtM(dsdUnits)}</td>
+        if (hasSbu && sbuTag) {
+            sbuTag.style.display = '';
+            sbuTag.innerHTML = `<i class="bi bi-building me-1"></i>SBU: ${filters.sbus.join(', ')}`;
+        } else if (sbuTag) {
+            sbuTag.style.display = 'none';
+        }
+
+        if (hasDept && deptTag) {
+            deptTag.style.display = '';
+            deptTag.innerHTML = `<i class="bi bi-grid me-1"></i>Dept: ${filters.depts.join(', ')}`;
+        } else if (deptTag) {
+            deptTag.style.display = 'none';
+        }
+
+        // Show "Sync Dept Filter" button only when sidebar has a DEPT filter we can apply
+        if (syncBtn) {
+            const canSync = hasDept && filters.depts.length === 1;
+            syncBtn.style.display = canSync ? '' : 'none';
+        }
+    }
+
+    function syncOnOrderDeptFromSidebar() {
+        const filters = getFilters();
+        if (filters.depts.length !== 1) return;
+        const dept = filters.depts[0];
+        const trendDept = document.getElementById('onorder-trend-dept');
+        if (trendDept) {
+            const opt = Array.from(trendDept.options).find(o => o.value === dept);
+            if (opt) {
+                trendDept.value = dept;
+                renderOnOrderTrendChart();
+            }
+        }
+    }
+
+    function setRankingScope(scope) {
+        RANKING_SCOPE = scope;
+        document.getElementById('rank-scope-current').classList.toggle('active', scope === 'current');
+        document.getElementById('rank-scope-past').classList.toggle('active', scope === 'past4');
+        document.getElementById('rank-scope-future').classList.toggle('active', scope === 'future4');
+        renderOnOrderRankingTable();
+    }
+
+    function setRankingView(view) {
+        RANKING_VIEW = view;
+        document.getElementById('rank-view-sbu').classList.toggle('active', view === 'sbu');
+        document.getElementById('rank-view-dept').classList.toggle('active', view === 'dept');
+        document.getElementById('rank-col-name').textContent = view === 'sbu' ? 'SBU' : 'Dept';
+        renderOnOrderRankingTable();
+    }
+
+    function renderOnOrderRankingTable() {
+        if (!ONORDER_DATA || !ONORDER_DATA.by_sbu) return;
+        const tbody = document.getElementById('onorder-ranking-body');
+        if (!tbody) return;
+        const importFilter = document.getElementById('onorder-rank-import')?.value || '';
+
+        // Anchor = current inventory week derived from HIST_DATA (YYYYWW → FY-prefix)
+        const anchor = getAnchorWeek();
+        const fy26Weeks = [...new Set(ONORDER_DATA.by_sbu.map(r => r.wm_week).filter(w => w >= 12600 && w <= anchor + 10))].sort((a,b) => a-b);
+        if (!fy26Weeks.length) { tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">No FY26 data.</td></tr>'; return; }
+
+        // Build scope weeks based on RANKING_SCOPE
+        const anchorIdx = fy26Weeks.indexOf(anchor);
+        const scopeWeeks = RANKING_SCOPE === 'past4'
+            ? (anchorIdx >= 0 ? fy26Weeks.slice(Math.max(0, anchorIdx - 3), anchorIdx + 1) : [anchor])
+            : RANKING_SCOPE === 'future4'
+            ? (anchorIdx >= 0 ? fy26Weeks.slice(anchorIdx + 1, anchorIdx + 5) : [])
+            : [anchor]; // 'current' = anchor week only
+
+        if (!scopeWeeks.length) { tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">No data.</td></tr>'; return; }
+
+        const lyWeeks = scopeWeeks.map(w => w - 100);
+        const prevWeek = anchorIdx > 0 ? fy26Weeks[anchorIdx - 1] : null;
+
+        // Choose data source — always exclude DSD
+        const useByDept = RANKING_VIEW === 'dept' && ONORDER_DATA.by_dept && ONORDER_DATA.by_dept.length > 0;
+        const sourceData = (useByDept ? ONORDER_DATA.by_dept : ONORDER_DATA.by_sbu).filter(r => r.dsd_ind !== 'DSD');
+        const keyFn = useByDept ? r => r.department : r => r.sbu;
+
+        const aggWeeks = (wkList) => {
+            const out = {};
+            let s = sourceData;
+            if (importFilter) s = s.filter(r => r.import_ind === importFilter);
+            s.filter(r => wkList.includes(r.wm_week)).forEach(r => {
+                const k = keyFn(r); if (!k) return;
+                out[k] = (out[k] || 0) + (r.units_ordered || 0);
+            });
+            return out;
+        };
+
+        const currAgg   = aggWeeks(scopeWeeks);
+        const lyAgg     = aggWeeks(lyWeeks);
+        const anchorAgg = aggWeeks([anchor]);
+        const prevAgg   = prevWeek ? aggWeeks([prevWeek]) : {};
+
+        const fmtM   = v => { if (!v) return '—'; const a = Math.abs(v); return (a >= 1e6 ? (v/1e6).toFixed(1)+'M' : a >= 1e3 ? (v/1e3).toFixed(0)+'K' : v.toLocaleString()); };
+        const fmtPct = p => p == null ? '—' : (p >= 0 ? '+' : '') + p.toFixed(1) + '%';
+        const pctBadge = p => {
+            if (p == null) return '<span class="rank-badge rb-neu">—</span>';
+            const cls = p > 1 ? 'rb-pos' : p < -1 ? 'rb-neg' : 'rb-neu';
+            return `<span class="rank-badge ${cls}">${(p >= 0 ? '+' : '') + p.toFixed(1)}%</span>`;
+        };
+        const clrDelta = v => v == null ? '' : v >= 0 ? 'style="color:#f87171;"' : 'style="color:#4ade80;"';
+
+        const allKeys = [...new Set([...Object.keys(currAgg), ...Object.keys(lyAgg)])].filter(k => k && k !== 'OTHER' && k !== 'UNASSIGNED' && k !== 'null');
+        const rows = allKeys.map(key => {
+            const curr = currAgg[key] || 0, ly = lyAgg[key] || 0;
+            const yoyD = curr - ly, yoyP = ly > 0 ? yoyD / ly * 100 : null;
+            const curWk = anchorAgg[key] || 0, prvWk = prevAgg[key] || 0;
+            const wowD = curWk - prvWk, wowP = prvWk > 0 ? wowD / prvWk * 100 : null;
+            return { key, curr, ly, yoyD, yoyP, wowD, wowP };
+        }).sort((a, b) => (b.yoyP ?? -9999) - (a.yoyP ?? -9999));
+
+        const wkLabels = scopeWeeks.map(w => `WK${String(w%100).padStart(2,'0')}`).join(', ');
+        const scopeDesc = RANKING_SCOPE === 'past4'
+            ? `◀ Past 4 wks (FY26 ${wkLabels})`
+            : RANKING_SCOPE === 'future4'
+            ? `Future 4 wks ▶ (FY26 ${wkLabels || 'none available'})`
+            : `Current wk (FY26 ${wkLabels})`;
+        const originLabel = importFilter ? ` · ${importFilter === 'IMPORT' ? 'Import only' : 'Domestic only'}` : '';
+        const sub = document.getElementById('onorder-ranking-subtitle');
+        if (sub) sub.textContent = `${scopeDesc} vs LY same period${originLabel} · excl. DSD · sorted by YoY %`;
+
+        if (!rows.length) { tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">No data for selected filters.</td></tr>'; return; }
+
+        tbody.innerHTML = rows.map((r, i) => `<tr>
+            <td style="color:#475569; font-size:0.68rem;">${i+1}</td>
+            <td><span class="fw-semibold">${r.key}</span></td>
+            <td class="text-end">${fmtM(r.curr)}</td>
+            <td class="text-end" style="color:#475569;">${fmtM(r.ly)}</td>
+            <td class="text-end" ${clrDelta(r.yoyD)}>${fmtM(r.yoyD)}</td>
+            <td class="text-end">${pctBadge(r.yoyP)}</td>
+            <td class="text-end" ${clrDelta(r.wowD)}>${fmtM(r.wowD)}</td>
+            <td class="text-end">${pctBadge(r.wowP)}</td>
+        </tr>`).join('');
+
+        // Total row
+        const totCurr = rows.reduce((s, r) => s + r.curr, 0);
+        const totLy   = rows.reduce((s, r) => s + r.ly, 0);
+        const totYoyD = totCurr - totLy;
+        const totYoyP = totLy > 0 ? totYoyD / totLy * 100 : null;
+        const tfoot = document.getElementById('onorder-ranking-total');
+        if (tfoot) tfoot.innerHTML = `<tr style="background:rgba(255,255,255,0.03);">
+            <td></td>
+            <td style="color:#94a3b8; font-size:0.7rem; text-transform:uppercase; letter-spacing:0.05em;">TOTAL</td>
+            <td class="text-end">${fmtM(totCurr)}</td>
+            <td class="text-end" style="color:#475569;">${fmtM(totLy)}</td>
+            <td class="text-end" ${clrDelta(totYoyD)}>${fmtM(totYoyD)}</td>
+            <td class="text-end">${pctBadge(totYoyP)}</td>
+            <td class="text-end">—</td>
+            <td class="text-end">—</td>
         </tr>`;
     }
 

@@ -18,6 +18,7 @@ import logging
 import asyncio
 import time
 import tempfile
+import threading
 from decimal import Decimal
 from datetime import datetime, date, timezone
 from typing import Optional, List
@@ -705,9 +706,11 @@ class HistoricalCache:
         "sto_to_gidc", "sto_to_msc", "sto_to_support", "sto_to_other",
     ]
 
-    # Cache directory for parquet files (instant load on restart)
-    # Use app directory instead of /tmp so cache persists on Posit Connect
-    CACHE_DIR = Path(__file__).parent / ".cache"
+    # Cache directory for parquet files (instant load on restart).
+    # WMS_CACHE_DIR env var lets Posit Connect point to /tmp/wms_posit_cache which
+    # survives redeploys (unlike api/.cache/ which is wiped when a new bundle is deployed).
+    # Locally: env var not set → falls back to api/.cache/ (unchanged behaviour).
+    CACHE_DIR = Path(os.environ.get("WMS_CACHE_DIR", str(Path(__file__).parent / ".cache")))
 
     def __init__(self):
         self.enterprise_df: Optional[pd.DataFrame] = None
@@ -767,25 +770,32 @@ class HistoricalCache:
                 SUM(COALESCE(ON_YARD_FASHION_UNITS, 0)) AS on_yard_fashion,
                 SUM(COALESCE(ON_YARD_IMPORTS_UNITS, 0)) AS on_yard_imports
             """
-            q = f"""SELECT BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU,
+            q = f"""SELECT WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU,
                            OMNI_DEPT_NBR AS dept_nbr, OMNI_DEPT_DESC AS department,
                            OMNI_CATG_NBR AS catg_nbr, OMNI_CATG_DESC AS category, {catg_metric_sql}
                     FROM {fqn}
-                    WHERE OMNI_CATG_NBR IS NOT NULL
-                    GROUP BY BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU, dept_nbr, department, catg_nbr, category
-                    ORDER BY BUS_DT, SBU, dept_nbr, catg_nbr"""
-            try:
-                t0 = time.time()
-                df = client.query(q).to_dataframe()
-                if "BUS_DT" in df.columns:
-                    df["BUS_DT"] = df["BUS_DT"].astype(str)
-                self.catg_df = df
-                self._cached_catg_bytes = None
-                self._cached_response = None
-                print(f"[HIST] [BG] Catg ready: {len(df):,} rows in {round(time.time()-t0,1)}s", flush=True)
-                self._save_catg_to_disk()
-            except Exception as e:
-                print(f"[HIST] [BG] Catg query failed: {e}", flush=True)
+                    WHERE OMNI_CATG_NBR IS NOT NULL AND WM_YEAR >= 2024
+                    GROUP BY WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU, dept_nbr, department, catg_nbr, category
+                    ORDER BY WM_YR_WK_NBR, SBU, dept_nbr, catg_nbr"""
+            # Retry with exponential backoff — handles transient Posit/BQ failures
+            _retry_delays = [30, 60, 120]
+            for attempt in range(len(_retry_delays) + 1):
+                try:
+                    t0 = time.time()
+                    df = client.query(q).to_dataframe()
+                    self.catg_df = df
+                    self._cached_catg_bytes = None
+                    self._cached_response = None
+                    print(f"[HIST] [BG] Catg ready: {len(df):,} rows in {round(time.time()-t0,1)}s", flush=True)
+                    self._save_catg_to_disk()
+                    break  # success
+                except Exception as e:
+                    if attempt < len(_retry_delays):
+                        delay = _retry_delays[attempt]
+                        print(f"[HIST] [BG] Catg attempt {attempt+1} failed ({e}), retrying in {delay}s...", flush=True)
+                        time.sleep(delay)
+                    else:
+                        print(f"[HIST] [BG] Catg all retries exhausted: {e}", flush=True)
 
         threading.Thread(target=_bg, daemon=True, name="hist-catg-loader").start()
 
@@ -1016,19 +1026,25 @@ class HistoricalCache:
         """
 
         fqn = f"`{HIST_PROJECT_ID}.{DATASET}.{HIST_TABLE}`"
+        # Only load FY24+ (2024 onward) — dashboard shows max 67 weeks (≈1.3 FY).
+        # This WHERE clause cuts BQ scan by ~30-40% vs full table scan.
+        year_filter = "WHERE WM_YEAR >= 2024"
 
         # Enterprise level
         q1 = f"""SELECT BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, {metric_sql}
-                 FROM {fqn} GROUP BY BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR ORDER BY BUS_DT"""
+                 FROM {fqn} {year_filter}
+                 GROUP BY BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR ORDER BY BUS_DT"""
 
         # SBU level
         q2 = f"""SELECT BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU, {metric_sql}
-                 FROM {fqn} GROUP BY BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU ORDER BY BUS_DT, SBU"""
+                 FROM {fqn} {year_filter}
+                 GROUP BY BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU ORDER BY BUS_DT, SBU"""
 
         # Dept level
         q3 = f"""SELECT BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU,
                         OMNI_DEPT_NBR AS dept_nbr, OMNI_DEPT_DESC AS department, {metric_sql}
-                 FROM {fqn} GROUP BY BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU, dept_nbr, department
+                 FROM {fqn} {year_filter}
+                 GROUP BY BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU, dept_nbr, department
                  ORDER BY BUS_DT, SBU, dept_nbr"""
 
         # Category level — HIST_COMBINED does NOT have DC_LABELED/UNLABELED type columns!
@@ -1075,13 +1091,15 @@ class HistoricalCache:
             SAFE_DIVIDE(SUM(COALESCE(STO_IN_TRANSIT_TO_DC_UNITS,0) * COALESCE(STO_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(STO_IN_TRANSIT_TO_DC_UNITS,0)),0)) AS sto_wtavg_cube,
             SAFE_DIVIDE(SUM(COALESCE(ON_YARD_UNITS,0) * COALESCE(ON_YARD_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(ON_YARD_UNITS,0)),0)) AS on_yard_wtavg_cube
         """
-        q4 = f"""SELECT BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU,
+        # Catg query: drop BUS_DT (frontend only needs WM_YR_WK_NBR; BUS_DT bloats row count).
+        # Year filter matches the 67-week chart window (FY24 onward).
+        q4 = f"""SELECT WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU,
                         OMNI_DEPT_NBR AS dept_nbr, OMNI_DEPT_DESC AS department,
                         OMNI_CATG_NBR AS catg_nbr, OMNI_CATG_DESC AS category, {catg_metric_sql}
                  FROM {fqn}
-                 WHERE OMNI_CATG_NBR IS NOT NULL
-                 GROUP BY BUS_DT, WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU, dept_nbr, department, catg_nbr, category
-                 ORDER BY BUS_DT, SBU, dept_nbr, catg_nbr"""
+                 WHERE OMNI_CATG_NBR IS NOT NULL AND WM_YEAR >= 2024
+                 GROUP BY WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU, dept_nbr, department, catg_nbr, category
+                 ORDER BY WM_YR_WK_NBR, SBU, dept_nbr, catg_nbr"""
 
         print(f"[HIST] Loading from table: {HIST_PROJECT_ID}.{DATASET}.{HIST_TABLE}", flush=True)
 
@@ -1197,19 +1215,25 @@ class HistoricalCache:
 
         def _load_catg_bg():
             print("[HIST] [BG] Starting background catg query...", flush=True)
-            bg_t = time.time()
-            catg_df = run_query('catg', q4)
-            if catg_df is None:
-                print("[HIST] [BG] [WARN] Catg query failed!", flush=True)
-                return
-            if "BUS_DT" in catg_df.columns:
-                catg_df["BUS_DT"] = catg_df["BUS_DT"].astype(str)
-            self.catg_df = catg_df
-            self._cached_catg_bytes = None   # invalidate catg response cache
-            self._cached_response = None     # invalidate full response cache
-            elapsed = round(time.time() - bg_t, 1)
-            print(f"[HIST] [BG] Catg ready: {len(catg_df):,} rows in {elapsed}s", flush=True)
-            self._save_catg_to_disk()
+            _retry_delays = [30, 60, 120]
+            for attempt in range(len(_retry_delays) + 1):
+                bg_t = time.time()
+                catg_df = run_query('catg', q4)
+                if catg_df is not None:
+                    self.catg_df = catg_df
+                    self._cached_catg_bytes = None
+                    self._cached_response = None
+                    elapsed = round(time.time() - bg_t, 1)
+                    print(f"[HIST] [BG] Catg ready: {len(catg_df):,} rows in {elapsed}s", flush=True)
+                    self._save_catg_to_disk()
+                    break
+                else:
+                    if attempt < len(_retry_delays):
+                        delay = _retry_delays[attempt]
+                        print(f"[HIST] [BG] Catg attempt {attempt+1} failed, retrying in {delay}s...", flush=True)
+                        time.sleep(delay)
+                    else:
+                        print("[HIST] [BG] Catg all retries exhausted — category view unavailable until next restart.", flush=True)
 
         catg_thread = threading.Thread(target=_load_catg_bg, daemon=True, name="hist-catg-loader")
         catg_thread.start()
@@ -1315,8 +1339,8 @@ class OnOrderCache:
     Supports WOW trend analysis separate from inventory data.
     """
 
-    # Cache directory (shared with historical cache)
-    CACHE_DIR = Path(__file__).parent / ".cache"
+    # Cache directory — same WMS_CACHE_DIR env var as HistoricalCache (see above).
+    CACHE_DIR = Path(os.environ.get("WMS_CACHE_DIR", str(Path(__file__).parent / ".cache")))
 
     def __init__(self):
         self.enterprise_df: Optional[pd.DataFrame] = None  # Total by week
@@ -1380,10 +1404,12 @@ class OnOrderCache:
                 print(f"[ONORDER] Disk cache is stale ({cached_date} vs {today})", flush=True)
                 return False
 
-            # Invalidate cache if cube columns are missing (old cache pre-cube feature)
+            # Invalidate cache if required columns are missing
             cached_cols = metadata.get("columns", [])
-            if "cube_ordered" not in cached_cols:
-                print("[ONORDER] Disk cache missing cube_ordered column, will refresh from BQ", flush=True)
+            required_cols = ["cube_ordered", "import_ind"]
+            missing = [c for c in required_cols if c not in cached_cols]
+            if missing:
+                print(f"[ONORDER] Disk cache missing columns {missing}, will refresh from BQ", flush=True)
                 return False
 
             t0 = time.time()
@@ -1416,40 +1442,53 @@ class OnOrderCache:
         def _load_catg_bg():
             try:
                 client = self._get_client()
-                fqn = f"`{HIST_PROJECT_ID}.{DATASET}.{ONORDER_TABLE}`"
-                q_catg = f"""
-                SELECT
-                    wm_week,
-                    sbu,
-                    OMNI_DEPT_NBR AS dept_nbr,
-                    OMNI_DEPT_DESC AS department,
-                    OMNI_CATG_NBR AS catg_nbr,
-                    OMNI_CATG_DESC AS category,
-                    replen_ind,
-                    channel_ind,
-                    dsd_ind,
-                    SUM(COALESCE(vnpk_ordered, 0)) AS vnpk_ordered,
-                    SUM(COALESCE(units_ordered, 0)) AS units_ordered,
-                    SUM(COALESCE(vnpk_received, 0)) AS vnpk_received,
-                    SUM(COALESCE(units_received, 0)) AS units_received,
-                    SUM(COALESCE(vnpk_open, 0)) AS vnpk_open,
-                    SUM(COALESCE(units_open, 0)) AS units_open,
-                    SUM(COALESCE(cube_ordered, 0)) AS cube_ordered,
-                    SUM(COALESCE(cube_open, 0)) AS cube_open
-                FROM {fqn}
-                WHERE wm_week <= 12701 AND OMNI_CATG_NBR IS NOT NULL
-                GROUP BY wm_week, sbu, dept_nbr, department, catg_nbr, category, replen_ind, channel_ind, dsd_ind
-                ORDER BY wm_week, sbu, dept_nbr, catg_nbr
-                """
-                t_start = time.time()
-                df = client.query(q_catg).to_dataframe()
-                elapsed = round(time.time() - t_start, 1)
-                print(f"[ONORDER] [BG] Catg ready: {len(df):,} rows in {elapsed}s", flush=True)
-                self.catg_df = df
-                self._cached_response = None  # Invalidate cached response
-                self._save_catg_to_disk()
             except Exception as e:
-                print(f"[ONORDER] [BG] Catg bg load failed: {e}", flush=True)
+                print(f"[ONORDER] [BG] Failed to get BQ client for catg: {e}", flush=True)
+                return
+            fqn = f"`{HIST_PROJECT_ID}.{DATASET}.{ONORDER_TABLE}`"
+            q_catg = f"""
+            SELECT
+                wm_week,
+                sbu,
+                OMNI_DEPT_NBR AS dept_nbr,
+                OMNI_DEPT_DESC AS department,
+                OMNI_CATG_NBR AS catg_nbr,
+                OMNI_CATG_DESC AS category,
+                import_ind,
+                replen_ind,
+                channel_ind,
+                dsd_ind,
+                SUM(COALESCE(vnpk_ordered, 0)) AS vnpk_ordered,
+                SUM(COALESCE(units_ordered, 0)) AS units_ordered,
+                SUM(COALESCE(vnpk_received, 0)) AS vnpk_received,
+                SUM(COALESCE(units_received, 0)) AS units_received,
+                SUM(COALESCE(vnpk_open, 0)) AS vnpk_open,
+                SUM(COALESCE(units_open, 0)) AS units_open,
+                SUM(COALESCE(cube_ordered, 0)) AS cube_ordered,
+                SUM(COALESCE(cube_open, 0)) AS cube_open
+            FROM {fqn}
+            WHERE wm_week >= 12500 AND wm_week <= 12701 AND OMNI_CATG_NBR IS NOT NULL
+            GROUP BY wm_week, sbu, dept_nbr, department, catg_nbr, category, import_ind, replen_ind, channel_ind, dsd_ind
+            ORDER BY wm_week, sbu, dept_nbr, catg_nbr
+            """
+            _retry_delays = [30, 60, 120]
+            for attempt in range(len(_retry_delays) + 1):
+                try:
+                    t_start = time.time()
+                    df = client.query(q_catg).to_dataframe()
+                    elapsed = round(time.time() - t_start, 1)
+                    print(f"[ONORDER] [BG] Catg ready: {len(df):,} rows in {elapsed}s", flush=True)
+                    self.catg_df = df
+                    self._cached_response = None
+                    self._save_catg_to_disk()
+                    break  # success
+                except Exception as e:
+                    if attempt < len(_retry_delays):
+                        delay = _retry_delays[attempt]
+                        print(f"[ONORDER] [BG] Catg attempt {attempt+1} failed ({e}), retrying in {delay}s...", flush=True)
+                        time.sleep(delay)
+                    else:
+                        print(f"[ONORDER] [BG] Catg all retries exhausted: {e}", flush=True)
 
         threading.Thread(target=_load_catg_bg, daemon=True, name="onorder-catg-loader").start()
 
@@ -1550,13 +1589,14 @@ class OnOrderCache:
         q1 = f"""
         SELECT
             wm_week,
+            import_ind,
             replen_ind,
             channel_ind,
             dsd_ind,
             {metric_sql}
         FROM {fqn}
         WHERE wm_week <= 12701
-        GROUP BY wm_week, replen_ind, channel_ind, dsd_ind
+        GROUP BY wm_week, import_ind, replen_ind, channel_ind, dsd_ind
         ORDER BY wm_week
         """
 
@@ -1565,13 +1605,14 @@ class OnOrderCache:
         SELECT
             wm_week,
             sbu,
+            import_ind,
             replen_ind,
             channel_ind,
             dsd_ind,
             {metric_sql}
         FROM {fqn}
         WHERE wm_week <= 12701
-        GROUP BY wm_week, sbu, replen_ind, channel_ind, dsd_ind
+        GROUP BY wm_week, sbu, import_ind, replen_ind, channel_ind, dsd_ind
         ORDER BY wm_week, sbu
         """
 
@@ -1582,13 +1623,14 @@ class OnOrderCache:
             sbu,
             OMNI_DEPT_NBR AS dept_nbr,
             OMNI_DEPT_DESC AS department,
+            import_ind,
             replen_ind,
             channel_ind,
             dsd_ind,
             {metric_sql}
         FROM {fqn}
         WHERE wm_week <= 12701
-        GROUP BY wm_week, sbu, dept_nbr, department, replen_ind, channel_ind, dsd_ind
+        GROUP BY wm_week, sbu, dept_nbr, department, import_ind, replen_ind, channel_ind, dsd_ind
         ORDER BY wm_week, sbu, dept_nbr
         """
 
@@ -1601,13 +1643,14 @@ class OnOrderCache:
             OMNI_DEPT_DESC AS department,
             OMNI_CATG_NBR AS catg_nbr,
             OMNI_CATG_DESC AS category,
+            import_ind,
             replen_ind,
             channel_ind,
             dsd_ind,
             {metric_sql}
         FROM {fqn}
-        WHERE wm_week <= 12701 AND OMNI_CATG_NBR IS NOT NULL
-        GROUP BY wm_week, sbu, dept_nbr, department, catg_nbr, category, replen_ind, channel_ind, dsd_ind
+        WHERE wm_week >= 12500 AND wm_week <= 12701 AND OMNI_CATG_NBR IS NOT NULL
+        GROUP BY wm_week, sbu, dept_nbr, department, catg_nbr, category, import_ind, replen_ind, channel_ind, dsd_ind
         ORDER BY wm_week, sbu, dept_nbr, catg_nbr
         """
 
@@ -1695,17 +1738,25 @@ class OnOrderCache:
         # STEP B: catg in background thread (~40s, won't block health check)
         import threading
         def _load_catg_bg():
-            try:
-                t_start = time.time()
-                df = client.query(q4).to_dataframe()
-                elapsed = round(time.time() - t_start, 1)
-                print(f"[ONORDER] [BG] Catg ready: {len(df):,} rows in {elapsed}s", flush=True)
-                self.catg_df = df
-                self._cached_response = None
-                self._cached_lite_response = None
-                self._save_catg_to_disk()
-            except Exception as e:
-                print(f"[ONORDER] [BG] Catg load failed: {e}", flush=True)
+            _retry_delays = [30, 60, 120]
+            for attempt in range(len(_retry_delays) + 1):
+                try:
+                    t_start = time.time()
+                    df = client.query(q4).to_dataframe()
+                    elapsed = round(time.time() - t_start, 1)
+                    print(f"[ONORDER] [BG] Catg ready: {len(df):,} rows in {elapsed}s", flush=True)
+                    self.catg_df = df
+                    self._cached_response = None
+                    self._cached_lite_response = None
+                    self._save_catg_to_disk()
+                    break  # success
+                except Exception as e:
+                    if attempt < len(_retry_delays):
+                        delay = _retry_delays[attempt]
+                        print(f"[ONORDER] [BG] Catg attempt {attempt+1} failed ({e}), retrying in {delay}s...", flush=True)
+                        time.sleep(delay)
+                    else:
+                        print(f"[ONORDER] [BG] Catg all retries exhausted: {e}", flush=True)
 
         print(f"[ONORDER] Catg loading in background thread (won't block health check)...", flush=True)
         threading.Thread(target=_load_catg_bg, daemon=True, name="onorder-catg-loader").start()
@@ -1807,6 +1858,9 @@ async def cache_refresh_loop():
             if onorder_cache.loaded_date != current_date or not onorder_cache.is_ready:
                 logger.info(f"[ONORDER] Auto-refresh triggered (date={current_date}, last={onorder_cache.loaded_date})")
                 await loop.run_in_executor(None, onorder_cache.load)
+            if _sto_dc_cache_date != current_date and not _sto_dc_loading:
+                logger.info(f"[STO-DC] Auto-refresh triggered (date={current_date}, last={_sto_dc_cache_date})")
+                await loop.run_in_executor(None, _load_sto_dc_from_bq)
         except Exception as e:
             logger.error(f"[CACHE] Auto-refresh failed: {e}")
 
@@ -1866,6 +1920,9 @@ async def startup_event():
     asyncio.create_task(_load_hist_cache_background())
     asyncio.create_task(_load_onorder_cache_background())
     asyncio.create_task(cache_refresh_loop())
+    # STO-DC: load from disk or kick off BQ query in background
+    loop2 = asyncio.get_event_loop()
+    await loop2.run_in_executor(None, _load_sto_dc_startup)
 
 
 # ============================================================
@@ -2525,78 +2582,108 @@ async def refresh_onorder_cache():
 
 
 # ============================================================
-# STO DC-level endpoint (R0C0JUG_WMUS_HIST_STO)
-# Returns weekly STO units by destination DC × DC Type × SBU
-# Used by Historical → STO to DC → DC Ranking panel
-# Lazy-cached: first call hits BQ (~5s), subsequent calls instant.
+# STO DC-level cache (R0C0JUG_WMUS_HIST_STO)
+# Loaded eagerly at startup in background thread (same cadence as hist/onorder).
+# Returns weekly STO units by destination DC × DC Type × SBU.
 # ============================================================
 
 _sto_dc_cache: Optional[dict] = None
 _sto_dc_cache_date: Optional[str] = None
+_sto_dc_loading: bool = False
+STO_DC_CACHE_DIR = Path(__file__).parent / ".cache"
 
 
-@app.get("/api/sto-dc")
-async def get_sto_dc_data():
-    """Weekly STO-to-DC data by destination DC number, DC type, and SBU.
-    Groups R0C0JUG_WMUS_HIST_STO at the (week × DC × SBU) grain for ranking/drilldown.
-    Lazy-cached per day — first call ~5s, subsequent calls instant.
-    """
-    global _sto_dc_cache, _sto_dc_cache_date
+def _sto_dc_get_client():
+    creds_json = os.environ.get("GOOGLE_CREDENTIALS", "")
+    if creds_json:
+        info = json.loads(creds_json)
+        credentials = service_account.Credentials.from_service_account_info(info)
+        return bigquery.Client(project=HIST_PROJECT_ID, credentials=credentials)
+    return bigquery.Client(project=HIST_PROJECT_ID)
+
+
+def _load_sto_dc_from_bq():
+    """Query BQ and populate _sto_dc_cache. Runs in a background thread."""
+    global _sto_dc_cache, _sto_dc_cache_date, _sto_dc_loading
     today = datetime.now().strftime("%Y-%m-%d")
-
-    if _sto_dc_cache is not None and _sto_dc_cache_date == today:
-        return SafeJSONResponse(content=_sto_dc_cache)
-
-    # Get BQ client (reuse on-order cache helper — same credential logic)
+    _sto_dc_loading = True
     try:
-        creds_json = os.environ.get("GOOGLE_CREDENTIALS", "")
-        from google.cloud import bigquery as _bq
-        from google.oauth2 import service_account as _sa
-        if creds_json:
-            info = json.loads(creds_json)
-            creds = _sa.Credentials.from_service_account_info(info)
-            client = _bq.Client(project=HIST_PROJECT_ID, credentials=creds)
-        else:
-            client = _bq.Client(project=HIST_PROJECT_ID)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"BQ client error: {e}")
-
-    fqn = f"`{HIST_PROJECT_ID}.{DATASET}.{STO_TABLE}`"
-    q = f"""
-    SELECT
-      WM_YR_WK_NBR,
-      WM_YEAR,
-      WM_WEEK,
-      DEST_DC_NBR,
-      COALESCE(DEST_DC_TYPE, 'UNKNOWN') AS DEST_DC_TYPE,
-      SBU,
-      SUM(CASE WHEN STO_FLOW_TYPE IN ('DC_TO_DC','STORE_TO_DC') THEN STO_UNITS ELSE 0 END) AS sto_units,
-      SUM(CASE WHEN STO_FLOW_TYPE IN ('DC_TO_DC','STORE_TO_DC') THEN STO_COST  ELSE 0 END) AS sto_cost
-    FROM {fqn}
-    WHERE BUS_DT >= DATE_SUB(CURRENT_DATE(), INTERVAL 28 MONTH)
-      AND DEST_DC_NBR IS NOT NULL
-      AND STO_FLOW_TYPE IN ('DC_TO_DC','STORE_TO_DC')
-    GROUP BY WM_YR_WK_NBR, WM_YEAR, WM_WEEK, DEST_DC_NBR, DEST_DC_TYPE, SBU
-    ORDER BY WM_YR_WK_NBR DESC, sto_units DESC
-    """
-
-    try:
+        client = _sto_dc_get_client()
+        fqn = f"`{HIST_PROJECT_ID}.{DATASET}.{STO_TABLE}`"
+        q = f"""
+        SELECT
+          WM_YR_WK_NBR, WM_YEAR, WM_WEEK,
+          DEST_DC_NBR, COALESCE(DEST_DC_TYPE, 'UNKNOWN') AS DEST_DC_TYPE, SBU,
+          SUM(CASE WHEN STO_FLOW_TYPE IN ('DC_TO_DC','STORE_TO_DC') THEN STO_UNITS ELSE 0 END) AS sto_units,
+          SUM(CASE WHEN STO_FLOW_TYPE IN ('DC_TO_DC','STORE_TO_DC') THEN STO_COST  ELSE 0 END) AS sto_cost
+        FROM {fqn}
+        WHERE BUS_DT >= DATE_SUB(CURRENT_DATE(), INTERVAL 28 MONTH)
+          AND DEST_DC_NBR IS NOT NULL
+          AND STO_FLOW_TYPE IN ('DC_TO_DC','STORE_TO_DC')
+        GROUP BY WM_YR_WK_NBR, WM_YEAR, WM_WEEK, DEST_DC_NBR, DEST_DC_TYPE, SBU
+        ORDER BY WM_YR_WK_NBR DESC, sto_units DESC
+        """
         t0 = time.time()
         print(f"[STO-DC] Querying {STO_TABLE}...", flush=True)
         df = client.query(q).to_dataframe()
         elapsed = round(time.time() - t0, 1)
         print(f"[STO-DC] Loaded {len(df):,} rows in {elapsed}s", flush=True)
-
-        _sto_dc_cache = {
-            "generated_at": datetime.now().isoformat(),
-            "rows": len(df),
-            "by_dc_sbu": _df_records(df),
-        }
+        payload = {"generated_at": datetime.now().isoformat(), "rows": len(df), "by_dc_sbu": _df_records(df)}
+        _sto_dc_cache = payload
         _sto_dc_cache_date = today
-        return SafeJSONResponse(content=_sto_dc_cache)
+        try:
+            import pickle
+            STO_DC_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            with open(STO_DC_CACHE_DIR / "sto_dc_cache.pkl", "wb") as f:
+                pickle.dump({"date": today, "data": payload}, f)
+            print("[STO-DC] Saved to disk cache", flush=True)
+        except Exception as e:
+            print(f"[STO-DC] Disk save failed: {e}", flush=True)
     except Exception as e:
-        print(f"[STO-DC] Query failed: {e}", flush=True)
-        raise HTTPException(status_code=500, detail=f"STO-DC query failed: {e}")
+        print(f"[STO-DC] BQ load failed: {e}", flush=True)
+    finally:
+        _sto_dc_loading = False
+
+
+def _load_sto_dc_startup():
+    """Try disk cache first; fall back to BQ. Called at server startup."""
+    global _sto_dc_cache, _sto_dc_cache_date
+    today = datetime.now().strftime("%Y-%m-%d")
+    try:
+        import pickle
+        path = STO_DC_CACHE_DIR / "sto_dc_cache.pkl"
+        if path.exists():
+            with open(path, "rb") as f:
+                saved = pickle.load(f)
+            if saved.get("date") == today:
+                _sto_dc_cache = saved["data"]
+                _sto_dc_cache_date = today
+                print(f"[STO-DC] Loaded from disk ({saved['data']['rows']:,} rows)", flush=True)
+                return
+            # Stale — serve it immediately, refresh in background
+            _sto_dc_cache = saved["data"]
+            _sto_dc_cache_date = saved.get("date")
+            print(f"[STO-DC] Stale disk cache; refreshing from BQ in background...", flush=True)
+    except Exception as e:
+        print(f"[STO-DC] Disk load failed: {e}", flush=True)
+    threading.Thread(target=_load_sto_dc_from_bq, daemon=True, name="sto-dc-loader").start()
+
+
+@app.get("/api/sto-dc")
+async def get_sto_dc_data():
+    """Weekly STO-to-DC data by destination DC number, DC type, and SBU.
+    Served from background-loaded cache. Returns 503 while still loading.
+    """
+    global _sto_dc_cache, _sto_dc_cache_date
+    today = datetime.now().strftime("%Y-%m-%d")
+    if _sto_dc_cache is not None:
+        if _sto_dc_cache_date != today and not _sto_dc_loading:
+            threading.Thread(target=_load_sto_dc_from_bq, daemon=True, name="sto-dc-refresh").start()
+        return SafeJSONResponse(content=_sto_dc_cache)
+    if _sto_dc_loading:
+        raise HTTPException(status_code=503, detail="STO-DC data still loading, retry shortly")
+    threading.Thread(target=_load_sto_dc_from_bq, daemon=True, name="sto-dc-loader").start()
+    raise HTTPException(status_code=503, detail="STO-DC data loading started, retry in ~15 seconds")
 
 
 @app.get("/dashboard/historical.html")

@@ -723,6 +723,7 @@
     // Category data is lazy-loaded separately (large payload)
     let CATG_LOADED = false;
     let CATG_LOADING = false;
+    let _catgCallbacks = [];  // callbacks queued while catg is loading
 
     // Chart display modes: 'units' | 'cube' (total cubic feet = units × wtavg_cube)
     const CHART_MODES = { trend: 'units', storeoh: 'units', dcoh: 'units', backroom: 'units' };
@@ -870,6 +871,9 @@
 
             // Lazy-load category data in background (large payload — don't block initial render)
             loadCatgDataBackground();
+
+            // Auto-load STO-DC data in background (server has it cached — fast)
+            loadStoDcData();
         } catch (err) {
             document.getElementById('loading').innerHTML = `
                 <div class="text-center">
@@ -884,8 +888,10 @@
     // ============================================================
     // Lazy Category Loader
     // ============================================================
-    async function loadCatgDataBackground() {
-        if (CATG_LOADED || CATG_LOADING) return;
+    function loadCatgDataBackground(onDone) {
+        if (CATG_LOADED) { if (onDone) onDone(); return; }
+        if (onDone) _catgCallbacks.push(onDone);
+        if (CATG_LOADING) return;  // already in-flight, callback queued above
         CATG_LOADING = true;
         const catgUrl = window.location.pathname.replace(/\/dashboard\/.*$/, '') + '/api/historical/catg';
         const MAX_CATG_RETRIES = 60;  // up to ~300s (5s intervals) — handles double BQ run (cube fallback ~74s)
@@ -906,6 +912,8 @@
                     } else {
                         CATG_LOADING = false;
                         console.warn('[HIST] Catg data never became ready after', MAX_CATG_RETRIES, 'retries');
+                        const cbs = _catgCallbacks.splice(0);
+                        cbs.forEach(cb => { try { cb(); } catch(e) {} });
                     }
                     return;
                 }
@@ -914,6 +922,9 @@
                 CATG_LOADED = true;
                 CATG_LOADING = false;
                 console.log('[HIST] Catg data loaded:', RAW_DATA.by_catg.length, 'rows');
+                // Flush all queued callbacks
+                const cbs = _catgCallbacks.splice(0);
+                cbs.forEach(cb => { try { cb(); } catch(e) {} });
                 // Repopulate catg filter if dept is already selected (arrived after initial render)
                 const selectedDepts = getSelectedDepts();
                 if (selectedDepts.length > 0) onDeptChange();
@@ -925,32 +936,16 @@
             } catch (e) {
                 CATG_LOADING = false;
                 console.warn('[HIST] Could not lazy-load catg data:', e.message);
+                const cbs = _catgCallbacks.splice(0);
+                cbs.forEach(cb => { try { cb(); } catch(e2) {} });
             }
         };
 
         tryLoad();
     }
 
-    async function ensureCatgLoaded(callback) {
-        if (CATG_LOADED) { callback(); return; }
-        if (CATG_LOADING) {
-            // Poll until loaded (max 120s)
-            let waited = 0;
-            const poll = setInterval(() => {
-                waited += 500;
-                if (CATG_LOADED) { clearInterval(poll); callback(); }
-                else if (waited > 120000) { clearInterval(poll); callback(); } // give up after 2 min
-            }, 500);
-            return;
-        }
-        loadCatgDataBackground();
-        // Poll for completion
-        let waited = 0;
-        const poll = setInterval(() => {
-            waited += 500;
-            if (CATG_LOADED) { clearInterval(poll); callback(); }
-            else if (waited > 120000) { clearInterval(poll); callback(); }
-        }, 500);
+    function ensureCatgLoaded(callback) {
+        loadCatgDataBackground(callback);
     }
 
     const HIDDEN_SBUS = ['OTHER', 'UNASSIGNED'];
@@ -1042,10 +1037,10 @@
                 } else {
                     catgSelect.innerHTML = '<option value="">No categories available</option>';
                 }
-            } else if (CATG_LOADING) {
-                catgSelect.innerHTML = '<option value="" disabled>⏳ Categories loading…</option>';
             } else {
-                catgSelect.innerHTML = '<option value="">Category data not loaded</option>';
+                // Catg not yet loaded or still loading — trigger load and queue repopulation
+                catgSelect.innerHTML = '<option value="" disabled>⏳ Categories loading…</option>';
+                loadCatgDataBackground(() => onDeptChange());
             }
         }
         applyFilters();
@@ -2269,37 +2264,51 @@
     // ============================================================
     let STO_DC_DATA = null;  // cached after first load
 
-    // Wire up the "Load DC Data" button once DOM is ready
+    // Wire up the "Load DC Data" button (fallback manual trigger)
     document.addEventListener('DOMContentLoaded', () => {
         const btn = document.getElementById('sto-dc-load-btn');
         if (btn) btn.addEventListener('click', loadStoDcData);
     });
 
+    let _stoDcLoading = false;
     async function loadStoDcData() {
+        if (_stoDcLoading) return;
+        if (STO_DC_DATA && STO_DC_DATA.length) return; // already loaded
+        _stoDcLoading = true;
+
         const btn = document.getElementById('sto-dc-load-btn');
         const loadingEl = document.getElementById('sto-dc-loading');
-        if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Loading...'; }
-        if (loadingEl) loadingEl.textContent = 'Fetching DC STO data from BigQuery (~5s)…';
+        // Show subtle auto-loading state (button hides immediately)
+        if (btn) { btn.style.display = 'none'; }
+        if (loadingEl) loadingEl.textContent = 'Loading DC data…';
 
         try {
             const res = await fetch('/api/sto-dc');
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
+            // Server returns loading=true while still warming from BQ — auto-retry in 8s
+            if (data.loading) {
+                _stoDcLoading = false;
+                if (loadingEl) loadingEl.textContent = 'DC data loading on server… auto-retrying in 8s.';
+                setTimeout(loadStoDcData, 8000);
+                return;
+            }
             STO_DC_DATA = data.by_dc_sbu || [];
             console.log('[STO-DC] Loaded', STO_DC_DATA.length, 'rows');
 
-            // Show filters, hide load btn
             const filters = document.getElementById('sto-dc-filters');
             if (filters) filters.style.removeProperty('display');
             if (btn) btn.style.display = 'none';
             if (loadingEl) loadingEl.style.display = 'none';
-            document.getElementById('sto-dc-table-wrap').style.display = 'block';
+            const wrap = document.getElementById('sto-dc-table-wrap');
+            if (wrap) wrap.style.display = 'block';
 
             renderStoDcRanking();
         } catch(e) {
+            _stoDcLoading = false;
             console.error('[STO-DC] Load error:', e);
             if (loadingEl) loadingEl.textContent = `Error loading DC data: ${e.message}`;
-            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-cloud-download me-1"></i>Retry'; }
+            if (btn) { btn.style.display = ''; btn.disabled = false; btn.innerHTML = '<i class="bi bi-cloud-download me-1"></i>Retry'; }
         }
     }
 
@@ -2343,12 +2352,13 @@
         const byDc = {};
         Object.values(byDcWeek).forEach(row => {
             const dcKey = `${row.dc}`;
-            if (!byDc[dcKey]) byDc[dcKey] = { dc: row.dc, dcType: row.dcType, cur: 0, prior: 0, bySbu: {} };
+            if (!byDc[dcKey]) byDc[dcKey] = { dc: row.dc, dcType: row.dcType, cur: 0, prior: 0, bySbu: {}, priorBySbu: {} };
             if (row.wm_yr_wk === latestWk) {
                 byDc[dcKey].cur += row.units;
                 Object.entries(row.bySbu).forEach(([sbu, u]) => { byDc[dcKey].bySbu[sbu] = (byDc[dcKey].bySbu[sbu] || 0) + u; });
             } else if (priorWk && row.wm_yr_wk === priorWk) {
                 byDc[dcKey].prior += row.units;
+                Object.entries(row.bySbu).forEach(([sbu, u]) => { byDc[dcKey].priorBySbu[sbu] = (byDc[dcKey].priorBySbu[sbu] || 0) + u; });
             }
         });
 
@@ -2370,7 +2380,7 @@
 
         const tbody = document.getElementById('sto-dc-ranking-tbody');
         tbody.innerHTML = ranked.map((d, i) => `
-            <tr class="drill-row" onclick="showStoDcDrilldown(${d.dc}, '${d.dcType}', ${JSON.stringify(d.bySbu).replace(/"/g, '&quot;')}, '${cmpLabel}')">
+            <tr class="drill-row" onclick="showStoDcDrilldown(${d.dc}, '${d.dcType}', ${JSON.stringify(d.bySbu).replace(/"/g, '&quot;')}, '${cmpLabel}', ${JSON.stringify(d.priorBySbu).replace(/"/g, '&quot;')})">
                 <td style="color:var(--text-muted);">${i+1}</td>
                 <td><strong>${d.dc}</strong></td>
                 <td style="color:var(--text-muted); font-size:0.72rem;">${d.dcType}</td>
@@ -2382,7 +2392,7 @@
             </tr>`).join('');
     }
 
-    function showStoDcDrilldown(dcNbr, dcType, bySbu, cmpLabel) {
+    function showStoDcDrilldown(dcNbr, dcType, bySbu, cmpLabel, priorBySbu) {
         // Show SBU breakdown for clicked DC
         const panel = document.getElementById('sto-dc-drill-panel');
         const title = document.getElementById('sto-dc-drill-title');
@@ -2392,22 +2402,37 @@
         panel.style.display = 'block';
         panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
-        const fmtM = v => { if (!v) return '—'; const a=Math.abs(v); if(a>=1e6) return (v/1e6).toFixed(1)+'M'; if(a>=1e3) return (v/1e3).toFixed(0)+'K'; return v.toLocaleString(); };
+        const prior = priorBySbu || {};
+        const fmtM = v => { if (!v && v !== 0) return '—'; const a=Math.abs(v); if(a>=1e6) return (v/1e6).toFixed(1)+'M'; if(a>=1e3) return (v/1e3).toFixed(0)+'K'; return v.toLocaleString(); };
+        const fmtChg = v => { if (v == null) return '—'; const s = v >= 0 ? '+' : ''; return `<span class="${v > 0 ? 'wow-positive' : v < 0 ? 'wow-negative' : ''}">${s}${fmtM(v)}</span>`; };
         const sbuOrder = ['CONSUMABLES','FRESH','CAC','PANTRY','HARDLINES','HOME','FASHION','ETS','OTHER'];
-        const sortedSbus = Object.keys(bySbu).sort((a,b) => (sbuOrder.indexOf(a)+1||99) - (sbuOrder.indexOf(b)+1||99));
+        const allSbus = [...new Set([...Object.keys(bySbu), ...Object.keys(prior)])];
+        const sortedSbus = allSbus.sort((a,b) => (sbuOrder.indexOf(a)+1||99) - (sbuOrder.indexOf(b)+1||99));
 
         const total = Object.values(bySbu).reduce((s,v)=>s+v,0);
+        const totalPrior = Object.values(prior).reduce((s,v)=>s+v,0);
+        const totalChange = total - totalPrior;
+        const totalPct = totalPrior > 0 ? (totalChange / totalPrior * 100) : null;
+
         tbody.innerHTML = sortedSbus.map(sbu => {
             const u = bySbu[sbu] || 0;
+            const p = prior[sbu] || 0;
+            const chg = u - p;
             const pct = total > 0 ? (u/total*100).toFixed(1) : 0;
             return `<tr>
                 <td>${sbu}</td>
                 <td class="text-end">${fmtM(u)}</td>
-                <td class="text-end" style="color:var(--text-muted);">—</td>
-                <td class="text-end" style="color:var(--text-muted);">—</td>
+                <td class="text-end" style="color:var(--text-muted);">${p ? fmtM(p) : '—'}</td>
+                <td class="text-end">${p ? fmtChg(chg) : '—'}</td>
                 <td class="text-end" style="color:var(--text-muted);">${pct}%</td>
             </tr>`;
-        }).join('') + `<tr style="border-top:1px solid #2a2a4a; font-weight:700;"><td>TOTAL</td><td class="text-end">${fmtM(total)}</td><td colspan="3"></td></tr>`;
+        }).join('') + `<tr style="border-top:1px solid #2a2a4a; font-weight:700;">
+            <td>TOTAL</td>
+            <td class="text-end">${fmtM(total)}</td>
+            <td class="text-end" style="color:var(--text-muted);">${totalPrior ? fmtM(totalPrior) : '—'}</td>
+            <td class="text-end">${totalPrior ? fmtChg(totalChange) : '—'}</td>
+            <td class="text-end">${totalPct != null ? (totalPct >= 0 ? `<span class="wow-positive">▲ ${Math.abs(totalPct).toFixed(1)}%</span>` : `<span class="wow-negative">▼ ${Math.abs(totalPct).toFixed(1)}%</span>`) : '—'}</td>
+        </tr>`;
     }
 
     // ============================================================
@@ -3607,6 +3632,7 @@
 
     async function loadOnOrderData() {
         const statusEl = document.getElementById('onorder-status');
+        if (!statusEl) return;  // element only exists on the On Order tab page
         try {
             const apiUrl = window.location.pathname.replace(/\/dashboard\/.*$/, '') + '/api/on-order';
             let resp;

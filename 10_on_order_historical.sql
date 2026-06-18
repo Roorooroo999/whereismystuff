@@ -16,6 +16,8 @@
 --   OMNI_DEPT_DESC  STRING   - OMNI Department description
 --   OMNI_CATG_NBR   INT64    - OMNI Category number
 --   OMNI_CATG_DESC  STRING   - OMNI Category description
+--   PO_TYPE_CD      INT64    - Raw PO type code from OMS_PURCHASE_ORDER
+--   import_ind      STRING   - IMPORT (PO type 40,42,43) or DOMESTIC
 --   replen_ind      STRING   - REPLEN or NON-REPLEN (based on ITEM_REPLENISHABLE_IND)
 --   channel_ind     STRING   - ECOMM or STORE (based on PO_EVENT_ABBR)
 --   dsd_ind         STRING   - DSD or NON-DSD (based on CHANNEL_MTHD_DESC)
@@ -29,9 +31,18 @@
 --   cube_open       FLOAT64  - Total cubic feet open (units_open × item_cube)
 --
 -- Indicators:
---   - replen_ind: REPLEN/NON-REPLEN based on ITEM_REPLENISHABLE_IND
---   - channel_ind: ECOMM if PO_EVENT_ABBR starts with 'OL' or 'ONLINE', else STORE
---   - dsd_ind: DSD if CHANNEL_MTHD_DESC = 'DSD', else NON-DSD
+--   - import_ind:   IMPORT if PO_TYPE_CD IN (40,42,43), else DOMESTIC
+--   - replen_ind:   REPLEN/NON-REPLEN based on ITEM_REPLENISHABLE_IND
+--   - channel_ind:  ECOMM if PO_EVENT_ABBR starts with 'OL' or 'ONLINE', else STORE
+--   - dsd_ind:      DSD if CHANNEL_MTHD_DESC = 'DSD', else NON-DSD
+--
+-- PO Type exclusions (applied in WHERE):
+--   - 77, 73, 53 excluded (per business rules)
+--
+-- Import PO types:
+--   - 40 = Import (Direct Import)
+--   - 42 = Import (Agent Import)
+--   - 43 = Import (Consolidation)
 --
 -- Sources:
 --   - wmt-edw-prod.US_WM_OMS_VM.OMS_PURCHASE_ORDER
@@ -50,8 +61,10 @@
 --   - Cancelled PO lines (status 1300)
 --   - Environmental/deposit fee vendors (481890)
 --   - Specific repl subtypes: PFS (99), production (16,89), non-PI (21), DSD type 7 (6)
+--   - PO types: 77, 73, 53
 --
 -- Created: June 1, 2026
+-- Updated: June 17, 2026 — added import_ind (PO_TYPE_CD IN (40,42,43) = IMPORT)
 -- Author: r0c0jug
 -- ══════════════════════════════════════════════════════════════════════════════
 
@@ -78,7 +91,7 @@ omni_mapping AS (
   FROM `wmt-gdap-dl-sec-merch-bq-prod.us_fd_app_secure.fd_omni_chnl_item_dly`
   WHERE OMNI_SEG_DESC NOT IN ('HEALTH AND WELLNESS','OTHER','WALMART SERVICES')
     AND OMNI_DEPT_NBR IS NOT NULL
-  QUALIFY ROW_NUMBER() OVER (PARTITION BY MDS_FAM_ID ORDER BY BUS_DT DESC) = 1
+    AND BUS_DT >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
 ),
 
 -- ── Item master with SBU mapping and exclusions ──────────────────────────────
@@ -116,10 +129,10 @@ item_base AS (
       WHEN ACCTG_DEPT_NBR = 19  AND DEPT_CATEGORY_NBR = 3072 THEN 1                  -- tire service
       WHEN ACCTG_DEPT_NBR = 91  AND DEPT_CATEGORY_NBR = 3201 THEN 1                  -- DISPLAY
       WHEN ACCTG_DEPT_NBR = 95  AND FINELINE_NBR IN (9225,9226,9998,2353) THEN 1     -- DSD OR SPECIAL VENDOR PROGRAM
-      WHEN ACCTG_DEPT_NBR = 40  AND DEPT_CATEGORY_NBR IN (1808,1809,1788) THEN 1    -- PHARMACY SERVICES
-      WHEN ACCTG_DEPT_NBR = 8   AND DEPT_CATEGORY_NBR IN (676) THEN 1               -- PET SERVICE
-      WHEN ACCTG_DEPT_NBR = 2   AND DEPT_CATEGORY_NBR IN (546,542) THEN 1           -- SALON SERVICE
-      WHEN ACCTG_DEPT_NBR = 95  AND VENDOR_NAME = 'MCLANE COMPANY' THEN 1           -- DSD convenience items
+      WHEN ACCTG_DEPT_NBR = 40  AND DEPT_CATEGORY_NBR IN (1808,1809,1788) THEN 1     -- PHARMACY SERVICES
+      WHEN ACCTG_DEPT_NBR = 8   AND DEPT_CATEGORY_NBR IN (676) THEN 1                -- PET SERVICE
+      WHEN ACCTG_DEPT_NBR = 2   AND DEPT_CATEGORY_NBR IN (546,542) THEN 1            -- SALON SERVICE
+      WHEN ACCTG_DEPT_NBR = 95  AND VENDOR_NAME = 'MCLANE COMPANY' THEN 1            -- DSD convenience items
       WHEN ITEM1_DESC IN (
         'PRICE ADJ','BR 15LB EXCHANGE','AMERIG PROPANE EXCH','0','1','4','42','72',
         '123','1408','1800','1843','1865','1917','1984','2067','71239','436166','453092',
@@ -200,8 +213,10 @@ SELECT
   omni.OMNI_DEPT_DESC,
   omni.OMNI_CATG_NBR,
   omni.OMNI_CATG_DESC,
+  po.PO_TYPE_CD,
 
   -- Indicators
+  CASE WHEN po.PO_TYPE_CD IN (40,42,43) THEN 'IMPORT' ELSE 'DOMESTIC' END AS import_ind,
   CASE WHEN itm.ITEM_REPLENISHABLE_IND = 'Y' THEN 'REPLEN' ELSE 'NON-REPLEN' END AS replen_ind,
   CASE WHEN UPPER(pol.PO_EVENT_ABBR) LIKE 'OL%' OR UPPER(pol.PO_EVENT_ABBR) LIKE 'ONLINE%' THEN 'ECOMM' ELSE 'STORE' END AS channel_ind,
   CASE WHEN pol.CHANNEL_MTHD_DESC = 'DSD' THEN 'DSD' ELSE 'NON-DSD' END AS dsd_ind,
@@ -235,6 +250,7 @@ LEFT JOIN item_dims dims
   ON dims.MDS_FAM_ID = itm.MDS_FAM_ID
 WHERE po.COUNTRY_CODE = 'US'
   AND pol.PO_LINE_STATUS_CD NOT IN (1300)  -- Exclude cancelled
+  AND po.PO_TYPE_CD NOT IN (77,73,53)      -- Exclude per business rules
 
 GROUP BY
   cal.WM_YR_WK,
@@ -243,6 +259,8 @@ GROUP BY
   omni.OMNI_DEPT_DESC,
   omni.OMNI_CATG_NBR,
   omni.OMNI_CATG_DESC,
+  po.PO_TYPE_CD,
+  CASE WHEN po.PO_TYPE_CD IN (40,42,43) THEN 'IMPORT' ELSE 'DOMESTIC' END,
   CASE WHEN itm.ITEM_REPLENISHABLE_IND = 'Y' THEN 'REPLEN' ELSE 'NON-REPLEN' END,
   CASE WHEN UPPER(pol.PO_EVENT_ABBR) LIKE 'OL%' OR UPPER(pol.PO_EVENT_ABBR) LIKE 'ONLINE%' THEN 'ECOMM' ELSE 'STORE' END,
   CASE WHEN pol.CHANNEL_MTHD_DESC = 'DSD' THEN 'DSD' ELSE 'NON-DSD' END

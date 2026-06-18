@@ -304,6 +304,9 @@
                     <li class="nav-item">
                         <a class="nav-link" data-bs-toggle="tab" href="#tab-change-analysis"><i class="bi bi-arrow-left-right me-1"></i>Change Analysis</a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link" data-bs-toggle="tab" href="#tab-on-order" id="tab-on-order-link"><i class="bi bi-box-seam me-1"></i>On Order</a>
+                    </li>
                 </ul>
 
                 <div class="tab-content">
@@ -606,6 +609,78 @@
                             </div>
                         </div>
                     </div><!-- End tab-change-analysis -->
+
+                    <!-- Tab 3: On Order Breakdown -->
+                    <div class="tab-pane fade" id="tab-on-order">
+                        <div class="chart-container mb-3" style="padding: 16px;">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <div class="chart-title mb-0"><i class="bi bi-box-seam me-1"></i>On Order — Import vs Domestic</div>
+                                <div style="font-size:0.75rem; color:var(--text-muted);" id="onorder-tab-week-label"></div>
+                            </div>
+
+                            <!-- Import / Domestic toggle -->
+                            <div class="d-flex gap-2 mb-3 flex-wrap">
+                                <select id="onorder-tab-week-select" class="form-select form-select-sm" style="max-width:160px; background:#1a1a2e; color:#e2e8f0; border-color:#2a2a4a;">
+                                    <!-- Populated by JS -->
+                                </select>
+                                <select id="onorder-tab-sbu-filter" class="form-select form-select-sm" style="max-width:160px; background:#1a1a2e; color:#e2e8f0; border-color:#2a2a4a;">
+                                    <option value="">All SBUs</option>
+                                </select>
+                            </div>
+
+                            <!-- Summary tiles: Import vs Domestic -->
+                            <div class="row g-2 mb-3">
+                                <div class="col-6 col-md-3">
+                                    <div class="kpi-card p-3" style="background:#1e2a40; border-radius:8px; border:1px solid #2a3a5a;">
+                                        <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">Import</div>
+                                        <div id="onorder-import-units" style="font-size:1.4rem; font-weight:700; color:#60a5fa;">—</div>
+                                        <div id="onorder-import-pct" style="font-size:0.75rem; color:var(--text-muted);">—% of total</div>
+                                    </div>
+                                </div>
+                                <div class="col-6 col-md-3">
+                                    <div class="kpi-card p-3" style="background:#1e2a40; border-radius:8px; border:1px solid #2a3a5a;">
+                                        <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">Domestic</div>
+                                        <div id="onorder-domestic-units" style="font-size:1.4rem; font-weight:700; color:#a78bfa;">—</div>
+                                        <div id="onorder-domestic-pct" style="font-size:0.75rem; color:var(--text-muted);">—% of total</div>
+                                    </div>
+                                </div>
+                                <div class="col-6 col-md-3">
+                                    <div class="kpi-card p-3" style="background:#1e2a40; border-radius:8px; border:1px solid #2a3a5a;">
+                                        <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">eComm (ONLINE)</div>
+                                        <div id="onorder-ecomm-units" style="font-size:1.4rem; font-weight:700; color:#34d399;">—</div>
+                                        <div id="onorder-ecomm-pct" style="font-size:0.75rem; color:var(--text-muted);">—% of total</div>
+                                    </div>
+                                </div>
+                                <div class="col-6 col-md-3">
+                                    <div class="kpi-card p-3" style="background:#1e2a40; border-radius:8px; border:1px solid #2a3a5a;">
+                                        <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">DSD</div>
+                                        <div id="onorder-dsd-units" style="font-size:1.4rem; font-weight:700; color:#fbbf24;">—</div>
+                                        <div id="onorder-dsd-pct" style="font-size:0.75rem; color:var(--text-muted);">—% of total</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- SBU breakdown table -->
+                            <div style="overflow-x:auto;">
+                                <table class="table table-dark table-sm table-hover mb-0" style="font-size:0.78rem;">
+                                    <thead>
+                                        <tr style="color:var(--text-muted); border-bottom:1px solid #2a2a4a;">
+                                            <th>SBU</th>
+                                            <th class="text-end">Total On Order</th>
+                                            <th class="text-end">Import</th>
+                                            <th class="text-end">Domestic</th>
+                                            <th class="text-end">Import %</th>
+                                            <th class="text-end">eComm</th>
+                                            <th class="text-end">DSD</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="onorder-sbu-table-body">
+                                        <tr><td colspan="7" class="text-center text-muted py-3">Loading on order data...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div><!-- End tab-on-order -->
 
                 </div><!-- End tab-content -->
             </div>
@@ -2558,18 +2633,167 @@
             pipelineTab.addEventListener('click', function() {
                 const tabPane = document.getElementById('tab-pipeline');
                 const changePane = document.getElementById('tab-change-analysis');
+                const onorderPane = document.getElementById('tab-on-order');
 
-                if (tabPane) {
-                    tabPane.style.display = 'block';
-                    tabPane.classList.add('show', 'active');
+                if (tabPane) { tabPane.style.display = 'block'; tabPane.classList.add('show', 'active'); }
+                if (changePane) { changePane.style.display = 'none'; changePane.classList.remove('show', 'active'); }
+                if (onorderPane) { onorderPane.style.display = 'none'; onorderPane.classList.remove('show', 'active'); }
+            });
+        }
+
+        // ── On Order tab ──────────────────────────────────────────────────────
+        const onorderTabLink = document.getElementById('tab-on-order-link');
+        if (onorderTabLink) {
+            onorderTabLink.addEventListener('click', function() {
+                // Show/hide panes manually (consistent with Change Analysis approach)
+                ['tab-pipeline', 'tab-change-analysis'].forEach(id => {
+                    const p = document.getElementById(id);
+                    if (p) { p.style.display = 'none'; p.classList.remove('show', 'active'); }
+                });
+                const onorderPane = document.getElementById('tab-on-order');
+                if (onorderPane) {
+                    onorderPane.style.display = 'block';
+                    onorderPane.style.opacity = '1';
+                    onorderPane.classList.add('show', 'active');
                 }
-                if (changePane) {
-                    changePane.style.display = 'none';
-                    changePane.classList.remove('show', 'active');
-                }
+                setTimeout(renderOnOrderTab, 100);
             });
         }
     });
+
+    // ══════════════════════════════════════════════════════════════════════
+    // On Order Tab — Import vs Domestic breakdown
+    // ══════════════════════════════════════════════════════════════════════
+    function renderOnOrderTab() {
+        if (!ONORDER_DATA || !ONORDER_DATA.by_sbu) {
+            document.getElementById('onorder-sbu-table-body').innerHTML =
+                '<tr><td colspan="7" class="text-center text-muted py-3">On Order data not loaded yet. Please wait...</td></tr>';
+            return;
+        }
+
+        const fmtM = v => {
+            if (!v) return '—';
+            const abs = Math.abs(v);
+            if (abs >= 1e9) return (v / 1e9).toFixed(2) + 'B';
+            if (abs >= 1e6) return (v / 1e6).toFixed(1) + 'M';
+            if (abs >= 1e3) return (v / 1e3).toFixed(0) + 'K';
+            return v.toLocaleString();
+        };
+        const fmtPct = (n, d) => d > 0 ? (n / d * 100).toFixed(1) + '%' : '—';
+
+        // Populate week selector with available weeks from ONORDER_DATA
+        const weekSel = document.getElementById('onorder-tab-week-select');
+        const weeks = [...new Set(ONORDER_DATA.by_sbu.map(r => r.wm_week))].sort((a,b) => b - a);
+        if (weekSel.options.length === 0) {
+            weeks.slice(0, 20).forEach(wk => {
+                const fy = parseInt(String(wk).substring(0, 3)); // 125 or 126
+                const wkNum = parseInt(String(wk).substring(3, 5));
+                const label = `FY${fy === 126 ? '26' : '25'} WK${String(wkNum).padStart(2,'0')}`;
+                const opt = document.createElement('option');
+                opt.value = wk;
+                opt.textContent = label;
+                weekSel.appendChild(opt);
+            });
+            weekSel.addEventListener('change', renderOnOrderTab);
+        }
+
+        // Populate SBU filter
+        const sbuSel = document.getElementById('onorder-tab-sbu-filter');
+        if (sbuSel.options.length <= 1) {
+            const sbus = [...new Set(ONORDER_DATA.by_sbu.map(r => r.sbu))].sort();
+            sbus.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s; opt.textContent = s;
+                sbuSel.appendChild(opt);
+            });
+            sbuSel.addEventListener('change', renderOnOrderTab);
+        }
+
+        const selectedWk = parseInt(weekSel.value) || weeks[0];
+        const selectedSbu = sbuSel.value;
+
+        // Filter records for selected week
+        let rows = ONORDER_DATA.by_sbu.filter(r => r.wm_week === selectedWk);
+        if (selectedSbu) rows = rows.filter(r => r.sbu === selectedSbu);
+
+        // Aggregate by import_ind and channel_ind/dsd_ind
+        let totalUnits = 0, importUnits = 0, domesticUnits = 0, ecommUnits = 0, dsdUnits = 0;
+        const bySbu = {};
+
+        rows.forEach(r => {
+            const units = r.units_ordered || 0;
+            totalUnits += units;
+            // import_ind: 'IMPORT' or 'DOMESTIC' (may be undefined if table not yet rebuilt)
+            if (r.import_ind === 'IMPORT') importUnits += units;
+            else domesticUnits += units;
+            if (r.channel_ind === 'ECOMM') ecommUnits += units;
+            if (r.dsd_ind === 'DSD') dsdUnits += units;
+
+            const sbu = r.sbu || 'OTHER';
+            if (!bySbu[sbu]) bySbu[sbu] = { total: 0, import: 0, domestic: 0, ecomm: 0, dsd: 0 };
+            bySbu[sbu].total += units;
+            if (r.import_ind === 'IMPORT') bySbu[sbu].import += units;
+            else bySbu[sbu].domestic += units;
+            if (r.channel_ind === 'ECOMM') bySbu[sbu].ecomm += units;
+            if (r.dsd_ind === 'DSD') bySbu[sbu].dsd += units;
+        });
+
+        // Note: import_ind requires table rebuild — show notice if all null
+        const hasImportData = rows.some(r => r.import_ind != null);
+
+        // Update summary tiles
+        document.getElementById('onorder-import-units').textContent = fmtM(importUnits);
+        document.getElementById('onorder-domestic-units').textContent = fmtM(domesticUnits);
+        document.getElementById('onorder-ecomm-units').textContent = fmtM(ecommUnits);
+        document.getElementById('onorder-dsd-units').textContent = fmtM(dsdUnits);
+        document.getElementById('onorder-import-pct').textContent = fmtPct(importUnits, totalUnits) + ' of total';
+        document.getElementById('onorder-domestic-pct').textContent = fmtPct(domesticUnits, totalUnits) + ' of total';
+        document.getElementById('onorder-ecomm-pct').textContent = fmtPct(ecommUnits, totalUnits) + ' of total';
+        document.getElementById('onorder-dsd-pct').textContent = fmtPct(dsdUnits, totalUnits) + ' of total';
+
+        // Update week label
+        const fy = parseInt(String(selectedWk).substring(0, 3));
+        const wkNum = parseInt(String(selectedWk).substring(3, 5));
+        document.getElementById('onorder-tab-week-label').textContent =
+            `FY${fy === 126 ? '26' : '25'} WK${String(wkNum).padStart(2,'0')} — Total: ${fmtM(totalUnits)} units`;
+
+        // SBU table
+        const tbody = document.getElementById('onorder-sbu-table-body');
+        const sbuOrder = ['CONSUMABLES','FRESH','CAC','PANTRY','HARDLINES','HOME','FASHION','ETS','OTHER'];
+        const sortedSbus = Object.keys(bySbu).sort((a, b) =>
+            (sbuOrder.indexOf(a) + 1 || 99) - (sbuOrder.indexOf(b) + 1 || 99));
+
+        if (sortedSbus.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">No data for selected week.</td></tr>';
+            return;
+        }
+
+        const noImportNote = !hasImportData
+            ? '<tr><td colspan="7" class="text-center py-2" style="font-size:0.72rem; color:#fbbf24;"><i class="bi bi-exclamation-triangle me-1"></i>Import/Domestic split requires BQ table rebuild with new <code>import_ind</code> column</td></tr>'
+            : '';
+
+        tbody.innerHTML = noImportNote + sortedSbus.map(sbu => {
+            const d = bySbu[sbu];
+            return `<tr>
+                <td><span class="fw-semibold">${sbu}</span></td>
+                <td class="text-end">${fmtM(d.total)}</td>
+                <td class="text-end" style="color:#60a5fa;">${fmtM(d.import)}</td>
+                <td class="text-end" style="color:#a78bfa;">${fmtM(d.domestic)}</td>
+                <td class="text-end">${fmtPct(d.import, d.total)}</td>
+                <td class="text-end" style="color:#34d399;">${fmtM(d.ecomm)}</td>
+                <td class="text-end" style="color:#fbbf24;">${fmtM(d.dsd)}</td>
+            </tr>`;
+        }).join('') +
+        `<tr style="border-top:1px solid #2a2a4a; font-weight:700;">
+            <td>TOTAL</td>
+            <td class="text-end">${fmtM(totalUnits)}</td>
+            <td class="text-end" style="color:#60a5fa;">${fmtM(importUnits)}</td>
+            <td class="text-end" style="color:#a78bfa;">${fmtM(domesticUnits)}</td>
+            <td class="text-end">${fmtPct(importUnits, totalUnits)}</td>
+            <td class="text-end" style="color:#34d399;">${fmtM(ecommUnits)}</td>
+            <td class="text-end" style="color:#fbbf24;">${fmtM(dsdUnits)}</td>
+        </tr>`;
+    }
 
     // Final iframe check - completely remove navbar if in iframe
     if (window.BUCKETS_IN_IFRAME) {

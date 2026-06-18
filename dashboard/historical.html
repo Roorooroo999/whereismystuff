@@ -2283,7 +2283,8 @@
         if (loadingEl) loadingEl.textContent = 'Loading DC data…';
 
         try {
-            const res = await fetch('/api/sto-dc');
+            const stoDcUrl = window.location.pathname.replace(/\/dashboard\/.*$/, '') + '/api/sto-dc';
+            const res = await fetch(stoDcUrl);
             // 503 = server still loading from BQ — auto-retry instead of throwing
             if (res.status === 503) {
                 _stoDcLoading = false;

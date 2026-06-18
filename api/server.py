@@ -118,6 +118,8 @@ HIST_TABLE = os.environ.get("HIST_TABLE", "R0C0JUG_WMUS_HIST_COMBINED")
 DC_HIST_TABLE = os.environ.get("DC_HIST_TABLE", "R0C0JUG_WMUS_HIST_DC_LEVEL")
 # On-Order historical table for WOW trend analysis
 ONORDER_TABLE = os.environ.get("ONORDER_TABLE", "R0C0JUG_WMUS_HIST_ONORDER")
+# STO DC-level historical table (has DEST_DC_NBR, DEST_DC_TYPE per row)
+STO_TABLE = os.environ.get("STO_TABLE", "R0C0JUG_WMUS_HIST_STO")
 REFRESH_INTERVAL = int(os.environ.get("CACHE_REFRESH_SECONDS", "3600"))  # 1 hour default
 
 
@@ -2520,6 +2522,81 @@ async def refresh_onorder_cache():
     except Exception as e:
         logger.error(f"[ONORDER] Manual refresh failed: {e}")
         return {"status": "error", "message": str(e)}
+
+
+# ============================================================
+# STO DC-level endpoint (R0C0JUG_WMUS_HIST_STO)
+# Returns weekly STO units by destination DC × DC Type × SBU
+# Used by Historical → STO to DC → DC Ranking panel
+# Lazy-cached: first call hits BQ (~5s), subsequent calls instant.
+# ============================================================
+
+_sto_dc_cache: Optional[dict] = None
+_sto_dc_cache_date: Optional[str] = None
+
+
+@app.get("/api/sto-dc")
+async def get_sto_dc_data():
+    """Weekly STO-to-DC data by destination DC number, DC type, and SBU.
+    Groups R0C0JUG_WMUS_HIST_STO at the (week × DC × SBU) grain for ranking/drilldown.
+    Lazy-cached per day — first call ~5s, subsequent calls instant.
+    """
+    global _sto_dc_cache, _sto_dc_cache_date
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    if _sto_dc_cache is not None and _sto_dc_cache_date == today:
+        return SafeJSONResponse(content=_sto_dc_cache)
+
+    # Get BQ client (reuse on-order cache helper — same credential logic)
+    try:
+        creds_json = os.environ.get("GOOGLE_CREDENTIALS", "")
+        from google.cloud import bigquery as _bq
+        from google.oauth2 import service_account as _sa
+        if creds_json:
+            info = json.loads(creds_json)
+            creds = _sa.Credentials.from_service_account_info(info)
+            client = _bq.Client(project=HIST_PROJECT_ID, credentials=creds)
+        else:
+            client = _bq.Client(project=HIST_PROJECT_ID)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"BQ client error: {e}")
+
+    fqn = f"`{HIST_PROJECT_ID}.{DATASET}.{STO_TABLE}`"
+    q = f"""
+    SELECT
+      WM_YR_WK_NBR,
+      WM_YEAR,
+      WM_WEEK,
+      DEST_DC_NBR,
+      COALESCE(DEST_DC_TYPE, 'UNKNOWN') AS DEST_DC_TYPE,
+      SBU,
+      SUM(CASE WHEN STO_FLOW_TYPE IN ('DC_TO_DC','STORE_TO_DC') THEN STO_UNITS ELSE 0 END) AS sto_units,
+      SUM(CASE WHEN STO_FLOW_TYPE IN ('DC_TO_DC','STORE_TO_DC') THEN STO_COST  ELSE 0 END) AS sto_cost
+    FROM {fqn}
+    WHERE BUS_DT >= DATE_SUB(CURRENT_DATE(), INTERVAL 28 MONTH)
+      AND DEST_DC_NBR IS NOT NULL
+      AND STO_FLOW_TYPE IN ('DC_TO_DC','STORE_TO_DC')
+    GROUP BY WM_YR_WK_NBR, WM_YEAR, WM_WEEK, DEST_DC_NBR, DEST_DC_TYPE, SBU
+    ORDER BY WM_YR_WK_NBR DESC, sto_units DESC
+    """
+
+    try:
+        t0 = time.time()
+        print(f"[STO-DC] Querying {STO_TABLE}...", flush=True)
+        df = client.query(q).to_dataframe()
+        elapsed = round(time.time() - t0, 1)
+        print(f"[STO-DC] Loaded {len(df):,} rows in {elapsed}s", flush=True)
+
+        _sto_dc_cache = {
+            "generated_at": datetime.now().isoformat(),
+            "rows": len(df),
+            "by_dc_sbu": _df_records(df),
+        }
+        _sto_dc_cache_date = today
+        return SafeJSONResponse(content=_sto_dc_cache)
+    except Exception as e:
+        print(f"[STO-DC] Query failed: {e}", flush=True)
+        raise HTTPException(status_code=500, detail=f"STO-DC query failed: {e}")
 
 
 @app.get("/dashboard/historical.html")

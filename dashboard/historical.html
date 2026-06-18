@@ -388,6 +388,115 @@
                             <div class="text-muted" style="font-size:0.7rem;"><span style="color:#6cb2eb;">●</span> FY25 &nbsp;&nbsp;<span style="color:#ffc220;">●</span> FY26</div>
                         </div>
                         <div class="row" id="sto-dctype-yoy-grid"></div>
+
+                        <!-- ── DC Ranking Panel ────────────────────────────────────── -->
+                        <div class="mt-4" id="sto-dc-ranking-section">
+                            <div class="d-flex justify-content-between align-items-center mb-2 px-1">
+                                <div class="chart-title mb-0"><i class="bi bi-trophy me-1"></i>DC Ranking — Highest STO Change by Destination DC</div>
+                                <button class="btn btn-sm" id="sto-dc-load-btn"
+                                    style="font-size:0.7rem; background:#0071ce22; color:#6cb2eb; border:1px solid #0071ce55; padding:3px 10px;">
+                                    <i class="bi bi-cloud-download me-1"></i>Load DC Data
+                                </button>
+                            </div>
+
+                            <!-- Filter row -->
+                            <div class="d-flex gap-2 flex-wrap align-items-center mb-2 px-1" id="sto-dc-filters" style="display:none !important;">
+                                <div>
+                                    <label class="filter-label d-block">DC Type</label>
+                                    <select id="sto-dc-type-filter" class="form-select form-select-sm"
+                                        style="background:#1a1a2e; color:#e2e8f0; border-color:#2a2a4a; min-width:140px;"
+                                        onchange="renderStoDcRanking()">
+                                        <option value="">All DC Types</option>
+                                        <option value="Regional">Regional</option>
+                                        <option value="Grocery">Grocery</option>
+                                        <option value="Fashion">Fashion</option>
+                                        <option value="Imports">Imports</option>
+                                        <option value="GIDC">GIDC</option>
+                                        <option value="Market Service Center">Market Service Center</option>
+                                        <option value="Support">Support</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="filter-label d-block">SBU</label>
+                                    <select id="sto-dc-sbu-filter" class="form-select form-select-sm"
+                                        style="background:#1a1a2e; color:#e2e8f0; border-color:#2a2a4a; min-width:130px;"
+                                        onchange="renderStoDcRanking()">
+                                        <option value="">All SBUs</option>
+                                        <option value="CONSUMABLES">CONSUMABLES</option>
+                                        <option value="FRESH">FRESH</option>
+                                        <option value="CAC">CAC</option>
+                                        <option value="PANTRY">PANTRY</option>
+                                        <option value="HARDLINES">HARDLINES</option>
+                                        <option value="HOME">HOME</option>
+                                        <option value="FASHION">FASHION</option>
+                                        <option value="ETS">ETS</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="filter-label d-block">Compare</label>
+                                    <select id="sto-dc-compare-filter" class="form-select form-select-sm"
+                                        style="background:#1a1a2e; color:#e2e8f0; border-color:#2a2a4a; min-width:120px;"
+                                        onchange="renderStoDcRanking()">
+                                        <option value="wow">Week over Week</option>
+                                        <option value="yoy">Year over Year</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="filter-label d-block">Show Top</label>
+                                    <select id="sto-dc-top-n-filter" class="form-select form-select-sm"
+                                        style="background:#1a1a2e; color:#e2e8f0; border-color:#2a2a4a; min-width:90px;"
+                                        onchange="renderStoDcRanking()">
+                                        <option value="20">Top 20</option>
+                                        <option value="50">Top 50</option>
+                                        <option value="0">All DCs</option>
+                                    </select>
+                                </div>
+                                <div class="ms-auto" style="font-size:0.72rem; color:var(--text-muted);" id="sto-dc-meta"></div>
+                            </div>
+
+                            <!-- Ranking table -->
+                            <div id="sto-dc-loading" class="text-center text-muted py-3" style="font-size:0.8rem;">
+                                Click "Load DC Data" to fetch destination DC rankings from BigQuery.
+                            </div>
+                            <div id="sto-dc-table-wrap" style="display:none; overflow-x:auto;">
+                                <table class="table table-dark table-sm table-hover mb-0" style="font-size:0.78rem;">
+                                    <thead>
+                                        <tr style="color:var(--text-muted); border-bottom:1px solid #2a2a4a;">
+                                            <th style="width:30px;">#</th>
+                                            <th>DC #</th>
+                                            <th>DC Type</th>
+                                            <th class="text-end">Current</th>
+                                            <th class="text-end">Prior</th>
+                                            <th class="text-end">Change</th>
+                                            <th class="text-end">Δ%</th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="sto-dc-ranking-tbody"></tbody>
+                                </table>
+                            </div>
+
+                            <!-- Inline SBU drilldown for clicked DC -->
+                            <div id="sto-dc-drill-panel" style="display:none;" class="mt-3 chart-container p-3">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <div class="chart-title mb-0" id="sto-dc-drill-title"></div>
+                                    <button class="btn btn-sm" onclick="document.getElementById('sto-dc-drill-panel').style.display='none'"
+                                        style="font-size:0.65rem; background:transparent; color:var(--text-muted); border:none;">✕ Close</button>
+                                </div>
+                                <table class="table table-dark table-sm mb-0" style="font-size:0.77rem;">
+                                    <thead>
+                                        <tr style="color:var(--text-muted);">
+                                            <th>SBU</th>
+                                            <th class="text-end">Current</th>
+                                            <th class="text-end">Prior</th>
+                                            <th class="text-end">Change</th>
+                                            <th class="text-end">Δ%</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="sto-dc-drill-tbody"></tbody>
+                                </table>
+                            </div>
+                        </div><!-- End DC Ranking Panel -->
                     </div>
 
                     <!-- Data Table -->
@@ -2151,6 +2260,154 @@
                 }
             });
         });
+    }
+
+    // ============================================================
+    // STO DC Ranking Panel
+    // Loads /api/sto-dc (by_dc_sbu grain), then builds a ranking table
+    // sorted by highest absolute change WoW or YoY for the latest week.
+    // ============================================================
+    let STO_DC_DATA = null;  // cached after first load
+
+    // Wire up the "Load DC Data" button once DOM is ready
+    document.addEventListener('DOMContentLoaded', () => {
+        const btn = document.getElementById('sto-dc-load-btn');
+        if (btn) btn.addEventListener('click', loadStoDcData);
+    });
+
+    async function loadStoDcData() {
+        const btn = document.getElementById('sto-dc-load-btn');
+        const loadingEl = document.getElementById('sto-dc-loading');
+        if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Loading...'; }
+        if (loadingEl) loadingEl.textContent = 'Fetching DC STO data from BigQuery (~5s)…';
+
+        try {
+            const res = await fetch('/api/sto-dc');
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            STO_DC_DATA = data.by_dc_sbu || [];
+            console.log('[STO-DC] Loaded', STO_DC_DATA.length, 'rows');
+
+            // Show filters, hide load btn
+            const filters = document.getElementById('sto-dc-filters');
+            if (filters) filters.style.removeProperty('display');
+            if (btn) btn.style.display = 'none';
+            if (loadingEl) loadingEl.style.display = 'none';
+            document.getElementById('sto-dc-table-wrap').style.display = 'block';
+
+            renderStoDcRanking();
+        } catch(e) {
+            console.error('[STO-DC] Load error:', e);
+            if (loadingEl) loadingEl.textContent = `Error loading DC data: ${e.message}`;
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-cloud-download me-1"></i>Retry'; }
+        }
+    }
+
+    function renderStoDcRanking() {
+        if (!STO_DC_DATA || !STO_DC_DATA.length) return;
+
+        const dcTypeFilter = document.getElementById('sto-dc-type-filter')?.value || '';
+        const sbuFilter    = document.getElementById('sto-dc-sbu-filter')?.value || '';
+        const compareMode  = document.getElementById('sto-dc-compare-filter')?.value || 'wow';
+        const topN         = parseInt(document.getElementById('sto-dc-top-n-filter')?.value || '20');
+
+        // Aggregate by (wm_yr_wk_nbr, DEST_DC_NBR, DEST_DC_TYPE) across all SBUs matching filter
+        const byDcWeek = {};
+        STO_DC_DATA.forEach(r => {
+            if (dcTypeFilter && r.DEST_DC_TYPE !== dcTypeFilter) return;
+            if (sbuFilter && r.SBU !== sbuFilter) return;
+            const key = `${r.WM_YR_WK_NBR}|${r.DEST_DC_NBR}|${r.DEST_DC_TYPE}`;
+            if (!byDcWeek[key]) byDcWeek[key] = { wm_yr_wk: r.WM_YR_WK_NBR, wm_year: r.WM_YEAR, wm_week: r.WM_WEEK, dc: r.DEST_DC_NBR, dcType: r.DEST_DC_TYPE, units: 0, bySbu: {} };
+            byDcWeek[key].units += r.sto_units || 0;
+            if (!byDcWeek[key].bySbu[r.SBU]) byDcWeek[key].bySbu[r.SBU] = 0;
+            byDcWeek[key].bySbu[r.SBU] += r.sto_units || 0;
+        });
+
+        // Get all unique weeks sorted descending
+        const allWks = [...new Set(STO_DC_DATA.map(r => r.WM_YR_WK_NBR))].sort((a,b) => b - a);
+        if (!allWks.length) return;
+
+        const latestWk = allWks[0];
+        let priorWk;
+        if (compareMode === 'wow') {
+            priorWk = allWks[1];  // previous week
+        } else {
+            // YoY: same week number, prior year
+            const latestYear  = Math.floor(latestWk / 100);
+            const latestWkNum = latestWk % 100;
+            // Find week with same wk number but prior year in data
+            priorWk = allWks.find(wk => wk % 100 === latestWkNum && Math.floor(wk / 100) === latestYear - 1);
+        }
+
+        // Build DC map for latest and prior weeks
+        const byDc = {};
+        Object.values(byDcWeek).forEach(row => {
+            const dcKey = `${row.dc}`;
+            if (!byDc[dcKey]) byDc[dcKey] = { dc: row.dc, dcType: row.dcType, cur: 0, prior: 0, bySbu: {} };
+            if (row.wm_yr_wk === latestWk) {
+                byDc[dcKey].cur += row.units;
+                Object.entries(row.bySbu).forEach(([sbu, u]) => { byDc[dcKey].bySbu[sbu] = (byDc[dcKey].bySbu[sbu] || 0) + u; });
+            } else if (priorWk && row.wm_yr_wk === priorWk) {
+                byDc[dcKey].prior += row.units;
+            }
+        });
+
+        // Sort by absolute change (highest increase first)
+        let ranked = Object.values(byDc)
+            .map(d => ({ ...d, change: d.cur - d.prior, pct: d.prior > 0 ? (d.cur - d.prior) / d.prior * 100 : null }))
+            .sort((a, b) => b.change - a.change);
+
+        if (topN > 0) ranked = ranked.slice(0, topN);
+
+        const cmpLabel = compareMode === 'wow' ? 'WoW' : 'YoY';
+        const latestFy = Math.floor(latestWk / 100);
+        const latestWkNum = latestWk % 100;
+        const meta = document.getElementById('sto-dc-meta');
+        if (meta) meta.textContent = `FY${latestFy === 126 ? '26' : latestFy === 125 ? '25' : latestFy} WK${String(latestWkNum).padStart(2,'0')} — ${cmpLabel} vs ${priorWk || 'N/A'} — ${ranked.length} DCs`;
+
+        const fmtM = v => { if (!v) return '—'; const a = Math.abs(v); if (a>=1e9) return (v/1e9).toFixed(2)+'B'; if (a>=1e6) return (v/1e6).toFixed(1)+'M'; if (a>=1e3) return (v/1e3).toFixed(0)+'K'; return v.toLocaleString(); };
+        const fmtPct = p => p == null ? '—' : (p > 0 ? `<span class="wow-positive">▲ ${Math.abs(p).toFixed(1)}%</span>` : p < 0 ? `<span class="wow-negative">▼ ${Math.abs(p).toFixed(1)}%</span>` : '—');
+
+        const tbody = document.getElementById('sto-dc-ranking-tbody');
+        tbody.innerHTML = ranked.map((d, i) => `
+            <tr class="drill-row" onclick="showStoDcDrilldown(${d.dc}, '${d.dcType}', ${JSON.stringify(d.bySbu).replace(/"/g, '&quot;')}, '${cmpLabel}')">
+                <td style="color:var(--text-muted);">${i+1}</td>
+                <td><strong>${d.dc}</strong></td>
+                <td style="color:var(--text-muted); font-size:0.72rem;">${d.dcType}</td>
+                <td class="text-end">${fmtM(d.cur)}</td>
+                <td class="text-end" style="color:var(--text-muted);">${fmtM(d.prior)}</td>
+                <td class="text-end ${d.change > 0 ? 'wow-positive' : d.change < 0 ? 'wow-negative' : ''}">${d.change > 0 ? '+' : ''}${fmtM(d.change)}</td>
+                <td class="text-end">${fmtPct(d.pct)}</td>
+                <td style="color:var(--text-muted); font-size:0.7rem;"><i class="bi bi-chevron-down"></i></td>
+            </tr>`).join('');
+    }
+
+    function showStoDcDrilldown(dcNbr, dcType, bySbu, cmpLabel) {
+        // Show SBU breakdown for clicked DC
+        const panel = document.getElementById('sto-dc-drill-panel');
+        const title = document.getElementById('sto-dc-drill-title');
+        const tbody = document.getElementById('sto-dc-drill-tbody');
+
+        title.textContent = `DC #${dcNbr} (${dcType}) — SBU Breakdown (Current Week)`;
+        panel.style.display = 'block';
+        panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+        const fmtM = v => { if (!v) return '—'; const a=Math.abs(v); if(a>=1e6) return (v/1e6).toFixed(1)+'M'; if(a>=1e3) return (v/1e3).toFixed(0)+'K'; return v.toLocaleString(); };
+        const sbuOrder = ['CONSUMABLES','FRESH','CAC','PANTRY','HARDLINES','HOME','FASHION','ETS','OTHER'];
+        const sortedSbus = Object.keys(bySbu).sort((a,b) => (sbuOrder.indexOf(a)+1||99) - (sbuOrder.indexOf(b)+1||99));
+
+        const total = Object.values(bySbu).reduce((s,v)=>s+v,0);
+        tbody.innerHTML = sortedSbus.map(sbu => {
+            const u = bySbu[sbu] || 0;
+            const pct = total > 0 ? (u/total*100).toFixed(1) : 0;
+            return `<tr>
+                <td>${sbu}</td>
+                <td class="text-end">${fmtM(u)}</td>
+                <td class="text-end" style="color:var(--text-muted);">—</td>
+                <td class="text-end" style="color:var(--text-muted);">—</td>
+                <td class="text-end" style="color:var(--text-muted);">${pct}%</td>
+            </tr>`;
+        }).join('') + `<tr style="border-top:1px solid #2a2a4a; font-weight:700;"><td>TOTAL</td><td class="text-end">${fmtM(total)}</td><td colspan="3"></td></tr>`;
     }
 
     // ============================================================

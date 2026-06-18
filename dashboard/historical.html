@@ -451,7 +451,13 @@
                                         <option value="0">All DCs</option>
                                     </select>
                                 </div>
-                                <div class="ms-auto" style="font-size:0.72rem; color:var(--text-muted);" id="sto-dc-meta"></div>
+                                <div class="ms-auto d-flex align-items-center gap-2">
+                                    <div style="font-size:0.72rem; color:var(--text-muted);" id="sto-dc-meta"></div>
+                                    <button onclick="exportStoDcCsv()" class="btn btn-sm"
+                                        style="font-size:0.68rem; background:#0071ce22; color:#6cb2eb; border:1px solid #0071ce55; padding:2px 10px; white-space:nowrap;">
+                                        <i class="bi bi-download me-1"></i>Export CSV
+                                    </button>
+                                </div>
                             </div>
 
                             <!-- Ranking table -->
@@ -2424,6 +2430,61 @@
             if (d) showStoDcDrilldown(d.dc, d.dcType, d.bySbu, cmpLabel, d.priorBySbu);
             else drillPanel.style.display = 'none'; // DC filtered out — hide panel
         }
+    }
+
+    function exportStoDcCsv() {
+        if (!STO_DC_DATA || !STO_DC_DATA.length) return;
+
+        const dcTypeFilter = document.getElementById('sto-dc-type-filter')?.value || '';
+        const sbuFilter    = document.getElementById('sto-dc-sbu-filter')?.value || '';
+        const compareMode  = document.getElementById('sto-dc-compare-filter')?.value || 'wow';
+        const topN         = parseInt(document.getElementById('sto-dc-top-n-filter')?.value || '20');
+        const cmpLabel     = compareMode === 'wow' ? 'WoW' : 'YoY';
+        const metaText     = document.getElementById('sto-dc-meta')?.textContent || '';
+
+        // Re-aggregate (same logic as renderStoDcRanking)
+        const byDcWeek = {};
+        STO_DC_DATA.forEach(r => {
+            if (dcTypeFilter && r.DEST_DC_TYPE !== dcTypeFilter) return;
+            if (sbuFilter && r.SBU !== sbuFilter) return;
+            const key = `${r.WM_YR_WK_NBR}|${r.DEST_DC_NBR}|${r.DEST_DC_TYPE}`;
+            if (!byDcWeek[key]) byDcWeek[key] = { wm_yr_wk: r.WM_YR_WK_NBR, wm_year: r.WM_YEAR, wm_week: r.WM_WEEK, dc: r.DEST_DC_NBR, dcType: r.DEST_DC_TYPE, units: 0, bySbu: {} };
+            byDcWeek[key].units += r.sto_units || 0;
+            byDcWeek[key].bySbu[r.SBU] = (byDcWeek[key].bySbu[r.SBU] || 0) + (r.sto_units || 0);
+        });
+        const allWks = [...new Set(STO_DC_DATA.map(r => r.WM_YR_WK_NBR))].sort((a,b) => b - a);
+        const latestWk = allWks[0];
+        let priorWk;
+        if (compareMode === 'wow') { priorWk = allWks[1]; }
+        else {
+            const ly = Math.floor(latestWk / 100); const lw = latestWk % 100;
+            priorWk = allWks.find(wk => wk % 100 === lw && Math.floor(wk / 100) === ly - 1);
+        }
+        const byDc = {};
+        Object.values(byDcWeek).forEach(row => {
+            const k = String(row.dc);
+            if (!byDc[k]) byDc[k] = { dc: row.dc, dcType: row.dcType, cur: 0, prior: 0, bySbu: {}, priorBySbu: {} };
+            if (row.wm_yr_wk === latestWk) { byDc[k].cur += row.units; Object.entries(row.bySbu).forEach(([s,u]) => { byDc[k].bySbu[s] = (byDc[k].bySbu[s]||0)+u; }); }
+            else if (priorWk && row.wm_yr_wk === priorWk) { byDc[k].prior += row.units; }
+        });
+        let ranked = Object.values(byDc)
+            .map(d => ({ ...d, change: d.cur - d.prior, pct: d.prior > 0 ? (d.cur - d.prior) / d.prior * 100 : null }))
+            .sort((a, b) => b.change - a.change);
+        if (topN > 0) ranked = ranked.slice(0, topN);
+
+        // Build CSV — main table
+        const rows = [['#', 'DC_NBR', 'DC_Type', 'Current_Units', 'Prior_Units', `Change_${cmpLabel}`, `Pct_Change_${cmpLabel}`]];
+        ranked.forEach((d, i) => {
+            rows.push([i+1, d.dc, d.dcType, d.cur, d.prior, d.change, d.pct != null ? (d.pct/100).toFixed(4) : '']);
+        });
+
+        const csv = rows.map(r => r.map(v => (String(v).includes(',') ? `"${v}"` : v)).join(',')).join('\n');
+        const wk = String(latestWk);
+        const filename = `STO_DC_Ranking_${wk}_${cmpLabel}.csv`;
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = filename; a.click();
+        URL.revokeObjectURL(url);
     }
 
     function showStoDcDrilldown(dcNbr, dcType, bySbu, cmpLabel, priorBySbu) {

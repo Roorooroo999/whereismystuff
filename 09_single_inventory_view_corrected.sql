@@ -5,9 +5,9 @@
 -- ============================================================
 --
 -- CHANGES IN v3.0:
---   1. friday_dates: Adds yesterday's date when today is Mon–Thu so the
+--   1. friday_dates: Adds yesterday's date when today is Mon–Fri so the
 --      current (incomplete) WM week shows the most recent day's snapshot
---      instead of waiting for Friday (e.g., WK26 Wednesday → Tuesday data)
+--      (e.g., Friday run → Thursday data for current WK; Wed run → Tuesday data)
 --   2. WTAVG_CUBE: Added to every stage as weighted-average item cube
 --      (PKG_HT * PKG_WDTH * PKG_LEN / 1728 ft³) weighted by UNITS.
 --      Uses item_dims CTE (already defined) via LEFT JOIN.
@@ -122,13 +122,13 @@ WITH ITEM_CUR AS (
 -- ══════════════════════════════════════════════════════════════
 -- Snapshot dates:
 --   - Fridays (standard WM week-end snapshot; Sat/Sun naturally get last Friday)
---   - OR yesterday (current_date - 1) when run Mon–Thu for any mid-week ad-hoc refresh
+--   - OR yesterday (current_date - 1) when run Mon–Fri for any mid-week ad-hoc refresh
 --     NOTE: Friday data pipelines don't complete until Saturday, so on Friday
 --     the most recent available data is Thursday's — use < CURRENT_DATE() (not <=)
 --
 -- Day-by-day behavior:
 --   Mon–Thu  → last Friday + yesterday (current_date - 1)
---   Fri      → last Friday only (today's data not yet available; < excludes today)
+--   Fri      → last Friday + Thursday (yesterday = current_date - 1; Friday data not ready)
 --   Sat/Sun  → last Friday (yesterday/2-days-ago qualifies via EXTRACT=6)
 -- ══════════════════════════════════════════════════════════════
 friday_dates AS (
@@ -141,11 +141,12 @@ friday_dates AS (
   WHERE (
     -- Standard: Friday snapshots for all completed weeks
     EXTRACT(DAYOFWEEK FROM CAL_DT) = 6
-    -- Mid-week: any Mon–Thu refresh uses yesterday's snapshot
+    -- Mid-week: any Mon–Fri refresh uses yesterday's snapshot
+    -- On Friday: yesterday = Thursday (current week data since Friday isn't ready)
     -- DAYOFWEEK: 1=Sun, 2=Mon, 3=Tue, 4=Wed, 5=Thu, 6=Fri, 7=Sat
     OR (
       CAL_DT = DATE_SUB(CURRENT_DATE('America/Chicago'), INTERVAL 1 DAY)
-      AND EXTRACT(DAYOFWEEK FROM CURRENT_DATE('America/Chicago')) BETWEEN 2 AND 5
+      AND EXTRACT(DAYOFWEEK FROM CURRENT_DATE('America/Chicago')) BETWEEN 2 AND 6
     )
   )
     AND CAL_DT >= '2025-02-07'                 -- FY25 WK01

@@ -121,10 +121,15 @@ WITH ITEM_CUR AS (
 
 -- ══════════════════════════════════════════════════════════════
 -- Snapshot dates:
---   - Fridays (standard WM weekly snapshots)
---   - OR yesterday when today is Mon–Thu (current partial week)
---     so WK26 Wednesday shows Tuesday's snapshot instead of
---     waiting until Friday
+--   - Fridays (standard WM week-end snapshot; Sat/Sun naturally get last Friday)
+--   - OR yesterday (current_date - 1) when run Mon–Thu for any mid-week ad-hoc refresh
+--     NOTE: Friday data pipelines don't complete until Saturday, so on Friday
+--     the most recent available data is Thursday's — use < CURRENT_DATE() (not <=)
+--
+-- Day-by-day behavior:
+--   Mon–Thu  → last Friday + yesterday (current_date - 1)
+--   Fri      → last Friday only (today's data not yet available; < excludes today)
+--   Sat/Sun  → last Friday (yesterday/2-days-ago qualifies via EXTRACT=6)
 -- ══════════════════════════════════════════════════════════════
 friday_dates AS (
   SELECT DISTINCT
@@ -136,15 +141,15 @@ friday_dates AS (
   WHERE (
     -- Standard: Friday snapshots for all completed weeks
     EXTRACT(DAYOFWEEK FROM CAL_DT) = 6
-    -- OR: yesterday for the current partial WM week when Friday has not yet occurred
+    -- Mid-week: any Mon–Thu refresh uses yesterday's snapshot
     -- DAYOFWEEK: 1=Sun, 2=Mon, 3=Tue, 4=Wed, 5=Thu, 6=Fri, 7=Sat
     OR (
-      CAL_DT = DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)
-      AND EXTRACT(DAYOFWEEK FROM CURRENT_DATE()) BETWEEN 2 AND 5  -- Mon–Thu
+      CAL_DT = DATE_SUB(CURRENT_DATE('America/Chicago'), INTERVAL 1 DAY)
+      AND EXTRACT(DAYOFWEEK FROM CURRENT_DATE('America/Chicago')) BETWEEN 2 AND 5
     )
   )
     AND CAL_DT >= '2025-02-07'                 -- FY25 WK01
-    AND CAL_DT <= CURRENT_DATE()
+    AND CAL_DT < CURRENT_DATE('America/Chicago')  -- excludes today (Friday data not ready until Sat)
 ),
 
 -- OMNI mapping (Walmart US only)
@@ -238,7 +243,10 @@ item_dims AS (
 ),
 
 -- ══════════════════════════════════════════════════════════════
--- STAGE 1: ON ORDER (by NEXT week's MABD)
+-- STAGE 1: ON ORDER (by CURRENT week's MABD)
+-- Shows POs whose Must-Arrive-By Date falls in the SAME WM week
+-- as the snapshot date (F.BUS_DT). This aligns on-order with the
+-- current inventory position — WK20 snapshot shows WK20 arriving POs.
 -- ══════════════════════════════════════════════════════════════
 stage_1_on_order AS (
   SELECT
@@ -265,9 +273,9 @@ stage_1_on_order AS (
   FROM `wmt-edw-prod.US_WM_OMS_VM.OMS_PURCHASE_ORDER` po
   JOIN `wmt-edw-prod.US_WM_OMS_VM.OMS_PO_LINE` pol ON pol.OMS_PO_NBR = po.OMS_PO_NBR
   CROSS JOIN friday_dates F
-  JOIN calendar cal_next ON cal_next.GREGORIAN_DATE = DATE_ADD(F.BUS_DT, INTERVAL 7 DAY)
+  -- Match POs where MABD falls in the CURRENT (same) WM week as snapshot
   JOIN calendar cal ON cal.GREGORIAN_DATE = pol.MABD_DATE
-    AND cal.WM_YR_WK_NBR = cal_next.WM_YR_WK_NBR
+    AND cal.WM_YR_WK_NBR = F.WM_YR_WK_NBR
   INNER JOIN ITEM_CUR ITM ON ITM.ITEM_NBR = pol.ITEM_NBR
   LEFT JOIN omni_mapping OMNI ON OMNI.MDS_FAM_ID = ITM.MDS_FAM_ID
   LEFT JOIN item_dims dims ON dims.MDS_FAM_ID = ITM.MDS_FAM_ID

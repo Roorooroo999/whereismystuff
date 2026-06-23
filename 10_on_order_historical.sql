@@ -65,6 +65,7 @@
 --
 -- Created: June 1, 2026
 -- Updated: June 17, 2026 — added import_ind (PO_TYPE_CD IN (40,42,43) = IMPORT)
+-- Updated: June 23, 2026 — added in_store_wm_week (IN_STORE_DATE → WM fiscal week)
 -- Author: r0c0jug
 -- ══════════════════════════════════════════════════════════════════════════════
 
@@ -201,13 +202,23 @@ calendar AS (
     WM_YR_WK
   FROM `wmt-edw-prod.US_WM_VM.CALENDAR_DAY`
   WHERE WM_YR_WK >= 12501
+),
+
+-- ── Calendar for IN_STORE_DATE → WM fiscal week ──────────────────────────────
+calendar_ins AS (
+  SELECT DISTINCT
+    GREGORIAN_DATE,
+    WM_YR_WK
+  FROM `wmt-edw-prod.US_WM_VM.CALENDAR_DAY`
+  WHERE WM_YR_WK >= 12501
 )
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- FINAL OUTPUT: On-Order by WM Week, SBU, OMNI Dept/Category with Indicators
 -- ══════════════════════════════════════════════════════════════════════════════
 SELECT
-  cal.WM_YR_WK AS wm_week,
+  cal.WM_YR_WK                AS wm_week,
+  cal_ins.WM_YR_WK            AS in_store_wm_week,
   itm.sbu,
   omni.OMNI_DEPT_NBR,
   omni.OMNI_DEPT_DESC,
@@ -246,6 +257,8 @@ JOIN omni_mapping omni
   ON omni.MDS_FAM_ID = itm.MDS_FAM_ID
 JOIN calendar cal
   ON cal.GREGORIAN_DATE = pol.MABD_DATE
+LEFT JOIN calendar_ins cal_ins
+  ON cal_ins.GREGORIAN_DATE = po.IN_STORE_DATE
 LEFT JOIN item_dims dims
   ON dims.MDS_FAM_ID = itm.MDS_FAM_ID
 WHERE po.COUNTRY_CODE = 'US'
@@ -258,6 +271,7 @@ WHERE po.COUNTRY_CODE = 'US'
 
 GROUP BY
   cal.WM_YR_WK,
+  cal_ins.WM_YR_WK,
   itm.sbu,
   omni.OMNI_DEPT_NBR,
   omni.OMNI_DEPT_DESC,

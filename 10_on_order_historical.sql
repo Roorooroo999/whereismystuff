@@ -68,6 +68,7 @@
 -- Updated: June 23, 2026 — added in_store_wm_week (IN_STORE_DATE → WM fiscal week)
 -- Updated: June 23, 2026 — include cancelled lines (1300) where PO_BASE_DATA shows supplier shipped (1000/1100) [TEMP: sandbox]
 -- Updated: June 24, 2026 — fix omni_mapping fanout: QUALIFY ROW_NUMBER() keeps 1 row per MDS_FAM_ID (was 120–200× inflation)
+-- Updated: June 24, 2026 — fix EXISTS rescue: CAST(BOOKING_PO_NBR AS INT64) matches OMS INT64 (leading-zero STRING mismatch closed WK 12520 ~59M gap)
 -- Author: r0c0jug
 -- ══════════════════════════════════════════════════════════════════════════════
 
@@ -279,8 +280,8 @@ WHERE po.COUNTRY_CODE = 'US'
       AND EXISTS (
         SELECT 1
         FROM `wmt-edw-sandbox.SCV_REWRITE.PO_BASE_DATA` po_base
-        WHERE po_base.OMS_PO_NBR      = pol.OMS_PO_NBR
-          AND po_base.OMS_PO_LINE_NBR = pol.OMS_PO_LINE_NBR
+        WHERE CAST(po_base.BOOKING_PO_NBR AS INT64) = pol.OMS_PO_NBR
+          AND po_base.OMS_PO_LINE_NBR              = pol.OMS_PO_LINE_NBR
           AND po_base.PO_LINE_STATUS_CD IN (1000, 1100)
       )
     )

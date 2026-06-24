@@ -1342,7 +1342,7 @@ class OnOrderCache:
     # Bump CACHE_VERSION to force ALL Posit worker processes to discard their
     # parquet and re-query BQ on next load — even if cached_date == today.
     # Increment whenever the source BQ table is rebuilt with schema/logic changes.
-    CACHE_VERSION = 3  # bumped 2026-06-24: BQ table rebuilt with QUALIFY fix — force fresh load
+    CACHE_VERSION = 4  # bumped 2026-06-24: BQ table rebuilt with BOOKING_PO_NBR INT64 cast fix — force fresh load
 
     # Cache directory — same WMS_CACHE_DIR env var as HistoricalCache (see above).
     CACHE_DIR = Path(os.environ.get("WMS_CACHE_DIR", str(Path(__file__).parent / ".cache")))

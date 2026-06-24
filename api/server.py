@@ -2573,7 +2573,7 @@ async def get_onorder_catg():
     return SafeJSONResponse(content=onorder_cache.to_catg_response())
 
 
-@app.post("/api/cache/refresh-onorder")
+@app.api_route("/api/cache/refresh-onorder", methods=["GET", "POST"])
 async def refresh_onorder_cache(force: bool = False):
     """Manual on-order cache refresh.
 

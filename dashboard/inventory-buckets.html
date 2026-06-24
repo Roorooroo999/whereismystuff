@@ -643,6 +643,12 @@
                             <span class="ctx-tag"><i class="bi bi-arrow-left-right me-1"></i>Import / Domestic</span>
                             <span class="ctx-tag"><i class="bi bi-globe2 me-1"></i>Enterprise scope</span>
                         </div>
+                        <!-- Loading banner — shown while on-order cache is warming up -->
+                        <div class="onorder-sync-banner mb-3" id="onorder-loading-banner" style="display:none;">
+                            <span class="spinner-border spinner-border-sm me-1" role="status" style="color:#fbbf24;"></span>
+                            <span>On-order data is loading from BigQuery — values will update automatically when ready.</span>
+                            <span class="sync-tag ms-auto">~30–60s</span>
+                        </div>
                         <!-- Sidebar filter sync banner — shown when Pipeline sidebar has active SBU/Dept filters -->
                         <div class="onorder-sync-banner mb-3" id="onorder-sidebar-sync-banner" style="display:none;">
                             <i class="bi bi-funnel-fill" style="font-size:0.9rem;"></i>
@@ -1002,6 +1008,7 @@
             } else {
                 console.log('[BUCKETS] On-order not ready yet — rendering without it, will load in background');
                 ONORDER_DATA = { enterprise: [], by_sbu: [], by_dept: [], by_catg: [] };
+                setOnorderLoadingState(true);
                 loadOnorderBackground();  // polls until ready, then re-renders
             }
 
@@ -1035,6 +1042,14 @@
     const MAX_HIST_CATG_RETRIES = 60; // 60 × 3s = 3 min (backend retries take up to 210s)
     let _histCatgCallbacks = [];       // queued callbacks waiting for catg load
     let _onorderCatgCallbacks = [];    // queued callbacks waiting for on-order catg load
+    // Show/hide loading indicators while on-order background poll is running
+    function setOnorderLoadingState(loading) {
+        const banner = document.getElementById('onorder-loading-banner');
+        if (banner) banner.style.display = loading ? 'flex' : 'none';
+        const kpi = document.getElementById('kpi-onorder');
+        if (kpi && loading) kpi.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span>';
+    }
+
     // Background loader for on-order data (when not ready at initial render time)
     let onorderBgLoading = false;
     let onorderBgRetries = 0;
@@ -1054,6 +1069,7 @@
                             setTimeout(tryLoad, 3000);
                         } else {
                             onorderBgLoading = false;
+                            setOnorderLoadingState(false);
                             console.warn('[BUCKETS] On-order never became ready after background wait');
                         }
                         return;
@@ -1065,6 +1081,7 @@
                     if (!data) return;
                     ONORDER_DATA = data;
                     onorderBgLoading = false;
+                    setOnorderLoadingState(false);
                     console.log('[BUCKETS] On-order loaded in background:', ONORDER_DATA.by_sbu?.length || 0, 'SBU rows');
                     // Re-render charts and KPIs now that on-order data is available
                     renderCharts();

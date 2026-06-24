@@ -1078,12 +1078,16 @@
         }
     }
 
-    // Show/hide loading indicators while on-order background poll is running
+    // Show/hide loading indicators while on-order background poll is running.
+    // When called with loading=false, only actually hide if data is present —
+    // prevents clearing the spinner before background load has delivered real data.
     function setOnorderLoadingState(loading) {
+        const onorderHasData = (ONORDER_DATA?.by_sbu?.length ?? 0) > 0;
+        const actuallyLoading = loading || !onorderHasData;
         const banner = document.getElementById('onorder-loading-banner');
-        if (banner) banner.style.display = loading ? 'flex' : 'none';
+        if (banner) banner.style.display = actuallyLoading ? 'flex' : 'none';
         const kpi = document.getElementById('kpi-onorder');
-        if (kpi && loading) kpi.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span>';
+        if (kpi && actuallyLoading) kpi.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span>';
     }
 
     // Background loader for on-order data (when not ready at initial render time)
@@ -1709,8 +1713,10 @@
             return { text: `${label}: ${arrow} ${Math.abs(pct)}%`, cls };
         };
 
-        // While on-order is still loading in background, keep the spinner — don't overwrite with 0
-        if (onorderBgLoading) {
+        // Keep spinner until data is genuinely loaded — never show 0 as a "not loaded" state.
+        // Guard on both bg-loading flag AND actual data presence (empty array = not ready).
+        const onorderHasData = (ONORDER_DATA?.by_sbu?.length ?? 0) > 0;
+        if (onorderBgLoading || !onorderHasData) {
             setOnorderLoadingState(true);
         } else {
             document.getElementById('kpi-onorder').textContent = fmtM(current.open_orders || 0);

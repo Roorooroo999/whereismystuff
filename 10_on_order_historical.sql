@@ -69,6 +69,7 @@
 -- Updated: June 23, 2026 — include cancelled lines (1300) where PO_BASE_DATA shows supplier shipped (1000/1100) [TEMP: sandbox]
 -- Updated: June 24, 2026 — fix omni_mapping fanout: QUALIFY ROW_NUMBER() keeps 1 row per MDS_FAM_ID (was 120–200× inflation)
 -- Updated: June 24, 2026 — fix EXISTS rescue: CAST(BOOKING_PO_NBR AS INT64) matches OMS INT64 (leading-zero STRING mismatch closed WK 12520 ~59M gap)
+-- Updated: June 24, 2026 — replace sandbox PO_BASE_DATA with OMS self-join on distributed child POs — removes wmt-edw-sandbox dependency
 -- Author: r0c0jug
 -- ══════════════════════════════════════════════════════════════════════════════
 
@@ -275,14 +276,18 @@ WHERE po.COUNTRY_CODE = 'US'
     pol.PO_LINE_STATUS_CD NOT IN (1300)   -- Normal: exclude cancelled lines
     OR (
       pol.PO_LINE_STATUS_CD = 1300        -- Exception: cancelled in OMS after supplier shipped
-      -- TEMP FIX: Use EXISTS (not JOIN) to avoid fanout — PO_BASE_DATA has multiple rows per
-      -- booking PO line due to DC/store distribution. Replace table when sandbox is decommissioned.
+      -- Rescue via OMS self-join: find distributed child POs of this booking PO that were
+      -- shipped/received (status 1000/1100). Replaces sandbox PO_BASE_DATA dependency.
+      -- Use EXISTS (not JOIN) to avoid fanout — each booking PO line can have many child PO rows.
       AND EXISTS (
         SELECT 1
-        FROM `wmt-edw-sandbox.SCV_REWRITE.PO_BASE_DATA` po_base
-        WHERE CAST(po_base.BOOKING_PO_NBR AS INT64) = pol.OMS_PO_NBR
-          AND po_base.OMS_PO_LINE_NBR              = pol.OMS_PO_LINE_NBR
-          AND po_base.PO_LINE_STATUS_CD IN (1000, 1100)
+        FROM `wmt-edw-prod.US_WM_OMS_VM.OMS_PURCHASE_ORDER` dist_po
+        JOIN `wmt-edw-prod.US_WM_OMS_VM.OMS_PO_LINE` dist_pol
+          ON dist_pol.OMS_PO_NBR = dist_po.OMS_PO_NBR
+        WHERE dist_po.BOOKING_PO_NBR          = po.OMS_PO_NBR
+          AND dist_po.OMS_PO_NBR             <> dist_po.BOOKING_PO_NBR
+          AND dist_pol.OMS_PO_LINE_NBR        = pol.OMS_PO_LINE_NBR
+          AND dist_pol.PO_LINE_STATUS_CD IN (1000, 1100)
       )
     )
   )

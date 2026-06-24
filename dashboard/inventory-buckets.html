@@ -2825,6 +2825,11 @@
                     pipelinePane.style.display = 'none';
                     pipelinePane.classList.remove('show', 'active');
                 }
+                const onorderPaneChange = document.getElementById('tab-on-order');
+                if (onorderPaneChange) {
+                    onorderPaneChange.style.display = 'none';
+                    onorderPaneChange.classList.remove('show', 'active');
+                }
 
                 console.log('[CHANGE] Tab pane classes AFTER:', tabPane?.className);
                 console.log('[CHANGE] Tab pane computed display:', tabPane ? getComputedStyle(tabPane).display : 'N/A');

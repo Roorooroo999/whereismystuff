@@ -1339,6 +1339,11 @@ class OnOrderCache:
     Supports WOW trend analysis separate from inventory data.
     """
 
+    # Bump CACHE_VERSION to force ALL Posit worker processes to discard their
+    # parquet and re-query BQ on next load — even if cached_date == today.
+    # Increment whenever the source BQ table is rebuilt with schema/logic changes.
+    CACHE_VERSION = 2  # bumped 2026-06-24: omni_mapping QUALIFY fix + 730-day window
+
     # Cache directory — same WMS_CACHE_DIR env var as HistoricalCache (see above).
     CACHE_DIR = Path(os.environ.get("WMS_CACHE_DIR", str(Path(__file__).parent / ".cache")))
 
@@ -1365,9 +1370,10 @@ class OnOrderCache:
                 self.sbu_df.to_parquet(self.CACHE_DIR / "onorder_sbu.parquet")
             if self.dept_df is not None:
                 self.dept_df.to_parquet(self.CACHE_DIR / "onorder_dept.parquet")
-            # Save metadata (include columns so we can detect stale pre-cube caches)
+            # Save metadata (include columns + version so workers can detect stale caches)
             cols = list(self.enterprise_df.columns) if self.enterprise_df is not None else []
-            metadata = {"loaded_date": self.loaded_date, "loaded_at": self.loaded_at, "columns": cols}
+            metadata = {"loaded_date": self.loaded_date, "loaded_at": self.loaded_at,
+                        "columns": cols, "cache_version": self.CACHE_VERSION}
             with open(self.CACHE_DIR / "onorder_metadata.json", "w") as f:
                 json.dump(metadata, f)
             print(f"[ONORDER] [DISK] Saved core cache to disk in {round(time.time() - t0, 1)}s", flush=True)
@@ -1402,6 +1408,12 @@ class OnOrderCache:
 
             if is_stale and not stale_ok:
                 print(f"[ONORDER] Disk cache is stale ({cached_date} vs {today})", flush=True)
+                return False
+
+            # Invalidate cache if version has changed (BQ table was rebuilt)
+            cached_version = metadata.get("cache_version", 1)
+            if cached_version != self.CACHE_VERSION:
+                print(f"[ONORDER] Cache version mismatch ({cached_version} vs {self.CACHE_VERSION}), will refresh from BQ", flush=True)
                 return False
 
             # Invalidate cache if required columns are missing

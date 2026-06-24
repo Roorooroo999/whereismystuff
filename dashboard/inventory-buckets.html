@@ -642,6 +642,11 @@
                             <span class="ctx-tag"><i class="bi bi-calendar-week me-1"></i>FY25 &amp; FY26</span>
                             <span class="ctx-tag"><i class="bi bi-arrow-left-right me-1"></i>Import / Domestic</span>
                             <span class="ctx-tag"><i class="bi bi-globe2 me-1"></i>Enterprise scope</span>
+                            <button class="btn-sync-sidebar ms-auto" id="onorder-force-refresh-btn"
+                                onclick="forceOnOrderRefresh(this)"
+                                title="Clear cached data and reload from BigQuery — use after BQ table rebuild">
+                                <i class="bi bi-arrow-clockwise me-1"></i>Force Refresh
+                            </button>
                         </div>
                         <!-- Loading banner — shown while on-order cache is warming up -->
                         <div class="onorder-sync-banner mb-3" id="onorder-loading-banner" style="display:none;">
@@ -1042,6 +1047,36 @@
     const MAX_HIST_CATG_RETRIES = 60; // 60 × 3s = 3 min (backend retries take up to 210s)
     let _histCatgCallbacks = [];       // queued callbacks waiting for catg load
     let _onorderCatgCallbacks = [];    // queued callbacks waiting for on-order catg load
+    // Force-clear parquet cache and reload on-order from BQ (for use after BQ table rebuild)
+    async function forceOnOrderRefresh(btn) {
+        const apiBase = window.location.pathname.replace(/\/dashboard\/.*$/, '');
+        if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span>Refreshing…'; }
+        setOnorderLoadingState(true);
+        try {
+            const resp = await fetch(apiBase + '/api/cache/refresh-onorder?force=true', { method: 'GET' });
+            const data = await resp.json();
+            if (data.status === 'success') {
+                const onorderResp = await fetch(apiBase + '/api/on-order');
+                if (onorderResp.ok) {
+                    ONORDER_DATA = await onorderResp.json();
+                    setOnorderLoadingState(false);
+                    renderCharts();
+                    initBucketDrillFilters();
+                    console.log('[BUCKETS] Force-refresh complete:', ONORDER_DATA.by_sbu?.length, 'SBU rows');
+                }
+            } else {
+                console.error('[BUCKETS] Force-refresh failed:', data);
+                alert('Refresh failed: ' + (data.message || 'unknown error'));
+            }
+        } catch(e) {
+            console.error('[BUCKETS] Force-refresh error:', e);
+            alert('Refresh error: ' + e.message);
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i>Force Refresh'; }
+            setOnorderLoadingState(false);
+        }
+    }
+
     // Show/hide loading indicators while on-order background poll is running
     function setOnorderLoadingState(loading) {
         const banner = document.getElementById('onorder-loading-banner');

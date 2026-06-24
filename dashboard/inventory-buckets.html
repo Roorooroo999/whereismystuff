@@ -690,6 +690,13 @@
                                             <option value="DOMESTIC">Domestic Only</option>
                                         </select>
                                     </div>
+                                    <div class="filter-label-group">
+                                        <span class="flg-label"><i class="bi bi-calendar-week me-1"></i>Week By</span>
+                                        <div class="btn-group btn-group-sm">
+                                            <button type="button" class="btn btn-outline-secondary active" id="onorder-trend-weekby-mabd" onclick="setOnOrderWeekBy('mabd')" title="Group by MABD week (when goods must arrive by)">MABD</button>
+                                            <button type="button" class="btn btn-outline-secondary" id="onorder-trend-weekby-instore" onclick="setOnOrderWeekBy('in_store')" title="Group by In-Store Date week (when goods arrive in store)">In-Store Date</button>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                             <div style="font-size:0.68rem; color:#475569; margin-bottom:8px; display:flex; gap:14px; flex-wrap:wrap;">
@@ -731,6 +738,13 @@
                                             <option value="IMPORT">Import Only</option>
                                             <option value="DOMESTIC">Domestic Only</option>
                                         </select>
+                                    </div>
+                                    <div class="filter-label-group">
+                                        <span class="flg-label"><i class="bi bi-calendar-week me-1"></i>Week By</span>
+                                        <div class="btn-group btn-group-sm">
+                                            <button type="button" class="btn btn-outline-secondary active" id="onorder-rank-weekby-mabd" onclick="setOnOrderWeekBy('mabd')" title="Group by MABD week (when goods must arrive by)">MABD</button>
+                                            <button type="button" class="btn btn-outline-secondary" id="onorder-rank-weekby-instore" onclick="setOnOrderWeekBy('in_store')" title="Group by In-Store Date week (when goods arrive in store)">In-Store Date</button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -2880,7 +2894,7 @@
 
         const fy25 = {}, fy26 = {};
         src.forEach(r => {
-            const wk = r.wm_week; const units = r.units_ordered || 0;
+            const wk = getOnorderWk(r); const units = r.units_ordered || 0;
             if (wk >= 12500 && wk < 12600) { const n = wk % 100; fy25[n] = (fy25[n] || 0) + units; }
             else if (wk >= 12600) { const n = wk % 100; fy26[n] = (fy26[n] || 0) + units; }
         });
@@ -2895,11 +2909,11 @@
         if (!useDeptData && viewMode === 'sbu' && !sbuFilter) {
             // One line per SBU — FY26 only
             const sbuWkMap = {};
-            let s2 = ONORDER_DATA.by_sbu.filter(r => r.wm_week >= 12600 && r.dsd_ind !== 'DSD');
+            let s2 = ONORDER_DATA.by_sbu.filter(r => getOnorderWk(r) >= 12600 && r.dsd_ind !== 'DSD');
             if (importFilter) s2 = s2.filter(r => r.import_ind === importFilter);
             s2.forEach(r => {
                 if (!r.sbu || r.sbu === 'OTHER' || r.sbu === 'UNASSIGNED') return;
-                const n = r.wm_week % 100;
+                const n = getOnorderWk(r) % 100;
                 if (!sbuWkMap[r.sbu]) sbuWkMap[r.sbu] = {};
                 sbuWkMap[r.sbu][n] = (sbuWkMap[r.sbu][n] || 0) + (r.units_ordered || 0);
             });
@@ -2920,10 +2934,10 @@
             if (!importFilter) {
                 const fy26i = {}, fy26d = {};
                 const importSrc = useDeptData
-                    ? ONORDER_DATA.by_dept.filter(r => r.wm_week >= 12600 && r.dsd_ind !== 'DSD' && r.department === deptFilter)
-                    : ONORDER_DATA.by_sbu.filter(r => r.wm_week >= 12600 && r.dsd_ind !== 'DSD');
+                    ? ONORDER_DATA.by_dept.filter(r => getOnorderWk(r) >= 12600 && r.dsd_ind !== 'DSD' && r.department === deptFilter)
+                    : ONORDER_DATA.by_sbu.filter(r => getOnorderWk(r) >= 12600 && r.dsd_ind !== 'DSD');
                 importSrc.forEach(r => {
-                    const n = r.wm_week % 100; const u = r.units_ordered || 0;
+                    const n = getOnorderWk(r) % 100; const u = r.units_ordered || 0;
                     if (r.import_ind === 'IMPORT') fy26i[n] = (fy26i[n] || 0) + u;
                     else fy26d[n] = (fy26d[n] || 0) + u;
                 });
@@ -2980,6 +2994,23 @@
 
     let RANKING_SCOPE = 'current'; // 'current' or 'past4'
     let RANKING_VIEW = 'sbu';
+    let ONORDER_WEEK_BY = 'mabd'; // 'mabd' or 'in_store'
+
+    function getOnorderWk(r) {
+        return ONORDER_WEEK_BY === 'in_store' ? (r.in_store_wm_week || r.wm_week) : r.wm_week;
+    }
+
+    function setOnOrderWeekBy(mode) {
+        ONORDER_WEEK_BY = mode;
+        ['onorder-trend-weekby-mabd', 'onorder-rank-weekby-mabd'].forEach(id => {
+            const el = document.getElementById(id); if (el) el.classList.toggle('active', mode === 'mabd');
+        });
+        ['onorder-trend-weekby-instore', 'onorder-rank-weekby-instore'].forEach(id => {
+            const el = document.getElementById(id); if (el) el.classList.toggle('active', mode === 'in_store');
+        });
+        renderOnOrderTrendChart();
+        renderOnOrderRankingTable();
+    }
 
     // ============================================================
     // SIDEBAR SYNC BANNER — updates when On Order tab is shown
@@ -3062,7 +3093,7 @@
 
         // Anchor = current inventory week derived from HIST_DATA (YYYYWW → FY-prefix)
         const anchor = getAnchorWeek();
-        const fy26Weeks = [...new Set(ONORDER_DATA.by_sbu.map(r => r.wm_week).filter(w => w >= 12600 && w <= anchor + 10))].sort((a,b) => a-b);
+        const fy26Weeks = [...new Set(ONORDER_DATA.by_sbu.map(r => getOnorderWk(r)).filter(w => w >= 12600 && w <= anchor + 52))].sort((a,b) => a-b);
         if (!fy26Weeks.length) { tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">No FY26 data.</td></tr>'; return; }
 
         // Build scope weeks based on RANKING_SCOPE
@@ -3087,7 +3118,7 @@
             const out = {};
             let s = sourceData;
             if (importFilter) s = s.filter(r => r.import_ind === importFilter);
-            s.filter(r => wkList.includes(r.wm_week)).forEach(r => {
+            s.filter(r => wkList.includes(getOnorderWk(r))).forEach(r => {
                 const k = keyFn(r); if (!k) return;
                 out[k] = (out[k] || 0) + (r.units_ordered || 0);
             });
@@ -3124,8 +3155,9 @@
             ? `Future 4 wks ▶ (FY26 ${wkLabels || 'none available'})`
             : `Current wk (FY26 ${wkLabels})`;
         const originLabel = importFilter ? ` · ${importFilter === 'IMPORT' ? 'Import only' : 'Domestic only'}` : '';
+        const weekByLabel = ONORDER_WEEK_BY === 'in_store' ? ' · by In-Store Date' : ' · by MABD';
         const sub = document.getElementById('onorder-ranking-subtitle');
-        if (sub) sub.textContent = `${scopeDesc} vs LY same period${originLabel} · excl. DSD · sorted by YoY %`;
+        if (sub) sub.textContent = `${scopeDesc} vs LY same period${originLabel}${weekByLabel} · excl. DSD · sorted by YoY %`;
 
         if (!rows.length) { tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">No data for selected filters.</td></tr>'; return; }
 

@@ -66,6 +66,8 @@
 -- Created: June 1, 2026
 -- Updated: June 17, 2026 — added import_ind (PO_TYPE_CD IN (40,42,43) = IMPORT)
 -- Updated: June 23, 2026 — added in_store_wm_week (IN_STORE_DATE → WM fiscal week)
+-- Updated: June 23, 2026 — include cancelled lines (1300) where PO_BASE_DATA shows supplier shipped (1000/1100) [TEMP: sandbox]
+-- Updated: June 24, 2026 — fix omni_mapping fanout: QUALIFY ROW_NUMBER() keeps 1 row per MDS_FAM_ID (was 120–200× inflation)
 -- Author: r0c0jug
 -- ══════════════════════════════════════════════════════════════════════════════
 
@@ -82,8 +84,13 @@ pfs_vendors AS (
 ),
 
 -- ── OMNI Category/Dept mapping from fd_omni_chnl_item_dly ────────────────────
+-- 730-day window (table requires bus_dt partition filter — full scan blocked).
+-- Covers FY25 (started ~Jan 2024) through today, including discontinued items.
+-- QUALIFY keeps only the most recent row per MDS_FAM_ID — 1 row per item, no fanout.
+-- (30-day window was dropping historical POs for discontinued items; 120–200× fanout
+--  was inflating units when items spanned multiple category rows in the window.)
 omni_mapping AS (
-  SELECT DISTINCT
+  SELECT
     MDS_FAM_ID,
     OMNI_DEPT_NBR,
     OMNI_DEPT_DESC,
@@ -92,7 +99,8 @@ omni_mapping AS (
   FROM `wmt-gdap-dl-sec-merch-bq-prod.us_fd_app_secure.fd_omni_chnl_item_dly`
   WHERE OMNI_SEG_DESC NOT IN ('HEALTH AND WELLNESS','OTHER','WALMART SERVICES')
     AND OMNI_DEPT_NBR IS NOT NULL
-    AND BUS_DT >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+    AND BUS_DT >= DATE_SUB(CURRENT_DATE(), INTERVAL 730 DAY)
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY MDS_FAM_ID ORDER BY BUS_DT DESC) = 1
 ),
 
 -- ── Item master with SBU mapping and exclusions ──────────────────────────────
@@ -262,7 +270,21 @@ LEFT JOIN calendar_ins cal_ins
 LEFT JOIN item_dims dims
   ON dims.MDS_FAM_ID = itm.MDS_FAM_ID
 WHERE po.COUNTRY_CODE = 'US'
-  AND pol.PO_LINE_STATUS_CD NOT IN (1300)  -- Exclude cancelled
+  AND (
+    pol.PO_LINE_STATUS_CD NOT IN (1300)   -- Normal: exclude cancelled lines
+    OR (
+      pol.PO_LINE_STATUS_CD = 1300        -- Exception: cancelled in OMS after supplier shipped
+      -- TEMP FIX: Use EXISTS (not JOIN) to avoid fanout — PO_BASE_DATA has multiple rows per
+      -- booking PO line due to DC/store distribution. Replace table when sandbox is decommissioned.
+      AND EXISTS (
+        SELECT 1
+        FROM `wmt-edw-sandbox.SCV_REWRITE.PO_BASE_DATA` po_base
+        WHERE po_base.OMS_PO_NBR      = pol.OMS_PO_NBR
+          AND po_base.OMS_PO_LINE_NBR = pol.OMS_PO_LINE_NBR
+          AND po_base.PO_LINE_STATUS_CD IN (1000, 1100)
+      )
+    )
+  )
   AND po.PO_TYPE_CD NOT IN (77,73,53)      -- Exclude per business rules
   AND (
     COALESCE(CAST(po.BOOKING_PO_NBR AS STRING), '0') = '0'                -- domestic POs (BOOKING_PO_NBR = 0 or NULL)

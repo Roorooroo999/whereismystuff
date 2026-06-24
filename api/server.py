@@ -1406,7 +1406,7 @@ class OnOrderCache:
 
             # Invalidate cache if required columns are missing
             cached_cols = metadata.get("columns", [])
-            required_cols = ["cube_ordered", "import_ind"]
+            required_cols = ["cube_ordered", "import_ind", "in_store_wm_week"]
             missing = [c for c in required_cols if c not in cached_cols]
             if missing:
                 print(f"[ONORDER] Disk cache missing columns {missing}, will refresh from BQ", flush=True)
@@ -1589,6 +1589,7 @@ class OnOrderCache:
         q1 = f"""
         SELECT
             wm_week,
+            in_store_wm_week,
             import_ind,
             replen_ind,
             channel_ind,
@@ -1596,7 +1597,7 @@ class OnOrderCache:
             {metric_sql}
         FROM {fqn}
         WHERE wm_week <= 12701
-        GROUP BY wm_week, import_ind, replen_ind, channel_ind, dsd_ind
+        GROUP BY wm_week, in_store_wm_week, import_ind, replen_ind, channel_ind, dsd_ind
         ORDER BY wm_week
         """
 
@@ -1604,6 +1605,7 @@ class OnOrderCache:
         q2 = f"""
         SELECT
             wm_week,
+            in_store_wm_week,
             sbu,
             import_ind,
             replen_ind,
@@ -1612,7 +1614,7 @@ class OnOrderCache:
             {metric_sql}
         FROM {fqn}
         WHERE wm_week <= 12701
-        GROUP BY wm_week, sbu, import_ind, replen_ind, channel_ind, dsd_ind
+        GROUP BY wm_week, in_store_wm_week, sbu, import_ind, replen_ind, channel_ind, dsd_ind
         ORDER BY wm_week, sbu
         """
 
@@ -1620,6 +1622,7 @@ class OnOrderCache:
         q3 = f"""
         SELECT
             wm_week,
+            in_store_wm_week,
             sbu,
             OMNI_DEPT_NBR AS dept_nbr,
             OMNI_DEPT_DESC AS department,
@@ -1630,7 +1633,7 @@ class OnOrderCache:
             {metric_sql}
         FROM {fqn}
         WHERE wm_week <= 12701
-        GROUP BY wm_week, sbu, dept_nbr, department, import_ind, replen_ind, channel_ind, dsd_ind
+        GROUP BY wm_week, in_store_wm_week, sbu, dept_nbr, department, import_ind, replen_ind, channel_ind, dsd_ind
         ORDER BY wm_week, sbu, dept_nbr
         """
 
@@ -1638,6 +1641,7 @@ class OnOrderCache:
         q4 = f"""
         SELECT
             wm_week,
+            in_store_wm_week,
             sbu,
             OMNI_DEPT_NBR AS dept_nbr,
             OMNI_DEPT_DESC AS department,
@@ -1650,7 +1654,7 @@ class OnOrderCache:
             {metric_sql}
         FROM {fqn}
         WHERE wm_week >= 12500 AND wm_week <= 12701 AND OMNI_CATG_NBR IS NOT NULL
-        GROUP BY wm_week, sbu, dept_nbr, department, catg_nbr, category, import_ind, replen_ind, channel_ind, dsd_ind
+        GROUP BY wm_week, in_store_wm_week, sbu, dept_nbr, department, catg_nbr, category, import_ind, replen_ind, channel_ind, dsd_ind
         ORDER BY wm_week, sbu, dept_nbr, catg_nbr
         """
 

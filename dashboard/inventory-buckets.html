@@ -1672,7 +1672,12 @@
             return { text: `${label}: ${arrow} ${Math.abs(pct)}%`, cls };
         };
 
-        document.getElementById('kpi-onorder').textContent = fmtM(current.open_orders || 0);
+        // While on-order is still loading in background, keep the spinner — don't overwrite with 0
+        if (onorderBgLoading) {
+            setOnorderLoadingState(true);
+        } else {
+            document.getElementById('kpi-onorder').textContent = fmtM(current.open_orders || 0);
+        }
         document.getElementById('kpi-onyard').textContent = fmtM(current.on_yard || 0);
         document.getElementById('kpi-stodc').textContent = fmtM(current.dc_to_dc || 0);
         document.getElementById('kpi-intransit').textContent = fmtM(current.in_transit || 0);

@@ -1686,8 +1686,20 @@
         const priorWk = latestWk > 1 ? latestWk - 1 : 52;
         const wowData = byYear[2026][priorWk] || {};
 
+        // On-order KPI: use latest week that has on-order data
+        // On-order table refreshes daily so it may be 1 week ahead of the Friday inventory anchor
+        const fy26OrdWks = Object.keys(byYear[2026]).map(Number)
+            .filter(w => (byYear[2026][w].open_orders || 0) > 0)
+            .sort((a, b) => b - a);
+        const latestOrdWk = fy26OrdWks[0] || latestWk;
+        const ordCurrent = byYear[2026][latestOrdWk] || {};
+        const ordPriorWk = latestOrdWk > 1 ? latestOrdWk - 1 : 52;
+        const ordWow = byYear[2026][ordPriorWk] || {};
+        const ordYoy = byYear[2025][latestOrdWk] || {};
+        console.log('[BUCKETS] On-order KPI week:', latestOrdWk, '| inv anchor:', latestWk, '| units:', (ordCurrent.open_orders/1e9).toFixed(2)+'B');
+
         // Update KPIs with WoW and YoY
-        updateKPIs(currentData, wowData, yoyData);
+        updateKPIs(currentData, wowData, yoyData, ordCurrent, ordWow, ordYoy);
 
         // Render charts
         renderStackedChart(byYear);
@@ -1704,7 +1716,11 @@
         renderTable(byYear);
     }
 
-    function updateKPIs(current, wow, yoy) {
+    function updateKPIs(current, wow, yoy, ordCurrent, ordWow, ordYoy) {
+        // ordCurrent/ordWow/ordYoy override on-order KPI when on-order data is fresher than inventory anchor
+        ordCurrent = ordCurrent || current;
+        ordWow     = ordWow     || wow;
+        ordYoy     = ordYoy     || yoy;
         const calcPct = (cur, pri, label) => {
             if (!pri || pri === 0) return { text: '-', cls: 'wow-neutral' };
             const pct = ((cur - pri) / pri * 100).toFixed(1);
@@ -1719,7 +1735,7 @@
         if (onorderBgLoading || !onorderHasData) {
             setOnorderLoadingState(true);
         } else {
-            document.getElementById('kpi-onorder').textContent = fmtM(current.open_orders || 0);
+            document.getElementById('kpi-onorder').textContent = fmtM(ordCurrent.open_orders || 0);
         }
         document.getElementById('kpi-onyard').textContent = fmtM(current.on_yard || 0);
         document.getElementById('kpi-stodc').textContent = fmtM(current.dc_to_dc || 0);
@@ -1739,7 +1755,7 @@
             const el = document.getElementById(id);
             if (el) el.textContent = fmtCubeTotal(cubeVal);
         };
-        setCubeEl('kpi-onorder-cube',   current.cube_open_orders);
+        setCubeEl('kpi-onorder-cube',   ordCurrent.cube_open_orders);
         setCubeEl('kpi-onyard-cube',    current.cube_on_yard);
         setCubeEl('kpi-stodc-cube',     current.cube_dc_to_dc);
         setCubeEl('kpi-indc-cube',      current.cube_in_dc);
@@ -1762,7 +1778,7 @@
             if (wowEl) wowEl.innerHTML = fmt(cur, wowVal, 'WoW');
             if (yoyEl) yoyEl.innerHTML = fmt(cur, yoyVal, 'YoY');
         };
-        setCubeChange('kpi-onorder-cube-wow',   'kpi-onorder-cube-yoy',   current.cube_open_orders, wow.cube_open_orders,  yoy.cube_open_orders);
+        setCubeChange('kpi-onorder-cube-wow',   'kpi-onorder-cube-yoy',   ordCurrent.cube_open_orders, ordWow.cube_open_orders, ordYoy.cube_open_orders);
         setCubeChange('kpi-onyard-cube-wow',    'kpi-onyard-cube-yoy',    current.cube_on_yard,     wow.cube_on_yard,      yoy.cube_on_yard);
         setCubeChange('kpi-stodc-cube-wow',     'kpi-stodc-cube-yoy',     current.cube_dc_to_dc,    wow.cube_dc_to_dc,     yoy.cube_dc_to_dc);
         setCubeChange('kpi-indc-cube-wow',      'kpi-indc-cube-yoy',      current.cube_in_dc,       wow.cube_in_dc,        yoy.cube_in_dc);
@@ -1792,7 +1808,7 @@
             if (yoyEl) yoyEl.innerHTML = `<span class="${y.cls}">${y.text}</span>`;
         };
 
-        setChange('kpi-onorder-wow', 'kpi-onorder-yoy', current.open_orders, wow.open_orders, yoy.open_orders);
+        setChange('kpi-onorder-wow', 'kpi-onorder-yoy', ordCurrent.open_orders, ordWow.open_orders, ordYoy.open_orders);
         setChange('kpi-onyard-wow', 'kpi-onyard-yoy', current.on_yard, wow.on_yard, yoy.on_yard);
         setChange('kpi-stodc-wow', 'kpi-stodc-yoy', current.dc_to_dc, wow.dc_to_dc, yoy.dc_to_dc);
         setChange('kpi-intransit-wow', 'kpi-intransit-yoy', current.in_transit, wow.in_transit, yoy.in_transit);

@@ -3020,18 +3020,61 @@
             }
         }
 
+        // Anchor week vertical line — marks the week the KPI card represents
+        const anchorWk = getAnchorWeek();  // e.g. 12621
+        const anchorWkNum = anchorWk % 100;
+        const anchorLabel = `WK${String(anchorWkNum).padStart(2, '0')}`;
+        const anchorIdx = labels.indexOf(anchorLabel);
+
+        // Update subtitle to clarify which week the KPI shows
+        const trendSubtitle = document.querySelector('#onorder-trend-card .chart-container > div > div:last-child') ||
+                              document.querySelector('#onorder-trend-card [style*="0.68rem"]');
+        if (trendSubtitle && anchorIdx >= 0) {
+            trendSubtitle.innerHTML = `<span style="color:#60a5fa;">◆</span> KPI tile = <strong style="color:#e2e8f0;">${anchorLabel}</strong> &nbsp;·&nbsp; Units ordered per week · excl. DSD`;
+        }
+
+        const anchorLinePlugin = {
+            id: 'anchorLine',
+            afterDraw(chart) {
+                if (anchorIdx < 0) return;
+                const { ctx: c2, chartArea: { top, bottom }, scales: { x } } = chart;
+                const xPos = x.getPixelForIndex(anchorIdx);
+                c2.save();
+                c2.setLineDash([4, 3]);
+                c2.strokeStyle = 'rgba(96,165,250,0.5)';
+                c2.lineWidth = 1.5;
+                c2.beginPath(); c2.moveTo(xPos, top); c2.lineTo(xPos, bottom); c2.stroke();
+                c2.setLineDash([]);
+                c2.fillStyle = 'rgba(96,165,250,0.8)';
+                c2.font = 'bold 9px sans-serif';
+                c2.textAlign = 'center';
+                c2.fillText('◆ KPI', xPos, top - 2);
+                c2.restore();
+            }
+        };
+
         const ctx = document.getElementById('onorderTrendChart');
         if (!ctx) return;
         if (_onorderTrendChart) { _onorderTrendChart.destroy(); _onorderTrendChart = null; }
         _onorderTrendChart = new Chart(ctx, {
             type: 'line',
             data: { labels, datasets },
+            plugins: [anchorLinePlugin],
             options: {
                 responsive: true, maintainAspectRatio: true,
                 interaction: { mode: 'index', intersect: false },
+                layout: { padding: { top: 14 } },
                 plugins: {
                     legend: { labels: { color: '#94a3b8', font: { size: 10 }, boxWidth: 12 } },
-                    tooltip: { callbacks: { label: c => { const v = c.raw; return v ? `${c.dataset.label}: ${fmtTip(v)}` : null; } } }
+                    tooltip: {
+                        callbacks: {
+                            title: items => {
+                                const lbl = items[0]?.label || '';
+                                return lbl === anchorLabel ? `${lbl}  ◆ KPI Week` : lbl;
+                            },
+                            label: c => { const v = c.raw; return v ? `${c.dataset.label}: ${fmtTip(v)}` : null; }
+                        }
+                    }
                 },
                 scales: {
                     x: { ticks: { color: '#94a3b8', font: { size: 9 }, maxRotation: 45 }, grid: { color: '#1a1a2e' } },

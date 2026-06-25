@@ -3005,7 +3005,7 @@
                 const fy26i = {}, fy26d = {};
                 const importSrc = useDeptData
                     ? ONORDER_DATA.by_dept.filter(r => getOnorderWk(r) >= 12600 && r.dsd_ind !== 'DSD' && r.department === deptFilter)
-                    : ONORDER_DATA.by_sbu.filter(r => getOnorderWk(r) >= 12600 && r.dsd_ind !== 'DSD');
+                    : ONORDER_DATA.by_sbu.filter(r => getOnorderWk(r) >= 12600 && r.dsd_ind !== 'DSD' && (!sbuFilter || r.sbu === sbuFilter));
                 importSrc.forEach(r => {
                     const n = getOnorderWk(r) % 100; const u = r.units_ordered || 0;
                     if (r.import_ind === 'IMPORT') fy26i[n] = (fy26i[n] || 0) + u;

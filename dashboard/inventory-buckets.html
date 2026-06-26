@@ -1688,10 +1688,13 @@
         const priorWk = latestWk > 1 ? latestWk - 1 : 52;
         const wowData = byYear[2026][priorWk] || {};
 
-        // On-order KPI week = the same anchor week the chart uses (getAnchorWeek).
-        // getAnchorWeek() derives the current WM week from HIST_DATA.WM_YR_WK_NBR
-        // (loaded at init), so it always matches the chart anchor line.
-        const latestOrdWk = getAnchorWeek() % 100;
+        // On-order KPI week = current WM calendar week (not inventory anchor which lags 1 week).
+        // FY26 starts Sat Jan 31, 2026 = WK01. WM weeks run Sat–Fri.
+        const _fy26StartMs = new Date('2026-01-31').getTime();
+        const _todayMs = new Date().setHours(0, 0, 0, 0);
+        const latestOrdWk = (_todayMs >= _fy26StartMs && _todayMs < _fy26StartMs + 364 * 86400000)
+            ? Math.floor((_todayMs - _fy26StartMs) / (7 * 86400000)) + 1
+            : getAnchorWeek() % 100;
         const ordCurrent = byYear[2026][latestOrdWk] || {};
         const ordPriorWk = latestOrdWk > 1 ? latestOrdWk - 1 : 52;
         const ordWow = byYear[2026][ordPriorWk] || {};

@@ -1688,28 +1688,10 @@
         const priorWk = latestWk > 1 ? latestWk - 1 : 52;
         const wowData = byYear[2026][priorWk] || {};
 
-        // On-order KPI: detect the latest complete week using the same source + week
-        // function as the chart (ONORDER_DATA.by_sbu via getOnorderWk), so the KPI
-        // always matches what the chart shows.
-        const _ordWkTotals = {};
-        (ONORDER_DATA?.by_sbu || [])
-            .filter(r => r.dsd_ind !== 'DSD')
-            .forEach(r => {
-                const wk = getOnorderWk(r);
-                if (wk >= 12600 && wk <= 12660) {
-                    const n = wk % 100;
-                    _ordWkTotals[n] = (_ordWkTotals[n] || 0) + (r.units_ordered || 0);
-                }
-            });
-        const _ordWksSorted = Object.keys(_ordWkTotals).map(Number).sort((a, b) => b - a);
-        let latestOrdWk = _ordWksSorted[0] || latestWk;
-        if (_ordWksSorted.length >= 2) {
-            const _newestUnits = _ordWkTotals[_ordWksSorted[0]] || 0;
-            const _priorUnits  = _ordWkTotals[_ordWksSorted[1]] || 0;
-            if (_priorUnits > 0 && _newestUnits < _priorUnits * 0.25) {
-                latestOrdWk = _ordWksSorted[1];
-            }
-        }
+        // On-order KPI week = the same anchor week the chart uses (getAnchorWeek).
+        // getAnchorWeek() derives the current WM week from HIST_DATA.WM_YR_WK_NBR
+        // (loaded at init), so it always matches the chart anchor line.
+        const latestOrdWk = getAnchorWeek() % 100;
         const ordCurrent = byYear[2026][latestOrdWk] || {};
         const ordPriorWk = latestOrdWk > 1 ? latestOrdWk - 1 : 52;
         const ordWow = byYear[2026][ordPriorWk] || {};

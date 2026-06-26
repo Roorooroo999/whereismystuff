@@ -19,6 +19,7 @@ AS (
       ITEM_REPLENISHABLE_IND,
       ACCTG_DEPT_NBR AS DEPT_NBR,
       WHPK_QTY,
+      REPL_GROUP_NBR,
       CASE
         WHEN FINELINE_NBR = 8023 AND DEPT_NBR = 42 THEN 1
         WHEN ACCTG_DEPT_NBR = 19  AND DEPT_CATEGORY_NBR = 3072 THEN 1
@@ -227,7 +228,8 @@ WHERE FC_OH_UNITS > 0;
 
 
 -- ============================================================
--- STEP 1.5: BACKROOM INVENTORY (no ITEM_CUBE - no OMNI join in source)
+-- STEP 1.5: BACKROOM INVENTORY (daily grain via store_backroom_qty)
+-- Single source: RS001_WM_AD_HOC.store_backroom_qty covers full history from WK01 FY25.
 -- ============================================================
 DROP TABLE IF EXISTS `wmt-execution-intel-prod.WM_AD_HOC.R0C0JUG_WMUS_HIST_BACKROOM`;
 
@@ -238,9 +240,9 @@ AS (
   WITH FRIDAY_DATES AS (
     SELECT DISTINCT
       WM_FULL_YR_NBR AS WM_YEAR,
-      WM_WK_NBR AS WM_WEEK,
+      WM_WK_NBR      AS WM_WEEK,
       WM_YR_WK_NBR,
-      CAL_DT AS BUS_DT
+      CAL_DT         AS BUS_DT
     FROM `wmt-edw-prod.WW_CORE_DIM_DL_VM.DL_CALENDAR_DIM`
     WHERE (
       EXTRACT(DAYOFWEEK FROM CAL_DT) = 6
@@ -249,61 +251,57 @@ AS (
     )
       AND CAL_DT >= '2025-02-07'
       AND CAL_DT < CURRENT_DATE('America/Chicago')
+  ),
+
+  -- REPL_GRP_NBR → MDS_FAM_ID via pre-filtered ITEM_CUR universe.
+  -- 99.8% of REPL_GROUP_NBR values map to a single OMNI category, so
+  -- ROW_NUMBER dedup is safe (picks lowest MDS_FAM_ID on rare multi-family keys).
+  repl_item_map AS (
+    SELECT REPL_GROUP_NBR, MDS_FAM_ID
+    FROM ITEM_CUR
+    WHERE REPL_GROUP_NBR IS NOT NULL
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY REPL_GROUP_NBR ORDER BY MDS_FAM_ID) = 1
   )
+
   SELECT
     FRI.BUS_DT,
     FRI.WM_YEAR,
     FRI.WM_WEEK,
     FRI.WM_YR_WK_NBR,
-    BKRM.MDS_FAM_ID,
-    SUM(
-      CASE
-        WHEN BKRM.WM_YEAR = 25 THEN COALESCE(BKRM.BACKROOM_QTY_LY, 0)
-        WHEN BKRM.WM_YEAR = 26 THEN COALESCE(BKRM.BACKROOM_QTY_TY, 0)
-        ELSE 0
-      END
-    ) AS BACKROOM_UNITS,
-    SUM(
-      CASE
-        WHEN BKRM.WM_YEAR = 25 THEN COALESCE(BKRM.LY_OH, 0)
-        WHEN BKRM.WM_YEAR = 26 THEN COALESCE(BKRM.TY_OH, 0)
-        ELSE 0
-      END
-    ) AS STORE_OH_UNITS,
+    RIM.MDS_FAM_ID,
+    SUM(COALESCE(BKRM.TOTAL_BACKROOM_QTY, 0))                                AS BACKROOM_UNITS,
     SAFE_DIVIDE(
-      SUM(
-        CASE WHEN BKRM.WM_YEAR = 25 THEN COALESCE(BKRM.BACKROOM_QTY_LY, 0)
-             WHEN BKRM.WM_YEAR = 26 THEN COALESCE(BKRM.BACKROOM_QTY_TY, 0) ELSE 0 END
-        * SAFE_DIVIDE(OMNI.PKG_HT_IN_QTY * OMNI.PKG_WDTH_IN_QTY * OMNI.PKG_LEN_IN_QTY, 1728)
-      ),
-      NULLIF(SUM(
-        CASE WHEN BKRM.WM_YEAR = 25 THEN COALESCE(BKRM.BACKROOM_QTY_LY, 0)
-             WHEN BKRM.WM_YEAR = 26 THEN COALESCE(BKRM.BACKROOM_QTY_TY, 0) ELSE 0 END
-      ), 0)
-    ) AS BACKROOM_WTAVG_CUBE,
-    CAST(BKRM.omni_catg_nbr AS INT64)  AS OMNI_CATG_NBR,
-    BKRM.omni_catg_desc                AS OMNI_CATG_DESC,
-    CAST(BKRM.omni_dept_nbr AS INT64)  AS OMNI_DEPT_NBR,
-    BKRM.omni_dept_desc                AS OMNI_DEPT_DESC,
-    BKRM.SBU_NM                        AS SBU
-  FROM `wmt-instockinventory-datamart.WM_AD_HOC.o0c046n_backroom_oh_inv_inv_sol_reporting_pre_20260126` BKRM
+      SUM(COALESCE(BKRM.TOTAL_BACKROOM_QTY, 0)
+          * SAFE_DIVIDE(OMNI.PKG_HT_IN_QTY * OMNI.PKG_WDTH_IN_QTY * OMNI.PKG_LEN_IN_QTY, 1728)),
+      NULLIF(SUM(COALESCE(BKRM.TOTAL_BACKROOM_QTY, 0)), 0)
+    )                                                                         AS BACKROOM_WTAVG_CUBE,
+    OMNI.OMNI_CATG_NBR,
+    OMNI.OMNI_CATG_DESC,
+    OMNI.OMNI_DEPT_NBR,
+    OMNI.OMNI_DEPT_DESC,
+    CASE
+      WHEN OMNI.OMNI_DEPT_NBR IN (92,95)                      THEN 'PANTRY'
+      WHEN OMNI.OMNI_DEPT_NBR IN (2,4,8,13,40,46,79)          THEN 'CONSUMABLES'
+      WHEN OMNI.OMNI_DEPT_NBR IN (3,9,10,11,12,16,19,56)      THEN 'HARDLINES'
+      WHEN OMNI.OMNI_DEPT_NBR IN (90,91,1,82,96)              THEN 'CAC'
+      WHEN OMNI.OMNI_DEPT_NBR IN (23,24,25,26,29,31,32,33,34) THEN 'FASHION'
+      WHEN OMNI.OMNI_DEPT_NBR IN (14,17,20,22,71,74)          THEN 'HOME'
+      WHEN OMNI.OMNI_DEPT_NBR IN (80,81,93,94,97,98)          THEN 'FRESH'
+      WHEN OMNI.OMNI_DEPT_NBR IN (5,6,7,18,21,67,72,87)       THEN 'ETS'
+      ELSE 'OTHER'
+    END                                                                       AS SBU
+  FROM `wmt-instockinventory-datamart.RS001_WM_AD_HOC.store_backroom_qty` BKRM
   INNER JOIN FRIDAY_DATES FRI
-    ON (BKRM.WM_YEAR + 2000) = FRI.WM_YEAR
-    AND BKRM.WM_WEEK = FRI.WM_WEEK
+    ON BKRM.CAL_DATE = FRI.BUS_DT
+  INNER JOIN repl_item_map RIM
+    ON BKRM.REPL_GRP_NBR = RIM.REPL_GROUP_NBR
   LEFT JOIN `wmt-gdap-dl-sec-merch-bq-prod.us_mdse_omni_vm.mdse_omni_item_vw` OMNI
-    ON BKRM.MDS_FAM_ID = OMNI.MDS_FAM_ID
+    ON RIM.MDS_FAM_ID = OMNI.MDS_FAM_ID
     AND OMNI.VAL_IND = 1
     AND OMNI.OP_CMPNY_CD = 'WMT-US'
-  WHERE BKRM.WM_YEAR IN (25, 26)
-    AND (
-      (BKRM.WM_YEAR = 25 AND BKRM.BACKROOM_QTY_LY > 0)
-      OR
-      (BKRM.WM_YEAR = 26 AND BKRM.BACKROOM_QTY_TY > 0)
-    )
-  GROUP BY
-    FRI.BUS_DT, FRI.WM_YEAR, FRI.WM_WEEK, FRI.WM_YR_WK_NBR,
-    BKRM.MDS_FAM_ID, BKRM.omni_catg_nbr, BKRM.omni_catg_desc,
-    BKRM.omni_dept_nbr, BKRM.omni_dept_desc, BKRM.SBU_NM
+    AND OMNI.MDS_FAM_ID <> -1
+  WHERE COALESCE(BKRM.TOTAL_BACKROOM_QTY, 0) > 0
+  GROUP BY ALL
 );
 
 

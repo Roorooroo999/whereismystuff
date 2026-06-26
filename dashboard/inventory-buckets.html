@@ -1688,15 +1688,15 @@
 
         // On-order KPI: use latest week that has on-order data
         // On-order table refreshes daily so it may be 1 week ahead of the Friday inventory anchor
-        const fy26OrdWks = Object.keys(byYear[2026]).map(Number)
-            .filter(w => (byYear[2026][w].open_orders || 0) > 0)
-            .sort((a, b) => b - a);
-        const latestOrdWk = fy26OrdWks[0] || latestWk;
+        // On-order KPI always uses the current WM week (= inventory anchor week).
+        // WM weeks run Sat–Fri; latestWk reflects the current week via the mid-week
+        // refresh, so future-week MABD orders trickling in won't inflate/deflate the KPI.
+        const latestOrdWk = latestWk;
         const ordCurrent = byYear[2026][latestOrdWk] || {};
         const ordPriorWk = latestOrdWk > 1 ? latestOrdWk - 1 : 52;
         const ordWow = byYear[2026][ordPriorWk] || {};
         const ordYoy = byYear[2025][latestOrdWk] || {};
-        console.log('[BUCKETS] On-order KPI week:', latestOrdWk, '| inv anchor:', latestWk, '| units:', (ordCurrent.open_orders/1e9).toFixed(2)+'B');
+        console.log('[BUCKETS] On-order KPI week:', latestOrdWk, '| units:', (ordCurrent.open_orders/1e9).toFixed(2)+'B');
 
         // Update KPIs with WoW and YoY
         updateKPIs(currentData, wowData, yoyData, ordCurrent, ordWow, ordYoy);

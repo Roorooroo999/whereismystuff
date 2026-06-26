@@ -1686,12 +1686,21 @@
         const priorWk = latestWk > 1 ? latestWk - 1 : 52;
         const wowData = byYear[2026][priorWk] || {};
 
-        // On-order KPI: use latest week that has on-order data
-        // On-order table refreshes daily so it may be 1 week ahead of the Friday inventory anchor
-        // On-order KPI always uses the current WM week (= inventory anchor week).
-        // WM weeks run Sat–Fri; latestWk reflects the current week via the mid-week
-        // refresh, so future-week MABD orders trickling in won't inflate/deflate the KPI.
-        const latestOrdWk = latestWk;
+        // On-order KPI: find the latest COMPLETE on-order week.
+        // On-order refreshes daily and includes future MABD weeks (e.g. tiny WK22 orders
+        // appearing on the last day of WK21). The 25% guard skips those partial weeks:
+        // if the newest week < 25% of the prior week it's not yet meaningful — fall back.
+        const fy26OrdWks = Object.keys(byYear[2026]).map(Number)
+            .filter(w => (byYear[2026][w].open_orders || 0) > 0)
+            .sort((a, b) => b - a);
+        let latestOrdWk = fy26OrdWks[0] || latestWk;
+        if (fy26OrdWks.length >= 2) {
+            const newestUnits = byYear[2026][fy26OrdWks[0]]?.open_orders || 0;
+            const priorUnits  = byYear[2026][fy26OrdWks[1]]?.open_orders || 0;
+            if (priorUnits > 0 && newestUnits < priorUnits * 0.25) {
+                latestOrdWk = fy26OrdWks[1];
+            }
+        }
         const ordCurrent = byYear[2026][latestOrdWk] || {};
         const ordPriorWk = latestOrdWk > 1 ? latestOrdWk - 1 : 52;
         const ordWow = byYear[2026][ordPriorWk] || {};

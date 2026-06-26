@@ -1060,6 +1060,7 @@
                 if (onorderResp.ok) {
                     ONORDER_DATA = await onorderResp.json();
                     CACHED_BUCKETS_DATA = null;  // invalidate stale cache before re-render
+                    CACHED_BY_YEAR = null;        // byYear must be rebuilt with on-order data
                     setOnorderLoadingState(false);
                     renderCharts();
                     initBucketDrillFilters();
@@ -1121,6 +1122,7 @@
                     if (!data) return;
                     ONORDER_DATA = data;
                     CACHED_BUCKETS_DATA = null;  // invalidate stale cache built with empty on-order data
+                    CACHED_BY_YEAR = null;        // byYear must be rebuilt with on-order data
                     onorderBgLoading = false;
                     setOnorderLoadingState(false);
                     console.log('[BUCKETS] On-order loaded in background:', ONORDER_DATA.by_sbu?.length || 0, 'SBU rows');

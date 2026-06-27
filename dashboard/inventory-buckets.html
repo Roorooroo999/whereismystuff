@@ -716,7 +716,7 @@
                                 <span><span style="color:#f59e0b; font-size:0.9em;">╌╌</span> FY26 Import</span>
                                 <span><span style="color:#a78bfa; font-size:0.9em;">╌╌</span> FY26 Domestic</span>
                             </div>
-                            <canvas id="onorderTrendChart" height="70"></canvas>
+                            <canvas id="onorderTrendChart" style="height:280px;"></canvas>
                         </div>
 
                         <!-- WoW / YoY Ranking Table -->
@@ -1692,13 +1692,21 @@
         const priorWk = latestWk > 1 ? latestWk - 1 : 52;
         const wowData = byYear[2026][priorWk] || {};
 
-        // On-order KPI week = current WM calendar week (not inventory anchor which lags 1 week).
-        // FY26 starts Sat Jan 31, 2026 = WK01. WM weeks run Sat–Fri.
+        // On-order KPI week = latest COMPLETED WM week (week whose Friday has passed).
+        // FY26 starts Sat Jan 31, 2026 = WK01. WM weeks run Sat(day0)–Fri(day6).
+        // daysIntoWk: 0=Sat, 1=Sun, 2=Mon, 3=Tue, 4=Wed, 5=Thu, 6=Fri
+        // A week is "complete" only once its Friday (day 6) has occurred.
+        // On Sat–Thu of WK N: last complete week = N-1. On Fri of WK N: last complete week = N.
         const _fy26StartMs = new Date('2026-01-31').getTime();
-        const _todayMs = new Date().setHours(0, 0, 0, 0);
-        const latestOrdWk = (_todayMs >= _fy26StartMs && _todayMs < _fy26StartMs + 364 * 86400000)
-            ? Math.floor((_todayMs - _fy26StartMs) / (7 * 86400000)) + 1
-            : getAnchorWeek() % 100;
+        const _daysSinceFY26 = Math.floor((Date.now() - _fy26StartMs) / 86400000);
+        let latestOrdWk;
+        if (_daysSinceFY26 >= 0 && _daysSinceFY26 < 364) {
+            const _calWk = Math.floor(_daysSinceFY26 / 7) + 1;
+            const _daysIntoWk = _daysSinceFY26 % 7;   // 0=Sat … 6=Fri
+            latestOrdWk = Math.max(1, _daysIntoWk === 6 ? _calWk : _calWk - 1);
+        } else {
+            latestOrdWk = getAnchorWeek() % 100;
+        }
         const ordCurrent = byYear[2026][latestOrdWk] || {};
         const ordPriorWk = latestOrdWk > 1 ? latestOrdWk - 1 : 52;
         const ordWow = byYear[2026][ordPriorWk] || {};
@@ -3084,7 +3092,8 @@
             data: { labels, datasets },
             plugins: [anchorLinePlugin],
             options: {
-                responsive: true, maintainAspectRatio: true,
+                animation: { duration: 0 },
+                responsive: true, maintainAspectRatio: false,
                 interaction: { mode: 'index', intersect: false },
                 layout: { padding: { top: 14 } },
                 plugins: {

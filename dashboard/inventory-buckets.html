@@ -3052,8 +3052,17 @@
         }
 
         // Anchor week vertical line — marks the week the KPI card represents
-        const anchorWk = getAnchorWeek();  // e.g. 12621
-        const anchorWkNum = anchorWk % 100;
+        // Use same "last complete WM week" logic as the KPI tile
+        const _aFy26StartMs = new Date('2026-01-31').getTime();
+        const _aDaysSinceFY26 = Math.floor((Date.now() - _aFy26StartMs) / 86400000);
+        let anchorWkNum;
+        if (_aDaysSinceFY26 >= 0 && _aDaysSinceFY26 < 364) {
+            const _aCalWk = Math.floor(_aDaysSinceFY26 / 7) + 1;
+            const _aDaysIntoWk = _aDaysSinceFY26 % 7;
+            anchorWkNum = Math.max(1, _aDaysIntoWk === 6 ? _aCalWk : _aCalWk - 1);
+        } else {
+            anchorWkNum = getAnchorWeek() % 100;
+        }
         const anchorLabel = `WK${String(anchorWkNum).padStart(2, '0')}`;
         const anchorIdx = labels.indexOf(anchorLabel);
 

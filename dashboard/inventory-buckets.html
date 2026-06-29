@@ -2927,6 +2927,8 @@
                 onOrderTabVisible = true;  // flag for background-load callback
                 updateOnOrderSidebarBanner();
                 setTimeout(renderOnOrderTab, 100);
+                // Belt-and-suspenders: call ranking table directly in case chart render throws
+                setTimeout(() => { if (ONORDER_DATA?.by_sbu?.length) renderOnOrderRankingTable(); }, 200);
             });
         }
 
@@ -2955,10 +2957,18 @@
     // On Order Tab
     // ══════════════════════════════════════════════════════════════════════
     function renderOnOrderTab() {
-        if (!ONORDER_DATA || !ONORDER_DATA.by_sbu) return;
+        if (!ONORDER_DATA || !ONORDER_DATA.by_sbu) {
+            console.log('[OO] renderOnOrderTab: no data yet');
+            return;
+        }
+        console.log('[OO] renderOnOrderTab: rendering chart + table, rows=', ONORDER_DATA.by_sbu.length);
 
-        // Render trend chart and ranking table
-        renderOnOrderTrendChart();
+        // Render trend chart — try/catch so any chart error never blocks the ranking table
+        try {
+            renderOnOrderTrendChart();
+        } catch(e) {
+            console.error('[OO] Trend chart threw inside renderOnOrderTab:', e);
+        }
         renderOnOrderRankingTable();
 
         // Populate dept dropdown options once (requires ONORDER_DATA.by_dept to be loaded)
@@ -3092,19 +3102,28 @@
             id: 'anchorLine',
             afterDraw(chart) {
                 if (anchorIdx < 0) return;
-                const { ctx: c2, chartArea: { top, bottom }, scales: { x } } = chart;
-                const xPos = x.getPixelForIndex(anchorIdx);
-                c2.save();
-                c2.setLineDash([4, 3]);
-                c2.strokeStyle = 'rgba(96,165,250,0.5)';
-                c2.lineWidth = 1.5;
-                c2.beginPath(); c2.moveTo(xPos, top); c2.lineTo(xPos, bottom); c2.stroke();
-                c2.setLineDash([]);
-                c2.fillStyle = 'rgba(96,165,250,0.8)';
-                c2.font = 'bold 9px sans-serif';
-                c2.textAlign = 'center';
-                c2.fillText('◆ KPI', xPos, top - 2);
-                c2.restore();
+                // Guard: chartArea may be null if canvas has zero dimensions during tab transition
+                const { chartArea, scales: { x } } = chart;
+                if (!chartArea || !x) return;
+                try {
+                    const { top, bottom } = chartArea;
+                    // Support both Chart.js v3 (getPixelForIndex) and v4+ (getPixelForValue)
+                    const xPos = typeof x.getPixelForIndex === 'function'
+                        ? x.getPixelForIndex(anchorIdx)
+                        : x.getPixelForValue(anchorIdx);
+                    const c2 = chart.ctx;
+                    c2.save();
+                    c2.setLineDash([4, 3]);
+                    c2.strokeStyle = 'rgba(96,165,250,0.5)';
+                    c2.lineWidth = 1.5;
+                    c2.beginPath(); c2.moveTo(xPos, top); c2.lineTo(xPos, bottom); c2.stroke();
+                    c2.setLineDash([]);
+                    c2.fillStyle = 'rgba(96,165,250,0.8)';
+                    c2.font = 'bold 9px sans-serif';
+                    c2.textAlign = 'center';
+                    c2.fillText('◆ KPI', xPos, top - 2);
+                    c2.restore();
+                } catch(e) { /* anchor line is decorative — silently skip on error */ }
             }
         };
 

@@ -1035,6 +1035,9 @@
             // Render charts
             renderCharts();
 
+            // If user navigated to On Order tab while page was loading, render it now
+            if (onOrderTabVisible && ONORDER_DATA?.by_sbu?.length) renderOnOrderTab();
+
             // Pre-initialize Change Analysis tab
             initBucketDrillFilters();
 
@@ -2927,8 +2930,6 @@
                 onOrderTabVisible = true;  // flag for background-load callback
                 updateOnOrderSidebarBanner();
                 setTimeout(renderOnOrderTab, 100);
-                // Belt-and-suspenders: call ranking table directly in case chart render throws
-                setTimeout(() => { if (ONORDER_DATA?.by_sbu?.length) renderOnOrderRankingTable(); }, 200);
             });
         }
 
@@ -2936,47 +2937,39 @@
         ['tab-pipeline-link', 'tab-change-analysis-link'].forEach(id => {
             document.getElementById(id)?.addEventListener('click', () => { onOrderTabVisible = false; });
         });
-
-        // ── Wire On Order filter listeners at page load (not inside renderOnOrderTab) ──
-        // This ensures they work even on cold server start (data not yet loaded when tab first opened)
-        document.getElementById('onorder-trend-view')?.addEventListener('change', () => {
-            if (ONORDER_DATA?.by_sbu) renderOnOrderTrendChart();
-        });
-        document.getElementById('onorder-trend-import')?.addEventListener('change', () => {
-            if (ONORDER_DATA?.by_sbu) renderOnOrderTrendChart();
-        });
-        document.getElementById('onorder-trend-dept')?.addEventListener('change', () => {
-            if (ONORDER_DATA?.by_sbu) renderOnOrderTrendChart();
-        });
-        document.getElementById('onorder-rank-import')?.addEventListener('change', () => {
-            if (ONORDER_DATA?.by_sbu) renderOnOrderRankingTable();
-        });
     });
 
     // ══════════════════════════════════════════════════════════════════════
     // On Order Tab
     // ══════════════════════════════════════════════════════════════════════
     function renderOnOrderTab() {
-        if (!ONORDER_DATA || !ONORDER_DATA.by_sbu) {
-            console.log('[OO] renderOnOrderTab: no data yet');
-            return;
-        }
-        console.log('[OO] renderOnOrderTab: rendering chart + table, rows=', ONORDER_DATA.by_sbu.length);
+        if (!ONORDER_DATA || !ONORDER_DATA.by_sbu) return;
 
-        // Render trend chart — try/catch so any chart error never blocks the ranking table
+        // Render trend chart — try/catch so afterDraw errors never block the ranking table
         try {
             renderOnOrderTrendChart();
         } catch(e) {
-            console.error('[OO] Trend chart threw inside renderOnOrderTab:', e);
+            console.error('[OO] chart error:', e);
         }
         renderOnOrderRankingTable();
 
-        // Populate dept dropdown options once (requires ONORDER_DATA.by_dept to be loaded)
-        const trendDept = document.getElementById('onorder-trend-dept');
-        if (trendDept && trendDept.options.length <= 1 && ONORDER_DATA.by_dept?.length > 0) {
-            const depts = [...new Set(ONORDER_DATA.by_dept.map(r => r.department).filter(Boolean))].sort();
-            depts.forEach(d => { const o = document.createElement('option'); o.value = d; o.textContent = d; trendDept.appendChild(o); });
+        // Wire up filter listeners once per element (_wired flag = Jun 24 pattern that worked)
+        const trendView   = document.getElementById('onorder-trend-view');
+        const trendImport = document.getElementById('onorder-trend-import');
+        const trendDept   = document.getElementById('onorder-trend-dept');
+        const rankImport  = document.getElementById('onorder-rank-import');
+        if (trendView   && !trendView._wired)   { trendView.addEventListener('change', renderOnOrderTrendChart);   trendView._wired = true; }
+        if (trendImport && !trendImport._wired) { trendImport.addEventListener('change', renderOnOrderTrendChart); trendImport._wired = true; }
+        if (trendDept   && !trendDept._wired) {
+            // Populate dept options from by_dept data (once)
+            if (ONORDER_DATA.by_dept?.length > 0 && trendDept.options.length <= 1) {
+                const depts = [...new Set(ONORDER_DATA.by_dept.map(r => r.department).filter(Boolean))].sort();
+                depts.forEach(d => { const o = document.createElement('option'); o.value = d; o.textContent = d; trendDept.appendChild(o); });
+            }
+            trendDept.addEventListener('change', renderOnOrderTrendChart);
+            trendDept._wired = true;
         }
+        if (rankImport  && !rankImport._wired)  { rankImport.addEventListener('change', renderOnOrderRankingTable); rankImport._wired = true; }
     }
 
     // ============================================================

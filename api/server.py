@@ -1857,55 +1857,34 @@ onorder_cache = OnOrderCache()
 # ============================================================
 
 async def cache_refresh_loop():
-    """Background task: refresh all caches every REFRESH_INTERVAL seconds or when date changes.
+    """Background task: refresh all caches from BigQuery every REFRESH_INTERVAL seconds (hourly).
 
-    For date-change refreshes, historical/on-order caches wait until 08:00 AM Chicago time
-    before querying BigQuery. The BQ pipeline runs at 07:00 AM UTC-5 and may take several
-    minutes to complete — refreshing at midnight would race against it and load stale data,
-    then skip all subsequent hourly checks for the rest of the day (loaded_date == today).
-    Current-snapshot cache (WHERES_MY_STUFF_ROLLUP) has no pipeline dependency so it
-    refreshes immediately on date change as before.
+    Hourly refresh ensures the dashboard picks up new BQ pipeline data within 1 hour of
+    the pipeline completing (pipeline runs at 7AM Saturday). Max lag = 1 hour regardless
+    of server restart timing — eliminates the same-day stale-parquet race condition.
     """
-    PIPELINE_READY_HOUR = int(os.environ.get("PIPELINE_READY_HOUR", "8"))  # 8 AM Chicago time
     while True:
         try:
             await asyncio.sleep(REFRESH_INTERVAL)
-            now = datetime.now()
-            current_date = now.strftime("%Y-%m-%d")
-            current_hour = now.hour
             loop = asyncio.get_event_loop()
+            logger.info("[CACHE] Hourly refresh starting...")
 
-            # Current snapshot — refresh immediately on date change (no pipeline dependency)
-            if cache.loaded_date != current_date or not cache.is_ready:
-                logger.info(f"[CACHE] Auto-refresh triggered (date={current_date}, last={cache.loaded_date})")
-                await loop.run_in_executor(None, cache.load)
+            # Current snapshot
+            await loop.run_in_executor(None, cache.load)
 
-            # Historical — wait until PIPELINE_READY_HOUR before date-change refresh
-            # to avoid racing against the 7AM BQ pipeline run.
-            hist_date_changed = hist_cache.loaded_date != current_date
-            if (hist_date_changed and current_hour >= PIPELINE_READY_HOUR) or not hist_cache.is_ready:
-                logger.info(f"[HIST] Auto-refresh triggered (date={current_date}, last={hist_cache.loaded_date}, hour={current_hour})")
-                await loop.run_in_executor(None, lambda: hist_cache.load(force_refresh=True))
-            elif hist_date_changed:
-                logger.info(f"[HIST] Date changed but waiting for pipeline (hour={current_hour} < {PIPELINE_READY_HOUR}) — will refresh after {PIPELINE_READY_HOUR}:00")
+            # Historical — force BQ query (bypass disk cache) so new pipeline data is picked up
+            await loop.run_in_executor(None, lambda: hist_cache.load(force_refresh=True))
 
-            # On-order — same pipeline-ready guard
-            onorder_date_changed = onorder_cache.loaded_date != current_date
-            if (onorder_date_changed and current_hour >= PIPELINE_READY_HOUR) or not onorder_cache.is_ready:
-                logger.info(f"[ONORDER] Auto-refresh triggered (date={current_date}, last={onorder_cache.loaded_date}, hour={current_hour})")
-                await loop.run_in_executor(None, onorder_cache.load)
-            elif onorder_date_changed:
-                logger.info(f"[ONORDER] Date changed but waiting for pipeline (hour={current_hour} < {PIPELINE_READY_HOUR})")
+            # On-order
+            await loop.run_in_executor(None, onorder_cache.load)
 
-            # STO-DC — same pipeline-ready guard
-            sto_date_changed = _sto_dc_cache_date != current_date
-            if sto_date_changed and current_hour >= PIPELINE_READY_HOUR and not _sto_dc_loading:
-                logger.info(f"[STO-DC] Auto-refresh triggered (date={current_date}, last={_sto_dc_cache_date}, hour={current_hour})")
+            # STO-DC
+            if not _sto_dc_loading:
                 await loop.run_in_executor(None, _load_sto_dc_from_bq)
-            elif sto_date_changed and current_hour < PIPELINE_READY_HOUR:
-                logger.info(f"[STO-DC] Date changed but waiting for pipeline (hour={current_hour} < {PIPELINE_READY_HOUR})")
+
+            logger.info("[CACHE] Hourly refresh complete")
         except Exception as e:
-            logger.error(f"[CACHE] Auto-refresh failed: {e}")
+            logger.error(f"[CACHE] Hourly refresh failed: {e}")
 
 
 async def _load_hist_cache_background():

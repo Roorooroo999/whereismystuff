@@ -716,7 +716,9 @@
                                 <span><span style="color:#f59e0b; font-size:0.9em;">╌╌</span> FY26 Import</span>
                                 <span><span style="color:#a78bfa; font-size:0.9em;">╌╌</span> FY26 Domestic</span>
                             </div>
-                            <canvas id="onorderTrendChart" style="height:280px;"></canvas>
+                            <div style="position:relative; height:280px;">
+                                <canvas id="onorderTrendChart"></canvas>
+                            </div>
                         </div>
 
                         <!-- WoW / YoY Ranking Table -->
@@ -1130,7 +1132,8 @@
                     renderCharts();
                     initBucketDrillFilters();
                     // If the On Order tab is currently visible, re-render it now that data is loaded
-                    if (document.getElementById('tab-on-order')?.classList.contains('active')) {
+                    // Use boolean flag instead of classList check (Bootstrap animation race condition)
+                    if (onOrderTabVisible) {
                         renderOnOrderTab();
                     }
                     // Preload on-order catg in background for change analysis category view
@@ -2843,6 +2846,7 @@
 
         if (changeTab) {
             changeTab.addEventListener('click', function(e) {
+                onOrderTabVisible = false;
                 console.log('[CHANGE] Tab CLICKED');
                 const tabPane = document.getElementById('tab-change-analysis');
                 const pipelinePane = document.getElementById('tab-pipeline');
@@ -2894,6 +2898,7 @@
 
         if (pipelineTab) {
             pipelineTab.addEventListener('click', function() {
+                onOrderTabVisible = false;
                 const tabPane = document.getElementById('tab-pipeline');
                 const changePane = document.getElementById('tab-change-analysis');
                 const onorderPane = document.getElementById('tab-on-order');
@@ -2919,10 +2924,31 @@
                     onorderPane.style.opacity = '1';
                     onorderPane.classList.add('show', 'active');
                 }
+                onOrderTabVisible = true;  // flag for background-load callback
                 updateOnOrderSidebarBanner();
                 setTimeout(renderOnOrderTab, 100);
             });
         }
+
+        // When other tabs are clicked, clear the on-order visibility flag
+        ['tab-pipeline-link', 'tab-change-analysis-link'].forEach(id => {
+            document.getElementById(id)?.addEventListener('click', () => { onOrderTabVisible = false; });
+        });
+
+        // ── Wire On Order filter listeners at page load (not inside renderOnOrderTab) ──
+        // This ensures they work even on cold server start (data not yet loaded when tab first opened)
+        document.getElementById('onorder-trend-view')?.addEventListener('change', () => {
+            if (ONORDER_DATA?.by_sbu) renderOnOrderTrendChart();
+        });
+        document.getElementById('onorder-trend-import')?.addEventListener('change', () => {
+            if (ONORDER_DATA?.by_sbu) renderOnOrderTrendChart();
+        });
+        document.getElementById('onorder-trend-dept')?.addEventListener('change', () => {
+            if (ONORDER_DATA?.by_sbu) renderOnOrderTrendChart();
+        });
+        document.getElementById('onorder-rank-import')?.addEventListener('change', () => {
+            if (ONORDER_DATA?.by_sbu) renderOnOrderRankingTable();
+        });
     });
 
     // ══════════════════════════════════════════════════════════════════════
@@ -2935,23 +2961,12 @@
         renderOnOrderTrendChart();
         renderOnOrderRankingTable();
 
-        // Wire up filter listeners (once)
-        const trendView = document.getElementById('onorder-trend-view');
-        const trendImport = document.getElementById('onorder-trend-import');
+        // Populate dept dropdown options once (requires ONORDER_DATA.by_dept to be loaded)
         const trendDept = document.getElementById('onorder-trend-dept');
-        const rankImport = document.getElementById('onorder-rank-import');
-        if (trendView && !trendView._wired) { trendView.addEventListener('change', renderOnOrderTrendChart); trendView._wired = true; }
-        if (trendImport && !trendImport._wired) { trendImport.addEventListener('change', renderOnOrderTrendChart); trendImport._wired = true; }
-        if (trendDept && !trendDept._wired) {
-            // Populate dept options from by_dept data
-            if (ONORDER_DATA.by_dept && ONORDER_DATA.by_dept.length > 0 && trendDept.options.length <= 1) {
-                const depts = [...new Set(ONORDER_DATA.by_dept.map(r => r.department).filter(Boolean))].sort();
-                depts.forEach(d => { const o = document.createElement('option'); o.value = d; o.textContent = d; trendDept.appendChild(o); });
-            }
-            trendDept.addEventListener('change', renderOnOrderTrendChart);
-            trendDept._wired = true;
+        if (trendDept && trendDept.options.length <= 1 && ONORDER_DATA.by_dept?.length > 0) {
+            const depts = [...new Set(ONORDER_DATA.by_dept.map(r => r.department).filter(Boolean))].sort();
+            depts.forEach(d => { const o = document.createElement('option'); o.value = d; o.textContent = d; trendDept.appendChild(o); });
         }
-        if (rankImport && !rankImport._wired) { rankImport.addEventListener('change', renderOnOrderRankingTable); rankImport._wired = true; }
     }
 
     // ============================================================
@@ -3149,6 +3164,7 @@
     let RANKING_SCOPE = 'current'; // 'current' or 'past4'
     let RANKING_VIEW = 'sbu';
     let ONORDER_WEEK_BY = 'mabd'; // 'mabd' or 'in_store'
+    let onOrderTabVisible = false; // true when On Order tab is open (used by background load)
 
     function getOnorderWk(r) {
         return ONORDER_WEEK_BY === 'in_store' ? (r.in_store_wm_week || r.wm_week) : r.wm_week;

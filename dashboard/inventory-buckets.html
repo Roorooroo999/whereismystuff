@@ -1520,11 +1520,11 @@
             weeklyData[wk].fc_oh      += r.fc_oh      || 0;
             weeklyData[wk].in_transit += r.in_transit || 0;
             weeklyData[wk].on_yard    += r.on_yard    || 0;
-            weeklyData[wk].dc_to_dc   += r.sto_to_dc  || 0;
+            weeklyData[wk].dc_to_dc   += r.intransit_to_dc  || 0;
 
             // Cube numerators (accumulate so we can re-derive weighted avg across SBUs/depts)
             weeklyData[wk]._cnum_on_yard    += (r.on_yard    || 0) * (r.on_yard_wtavg_cube    || 0);
-            weeklyData[wk]._cnum_dc_to_dc   += (r.sto_to_dc  || 0) * (r.sto_wtavg_cube        || 0);
+            weeklyData[wk]._cnum_dc_to_dc   += (r.intransit_to_dc  || 0) * (r.intransit_dc_wtavg_cube        || 0);
             weeklyData[wk]._cnum_in_transit += (r.in_transit || 0) * (r.transit_wtavg_cube    || 0);
             weeklyData[wk]._cnum_fc_oh      += (r.fc_oh      || 0) * (r.fc_wtavg_cube         || 0);
             weeklyData[wk]._cnum_backroom   += (r.backroom   || 0) * (r.backroom_wtavg_cube   || 0);
@@ -2278,7 +2278,7 @@
                         key, SBU: r.SBU || '', dept: r.department || '', catg: r.category || '',
                         on_floor: 0, backroom: 0, store_oh: 0,
                         dc_oh: 0, dc_reserved: 0, dc_labeled: 0, dc_unlabeled: 0,
-                        in_transit: 0, sto_to_dc: 0, on_yard: 0, fc_oh: 0,
+                        in_transit: 0, intransit_to_dc: 0, on_yard: 0, fc_oh: 0,
                         total_network: 0, open_orders: 0
                     };
                 }
@@ -2290,7 +2290,7 @@
                 agg[key].dc_labeled += r.dc_labeled || 0;
                 agg[key].dc_unlabeled += r.dc_unlabeled || 0;
                 agg[key].in_transit += r.in_transit || 0;
-                agg[key].sto_to_dc += r.sto_to_dc || 0;
+                agg[key].intransit_to_dc += r.intransit_to_dc || 0;
                 agg[key].on_yard += r.on_yard || 0;
                 agg[key].fc_oh += r.fc_oh || 0;
                 agg[key].total_network += r.total_network || 0;
@@ -2341,7 +2341,7 @@
                     if (!aggObj[key]) {
                         aggObj[key] = { key, SBU: rSBU, dept: r.department || '', catg: r.category || '',
                             on_floor: 0, backroom: 0, store_oh: 0, dc_oh: 0, dc_reserved: 0,
-                            dc_labeled: 0, dc_unlabeled: 0, in_transit: 0, sto_to_dc: 0,
+                            dc_labeled: 0, dc_unlabeled: 0, in_transit: 0, intransit_to_dc: 0,
                             on_yard: 0, fc_oh: 0, total_network: 0, open_orders: 0 };
                     }
                     aggObj[key].open_orders += r.units_ordered || 0;
@@ -2600,13 +2600,13 @@
                             const key = r.category; if (!key) return;
                             if (!a[key]) a[key] = { key, SBU: r.SBU || '', dept: r.department || '',
                                 on_floor: 0, backroom: 0, store_oh: 0, dc_oh: 0, dc_reserved: 0,
-                                dc_labeled: 0, dc_unlabeled: 0, in_transit: 0, sto_to_dc: 0,
+                                dc_labeled: 0, dc_unlabeled: 0, in_transit: 0, intransit_to_dc: 0,
                                 on_yard: 0, fc_oh: 0, total_network: 0, open_orders: 0 };
                             a[key].on_floor    += r.on_floor    || 0; a[key].backroom  += r.backroom   || 0;
                             a[key].store_oh    += r.store_oh    || 0; a[key].dc_oh      += r.dc_oh      || 0;
                             a[key].dc_reserved += r.dc_reserved || 0; a[key].dc_labeled += r.dc_labeled || 0;
                             a[key].dc_unlabeled+= r.dc_unlabeled|| 0; a[key].in_transit += r.in_transit || 0;
-                            a[key].sto_to_dc   += r.sto_to_dc   || 0; a[key].on_yard    += r.on_yard    || 0;
+                            a[key].intransit_to_dc   += r.intransit_to_dc   || 0; a[key].on_yard    += r.on_yard    || 0;
                             a[key].fc_oh       += r.fc_oh       || 0; a[key].total_network += r.total_network || 0;
                         });
                     // Merge open_orders from ONORDER catg data (only when loaded)
@@ -2621,7 +2621,7 @@
                                 const key = r.category; if (!key) return;
                                 if (!a[key]) a[key] = { key, SBU: r.sbu || '', dept: r.department || '',
                                     on_floor: 0, backroom: 0, store_oh: 0, dc_oh: 0, dc_reserved: 0,
-                                    dc_labeled: 0, dc_unlabeled: 0, in_transit: 0, sto_to_dc: 0,
+                                    dc_labeled: 0, dc_unlabeled: 0, in_transit: 0, intransit_to_dc: 0,
                                     on_yard: 0, fc_oh: 0, total_network: 0, open_orders: 0 };
                                 a[key].open_orders += r.units_ordered || 0;
                             });
@@ -2649,11 +2649,11 @@
                 if (position === 'total_pipeline') {
                     return (rec.on_floor || 0) + (rec.backroom || 0) + (rec.dc_oh || 0) + (rec.dc_reserved || 0) +
                            (rec.dc_labeled || 0) + (rec.dc_unlabeled || 0) + (rec.fc_oh || 0) + (rec.on_yard || 0) +
-                           (rec.in_transit || 0) + (rec.sto_to_dc || 0);
+                           (rec.in_transit || 0) + (rec.intransit_to_dc || 0);
                 } else if (position === 'in_dc') {
                     return (rec.dc_oh || 0) + (rec.dc_reserved || 0) + (rec.dc_labeled || 0) + (rec.dc_unlabeled || 0);
                 } else if (position === 'dc_to_dc') {
-                    return rec.sto_to_dc || 0;
+                    return rec.intransit_to_dc || 0;
                 }
                 return rec[position] || 0;
             };

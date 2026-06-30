@@ -698,7 +698,7 @@ class HistoricalCache:
     # Columns to SUM at each aggregation level
     METRIC_COLS = [
         "store_oh", "backroom", "on_floor", "dc_reserved", "in_transit",
-        "dc_oh", "dc_labeled", "dc_unlabeled", "sto_to_dc", "total_network",
+        "dc_oh", "dc_labeled", "dc_unlabeled", "intransit_to_dc", "total_network",
         "fc_oh", "fc_oh_cost", "total_network_cost",
         "dc_oh_regional", "dc_oh_grocery", "dc_oh_fashion", "dc_oh_imports",
         "dc_oh_gidc", "dc_oh_msc", "dc_oh_support", "dc_oh_other",
@@ -752,7 +752,8 @@ class HistoricalCache:
                 SUM(COALESCE(DC_RESERVED_UNITS, 0)) AS dc_reserved,
                 SUM(COALESCE(DC_LABELED_UNITS, 0)) AS dc_labeled,
                 SUM(COALESCE(DC_UNLABELED_UNITS, 0)) AS dc_unlabeled,
-                SUM(COALESCE(STO_IN_TRANSIT_TO_DC_UNITS, 0)) AS sto_to_dc,
+                SUM(COALESCE(INTRANSIT_TO_DC_UNITS, 0)) AS intransit_to_dc,
+                SUM(COALESCE(INTRANSIT_TO_DC_COST, 0)) AS intransit_to_dc_cost,
                 SUM(COALESCE(ON_YARD_UNITS, 0)) AS on_yard,
                 SUM(COALESCE(IN_TRANSIT_UNITS, 0)) AS in_transit,
                 SUM(COALESCE(TOTAL_NETWORK_UNITS, 0)) AS total_network,
@@ -768,7 +769,20 @@ class HistoricalCache:
                 SUM(COALESCE(ON_YARD_REGIONAL_UNITS, 0)) AS on_yard_regional,
                 SUM(COALESCE(ON_YARD_GROCERY_UNITS, 0)) AS on_yard_grocery,
                 SUM(COALESCE(ON_YARD_FASHION_UNITS, 0)) AS on_yard_fashion,
-                SUM(COALESCE(ON_YARD_IMPORTS_UNITS, 0)) AS on_yard_imports
+                SUM(COALESCE(ON_YARD_IMPORTS_UNITS, 0)) AS on_yard_imports,
+                -- Cube: HIST_COMBINED stores TOTAL_CUBE; derive wtavg by dividing by units
+                SAFE_DIVIDE(SUM(COALESCE(STORE_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(STORE_OH_UNITS,0)),0)) AS store_wtavg_cube,
+                SAFE_DIVIDE(SUM(COALESCE(BACKROOM_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(BACKROOM_UNITS,0)),0)) AS backroom_wtavg_cube,
+                SAFE_DIVIDE(SUM(COALESCE(ON_FLOOR_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(ON_FLOOR_UNITS,0)),0)) AS on_floor_wtavg_cube,
+                SAFE_DIVIDE(SUM(COALESCE(DC_RESERVED_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(DC_RESERVED_UNITS,0)),0)) AS dc_reserved_wtavg_cube,
+                SAFE_DIVIDE(SUM(COALESCE(TRANSIT_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(IN_TRANSIT_UNITS,0)),0)) AS transit_wtavg_cube,
+                SAFE_DIVIDE(SUM(COALESCE(FC_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(FC_OH_UNITS,0)),0)) AS fc_wtavg_cube,
+                SAFE_DIVIDE(SUM(COALESCE(DC_OH_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(DC_OH_UNITS,0)),0)) AS dc_oh_wtavg_cube,
+                SAFE_DIVIDE(SUM(COALESCE(DC_LBL_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(DC_LABELED_UNITS,0)),0)) AS dc_lbl_wtavg_cube,
+                SAFE_DIVIDE(SUM(COALESCE(DC_UNLBL_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(DC_UNLABELED_UNITS,0)),0)) AS dc_unlbl_wtavg_cube,
+                SAFE_DIVIDE(SUM(COALESCE(INTRANSIT_DC_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(INTRANSIT_TO_DC_UNITS,0)),0)) AS intransit_dc_wtavg_cube,
+                SAFE_DIVIDE(SUM(COALESCE(STO_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(STO_IN_TRANSIT_TO_DC_UNITS,0)),0)) AS sto_wtavg_cube,
+                SAFE_DIVIDE(SUM(COALESCE(ON_YARD_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(ON_YARD_UNITS,0)),0)) AS on_yard_wtavg_cube
             """
             q = f"""SELECT WM_YEAR, WM_WEEK, WM_YR_WK_NBR, SBU,
                            OMNI_DEPT_NBR AS dept_nbr, OMNI_DEPT_DESC AS department,
@@ -982,7 +996,8 @@ class HistoricalCache:
             SUM(COALESCE(DC_OH_UNITS, 0)) AS dc_oh,
             SUM(COALESCE(DC_LABELED_UNITS, 0)) AS dc_labeled,
             SUM(COALESCE(DC_UNLABELED_UNITS, 0)) AS dc_unlabeled,
-            SUM(COALESCE(STO_IN_TRANSIT_TO_DC_UNITS, 0)) AS sto_to_dc,
+            SUM(COALESCE(INTRANSIT_TO_DC_UNITS, 0)) AS intransit_to_dc,
+            SUM(COALESCE(INTRANSIT_TO_DC_COST, 0)) AS intransit_to_dc_cost,
             SUM(COALESCE(ON_YARD_UNITS, 0)) AS on_yard,
             SUM(COALESCE(TOTAL_NETWORK_UNITS, 0)) AS total_network,
             SUM(COALESCE(FC_OH_UNITS, 0)) AS fc_oh,
@@ -997,7 +1012,7 @@ class HistoricalCache:
             SUM(COALESCE(DC_OH_MSC_UNITS, 0)) AS dc_oh_msc,
             SUM(COALESCE(DC_OH_SUPPORT_UNITS, 0)) AS dc_oh_support,
             SUM(COALESCE(DC_OH_OTHER_UNITS, 0)) AS dc_oh_other,
-            -- STO by type
+            -- STO by type (kept for DC drilldown breakdown, not KPI)
             SUM(COALESCE(STO_TO_REGIONAL_UNITS, 0)) AS sto_to_regional,
             SUM(COALESCE(STO_TO_GROCERY_UNITS, 0)) AS sto_to_grocery,
             SUM(COALESCE(STO_TO_FASHION_UNITS, 0)) AS sto_to_fashion,
@@ -1011,18 +1026,19 @@ class HistoricalCache:
             SUM(COALESCE(ON_YARD_GROCERY_UNITS, 0)) AS on_yard_grocery,
             SUM(COALESCE(ON_YARD_FASHION_UNITS, 0)) AS on_yard_fashion,
             SUM(COALESCE(ON_YARD_IMPORTS_UNITS, 0)) AS on_yard_imports,
-            -- Weighted average cube per channel (units × cube / units = re-weighted avg)
-            SAFE_DIVIDE(SUM(COALESCE(STORE_OH_UNITS,0) * COALESCE(STORE_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(STORE_OH_UNITS,0)),0)) AS store_wtavg_cube,
-            SAFE_DIVIDE(SUM(COALESCE(BACKROOM_UNITS,0) * COALESCE(BACKROOM_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(BACKROOM_UNITS,0)),0)) AS backroom_wtavg_cube,
-            SAFE_DIVIDE(SUM(COALESCE(ON_FLOOR_UNITS,0) * COALESCE(ON_FLOOR_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(ON_FLOOR_UNITS,0)),0)) AS on_floor_wtavg_cube,
-            SAFE_DIVIDE(SUM(COALESCE(DC_RESERVED_UNITS,0) * COALESCE(DC_RESERVED_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(DC_RESERVED_UNITS,0)),0)) AS dc_reserved_wtavg_cube,
-            SAFE_DIVIDE(SUM(COALESCE(IN_TRANSIT_UNITS,0) * COALESCE(TRANSIT_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(IN_TRANSIT_UNITS,0)),0)) AS transit_wtavg_cube,
-            SAFE_DIVIDE(SUM(COALESCE(FC_OH_UNITS,0) * COALESCE(FC_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(FC_OH_UNITS,0)),0)) AS fc_wtavg_cube,
-            SAFE_DIVIDE(SUM(COALESCE(DC_OH_UNITS,0) * COALESCE(DC_OH_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(DC_OH_UNITS,0)),0)) AS dc_oh_wtavg_cube,
-            SAFE_DIVIDE(SUM(COALESCE(DC_LABELED_UNITS,0) * COALESCE(DC_LBL_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(DC_LABELED_UNITS,0)),0)) AS dc_lbl_wtavg_cube,
-            SAFE_DIVIDE(SUM(COALESCE(DC_UNLABELED_UNITS,0) * COALESCE(DC_UNLBL_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(DC_UNLABELED_UNITS,0)),0)) AS dc_unlbl_wtavg_cube,
-            SAFE_DIVIDE(SUM(COALESCE(STO_IN_TRANSIT_TO_DC_UNITS,0) * COALESCE(STO_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(STO_IN_TRANSIT_TO_DC_UNITS,0)),0)) AS sto_wtavg_cube,
-            SAFE_DIVIDE(SUM(COALESCE(ON_YARD_UNITS,0) * COALESCE(ON_YARD_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(ON_YARD_UNITS,0)),0)) AS on_yard_wtavg_cube
+            -- Cube: HIST_COMBINED stores TOTAL_CUBE (sum of units×cube); derive wtavg by dividing by units
+            SAFE_DIVIDE(SUM(COALESCE(STORE_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(STORE_OH_UNITS,0)),0)) AS store_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(BACKROOM_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(BACKROOM_UNITS,0)),0)) AS backroom_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(ON_FLOOR_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(ON_FLOOR_UNITS,0)),0)) AS on_floor_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(DC_RESERVED_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(DC_RESERVED_UNITS,0)),0)) AS dc_reserved_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(TRANSIT_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(IN_TRANSIT_UNITS,0)),0)) AS transit_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(FC_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(FC_OH_UNITS,0)),0)) AS fc_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(DC_OH_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(DC_OH_UNITS,0)),0)) AS dc_oh_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(DC_LBL_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(DC_LABELED_UNITS,0)),0)) AS dc_lbl_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(DC_UNLBL_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(DC_UNLABELED_UNITS,0)),0)) AS dc_unlbl_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(INTRANSIT_DC_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(INTRANSIT_TO_DC_UNITS,0)),0)) AS intransit_dc_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(STO_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(STO_IN_TRANSIT_TO_DC_UNITS,0)),0)) AS sto_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(ON_YARD_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(ON_YARD_UNITS,0)),0)) AS on_yard_wtavg_cube
         """
 
         fqn = f"`{HIST_PROJECT_ID}.{DATASET}.{HIST_TABLE}`"
@@ -1058,7 +1074,8 @@ class HistoricalCache:
             SUM(COALESCE(DC_RESERVED_UNITS, 0)) AS dc_reserved,
             SUM(COALESCE(DC_LABELED_UNITS, 0)) AS dc_labeled,
             SUM(COALESCE(DC_UNLABELED_UNITS, 0)) AS dc_unlabeled,
-            SUM(COALESCE(STO_IN_TRANSIT_TO_DC_UNITS, 0)) AS sto_to_dc,
+            SUM(COALESCE(INTRANSIT_TO_DC_UNITS, 0)) AS intransit_to_dc,
+            SUM(COALESCE(INTRANSIT_TO_DC_COST, 0)) AS intransit_to_dc_cost,
             SUM(COALESCE(ON_YARD_UNITS, 0)) AS on_yard,
             SUM(COALESCE(IN_TRANSIT_UNITS, 0)) AS in_transit,
             SUM(COALESCE(TOTAL_NETWORK_UNITS, 0)) AS total_network,
@@ -1068,7 +1085,7 @@ class HistoricalCache:
             SUM(COALESCE(DC_OH_GROCERY_UNITS, 0)) AS dc_oh_grocery,
             SUM(COALESCE(DC_OH_FASHION_UNITS, 0)) AS dc_oh_fashion,
             SUM(COALESCE(DC_OH_IMPORTS_UNITS, 0)) AS dc_oh_imports,
-            -- STO by type (these exist in HIST_COMBINED)
+            -- STO by type (retained for DC-type drilldown, not primary KPI)
             SUM(COALESCE(STO_TO_REGIONAL_UNITS, 0)) AS sto_to_dc_regional,
             SUM(COALESCE(STO_TO_GROCERY_UNITS, 0)) AS sto_to_dc_grocery,
             SUM(COALESCE(STO_TO_FASHION_UNITS, 0)) AS sto_to_dc_fashion,
@@ -1078,18 +1095,19 @@ class HistoricalCache:
             SUM(COALESCE(ON_YARD_GROCERY_UNITS, 0)) AS on_yard_grocery,
             SUM(COALESCE(ON_YARD_FASHION_UNITS, 0)) AS on_yard_fashion,
             SUM(COALESCE(ON_YARD_IMPORTS_UNITS, 0)) AS on_yard_imports,
-            -- Weighted average cube per channel (same columns as enterprise/sbu/dept)
-            SAFE_DIVIDE(SUM(COALESCE(STORE_OH_UNITS,0) * COALESCE(STORE_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(STORE_OH_UNITS,0)),0)) AS store_wtavg_cube,
-            SAFE_DIVIDE(SUM(COALESCE(BACKROOM_UNITS,0) * COALESCE(BACKROOM_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(BACKROOM_UNITS,0)),0)) AS backroom_wtavg_cube,
-            SAFE_DIVIDE(SUM(COALESCE(ON_FLOOR_UNITS,0) * COALESCE(ON_FLOOR_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(ON_FLOOR_UNITS,0)),0)) AS on_floor_wtavg_cube,
-            SAFE_DIVIDE(SUM(COALESCE(DC_RESERVED_UNITS,0) * COALESCE(DC_RESERVED_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(DC_RESERVED_UNITS,0)),0)) AS dc_reserved_wtavg_cube,
-            SAFE_DIVIDE(SUM(COALESCE(IN_TRANSIT_UNITS,0) * COALESCE(TRANSIT_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(IN_TRANSIT_UNITS,0)),0)) AS transit_wtavg_cube,
-            SAFE_DIVIDE(SUM(COALESCE(FC_OH_UNITS,0) * COALESCE(FC_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(FC_OH_UNITS,0)),0)) AS fc_wtavg_cube,
-            SAFE_DIVIDE(SUM(COALESCE(DC_OH_UNITS,0) * COALESCE(DC_OH_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(DC_OH_UNITS,0)),0)) AS dc_oh_wtavg_cube,
-            SAFE_DIVIDE(SUM(COALESCE(DC_LABELED_UNITS,0) * COALESCE(DC_LBL_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(DC_LABELED_UNITS,0)),0)) AS dc_lbl_wtavg_cube,
-            SAFE_DIVIDE(SUM(COALESCE(DC_UNLABELED_UNITS,0) * COALESCE(DC_UNLBL_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(DC_UNLABELED_UNITS,0)),0)) AS dc_unlbl_wtavg_cube,
-            SAFE_DIVIDE(SUM(COALESCE(STO_IN_TRANSIT_TO_DC_UNITS,0) * COALESCE(STO_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(STO_IN_TRANSIT_TO_DC_UNITS,0)),0)) AS sto_wtavg_cube,
-            SAFE_DIVIDE(SUM(COALESCE(ON_YARD_UNITS,0) * COALESCE(ON_YARD_WTAVG_CUBE,0)), NULLIF(SUM(COALESCE(ON_YARD_UNITS,0)),0)) AS on_yard_wtavg_cube
+            -- Cube: HIST_COMBINED stores TOTAL_CUBE; derive wtavg by dividing by units
+            SAFE_DIVIDE(SUM(COALESCE(STORE_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(STORE_OH_UNITS,0)),0)) AS store_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(BACKROOM_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(BACKROOM_UNITS,0)),0)) AS backroom_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(ON_FLOOR_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(ON_FLOOR_UNITS,0)),0)) AS on_floor_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(DC_RESERVED_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(DC_RESERVED_UNITS,0)),0)) AS dc_reserved_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(TRANSIT_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(IN_TRANSIT_UNITS,0)),0)) AS transit_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(FC_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(FC_OH_UNITS,0)),0)) AS fc_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(DC_OH_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(DC_OH_UNITS,0)),0)) AS dc_oh_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(DC_LBL_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(DC_LABELED_UNITS,0)),0)) AS dc_lbl_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(DC_UNLBL_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(DC_UNLABELED_UNITS,0)),0)) AS dc_unlbl_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(INTRANSIT_DC_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(INTRANSIT_TO_DC_UNITS,0)),0)) AS intransit_dc_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(STO_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(STO_IN_TRANSIT_TO_DC_UNITS,0)),0)) AS sto_wtavg_cube,
+            SAFE_DIVIDE(SUM(COALESCE(ON_YARD_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(ON_YARD_UNITS,0)),0)) AS on_yard_wtavg_cube
         """
         # Catg query: drop BUS_DT (frontend only needs WM_YR_WK_NBR; BUS_DT bloats row count).
         # Year filter matches the 67-week chart window (FY24 onward).
@@ -1117,7 +1135,7 @@ class HistoricalCache:
             """Remove SAFE_DIVIDE cube lines from SQL for tables without cube columns."""
             import re as _re
             lines = sql.split('\n')
-            clean = [ln for ln in lines if 'WTAVG_CUBE' not in ln.upper()]
+            clean = [ln for ln in lines if 'TOTAL_CUBE' not in ln.upper()]
             result = '\n'.join(clean)
             # Remove any trailing comma left on the last column before FROM/GROUP/ORDER
             result = _re.sub(r',\s*\n(\s*(FROM|GROUP BY|ORDER BY))', r'\n\1', result, flags=_re.IGNORECASE)
@@ -1132,7 +1150,7 @@ class HistoricalCache:
                 return df
             except Exception as e:
                 err_str = str(e)
-                if "Unrecognized name" in err_str and "WTAVG_CUBE" in err_str:
+                if "Unrecognized name" in err_str and ("TOTAL_CUBE" in err_str or "WTAVG_CUBE" in err_str):
                     # Table doesn't have cube columns (e.g. old table on Posit) — retry without them
                     print(f"[HIST] [WARN] {name}: cube columns not in table, retrying without cube... BQ error: {err_str[:300]}", flush=True)
                     sql_no_cube = _strip_cube_columns(sql)
@@ -1175,7 +1193,7 @@ class HistoricalCache:
             print(f"[HIST] [WARN] No dept data loaded!", flush=True)
 
         if self.enterprise_df is not None and len(self.enterprise_df) > 0:
-            critical_cols = ['fc_oh', 'on_yard', 'sto_to_dc', 'dc_labeled', 'dc_unlabeled']
+            critical_cols = ['fc_oh', 'on_yard', 'intransit_to_dc', 'dc_labeled', 'dc_unlabeled']
             missing_cols = [c for c in critical_cols if c not in self.enterprise_df.columns]
             if missing_cols:
                 print(f"[HIST] [WARN] Missing critical columns: {missing_cols}", flush=True)

@@ -747,7 +747,7 @@
         dc_oh:        '#007bff',
         dc_labeled:   '#e91e8c',
         dc_unlabeled: '#8e44ad',
-        sto_to_dc:    '#17a589',
+        intransit_to_dc:    '#17a589',
         on_yard:      '#f59e0b',
         total:        '#ffc220',
         fc_oh:        '#6d28d9',
@@ -774,7 +774,7 @@
         dc_oh_msc:      '#06b6d4',
         dc_oh_support:  '#eab308',
         dc_oh_other:    '#6b7280',
-        sto_to_dc:      '#17a589'
+        intransit_to_dc:      '#17a589'
     };
     const DC_LBL_COLORS = {
         dc_lbl_regional: '#60a5fa',
@@ -798,7 +798,7 @@
     const DC_TYPE_LABELS = {
         dc_oh_regional: 'Regional', dc_oh_grocery: 'Grocery', dc_oh_fashion: 'Fashion',
         dc_oh_imports: 'Imports', dc_oh_gidc: 'GIDC', dc_oh_msc: 'MSC',
-        dc_oh_support: 'Support', dc_oh_other: 'Other', sto_to_dc: 'STO to DC',
+        dc_oh_support: 'Support', dc_oh_other: 'Other', intransit_to_dc: 'In-Transit to DC',
         dc_lbl_regional: 'Regional', dc_lbl_grocery: 'Grocery', dc_lbl_fashion: 'Fashion',
         dc_lbl_imports: 'Imports', dc_lbl_gidc: 'GIDC',
         sto_to_regional: 'Regional', sto_to_grocery: 'Grocery', sto_to_fashion: 'Fashion',
@@ -806,12 +806,12 @@
         sto_to_support: 'Support', sto_to_other: 'Other'
     };
 
-    const CHANNEL_KEYS = ['store_oh','backroom','on_floor','dc_reserved','in_transit','dc_oh','dc_labeled','dc_unlabeled','sto_to_dc','on_yard','total_network'];
+    const CHANNEL_KEYS = ['store_oh','backroom','on_floor','dc_reserved','in_transit','dc_oh','dc_labeled','dc_unlabeled','intransit_to_dc','on_yard','total_network'];
     const CHANNEL_LABELS = {
         store_oh: 'Store OH', backroom: 'Backroom', on_floor: 'On Floor',
         dc_reserved: 'DC Reserved', in_transit: 'In-Transit',
         dc_oh: 'DC OH', dc_labeled: 'DC Labeled', dc_unlabeled: 'DC Unlabeled',
-        sto_to_dc: 'STO to DC', on_yard: 'On Yard', total_network: 'Total Network'
+        intransit_to_dc: 'In-Transit to DC', on_yard: 'On Yard', total_network: 'Total Network'
     };
 
     // ============================================================
@@ -1115,7 +1115,7 @@
                     WM_YR_WK_NBR: r.WM_YR_WK_NBR,
                     store_oh: 0, backroom: 0, on_floor: 0, dc_reserved: 0,
                     in_transit: 0, dc_oh: 0, dc_labeled: 0, dc_unlabeled: 0,
-                    sto_to_dc: 0, on_yard: 0, total_network: 0,
+                    intransit_to_dc: 0, on_yard: 0, total_network: 0,
                     fc_oh: 0,
                     dc_oh_regional: 0, dc_oh_grocery: 0, dc_oh_fashion: 0,
                     dc_oh_imports: 0, dc_oh_gidc: 0, dc_oh_msc: 0,
@@ -1124,10 +1124,10 @@
                     sto_to_imports: 0, sto_to_gidc: 0, sto_to_msc: 0,
                     sto_to_support: 0, sto_to_other: 0,
                     // Cube numerators (units × cube) for weighted-average re-aggregation
-                    _cube_num_store: 0, _cube_num_backroom: 0, _cube_num_dc_reserved: 0,
+                    _cube_num_intransit_dcre: 0, _cube_num_backroom: 0, _cube_num_dc_reserved: 0,
                     _cube_num_transit: 0, _cube_num_fc: 0, _cube_num_dc_oh: 0,
                     _cube_num_dc_lbl: 0, _cube_num_dc_unlbl: 0,
-                    _cube_num_sto: 0, _cube_num_on_yard: 0
+                    _cube_num_intransit_dc: 0, _cube_num_on_yard: 0
                 };
             }
             const w = weekMap[key];
@@ -1139,7 +1139,7 @@
             w.dc_oh += r.dc_oh || 0;
             w.dc_labeled += r.dc_labeled || 0;
             w.dc_unlabeled += r.dc_unlabeled || 0;
-            w.sto_to_dc += r.sto_to_dc || 0;
+            w.intransit_to_dc += r.intransit_to_dc || 0;
             w.on_yard += r.on_yard || 0;
             w.total_network += r.total_network || 0;
             w.fc_oh += r.fc_oh || 0;
@@ -1147,7 +1147,7 @@
             DC_OH_KEYS.forEach(k => { w[k] += r[k] || 0; });
             STO_DC_KEYS.forEach(k => { w[k] += r[k] || 0; });
             // Cube numerators (accumulate units × wtavg_cube for re-weighting)
-            w._cube_num_store    += (r.store_oh || 0) * (r.store_wtavg_cube || 0);
+            w._cube_num_intransit_dcre    += (r.store_oh || 0) * (r.store_wtavg_cube || 0);
             w._cube_num_backroom += (r.backroom || 0) * (r.backroom_wtavg_cube || 0);
             w._cube_num_dc_reserved += (r.dc_reserved || 0) * (r.dc_reserved_wtavg_cube || 0);
             w._cube_num_transit  += (r.in_transit || 0) * (r.transit_wtavg_cube || 0);
@@ -1155,13 +1155,13 @@
             w._cube_num_dc_oh    += (r.dc_oh || 0) * (r.dc_oh_wtavg_cube || 0);
             w._cube_num_dc_lbl   += (r.dc_labeled || 0) * (r.dc_lbl_wtavg_cube || 0);
             w._cube_num_dc_unlbl += (r.dc_unlabeled || 0) * (r.dc_unlbl_wtavg_cube || 0);
-            w._cube_num_sto      += (r.sto_to_dc || 0) * (r.sto_wtavg_cube || 0);
+            w._cube_num_intransit_dc      += (r.intransit_to_dc || 0) * (r.intransit_dc_wtavg_cube || 0);
             w._cube_num_on_yard  += (r.on_yard || 0) * (r.on_yard_wtavg_cube || 0);
         });
 
         // Compute final weighted-average cube values per week
         Object.values(weekMap).forEach(w => {
-            w.store_wtavg_cube       = w.store_oh > 0    ? w._cube_num_store / w.store_oh : null;
+            w.store_wtavg_cube       = w.store_oh > 0    ? w._cube_num_intransit_dcre / w.store_oh : null;
             w.backroom_wtavg_cube    = w.backroom > 0     ? w._cube_num_backroom / w.backroom : null;
             w.dc_reserved_wtavg_cube = w.dc_reserved > 0 ? w._cube_num_dc_reserved / w.dc_reserved : null;
             w.transit_wtavg_cube     = w.in_transit > 0  ? w._cube_num_transit / w.in_transit : null;
@@ -1169,10 +1169,10 @@
             w.dc_oh_wtavg_cube       = w.dc_oh > 0       ? w._cube_num_dc_oh / w.dc_oh : null;
             w.dc_lbl_wtavg_cube      = w.dc_labeled > 0  ? w._cube_num_dc_lbl / w.dc_labeled : null;
             w.dc_unlbl_wtavg_cube    = w.dc_unlabeled > 0? w._cube_num_dc_unlbl / w.dc_unlabeled : null;
-            w.sto_wtavg_cube         = w.sto_to_dc > 0   ? w._cube_num_sto / w.sto_to_dc : null;
+            w.intransit_dc_wtavg_cube         = w.intransit_to_dc > 0   ? w._cube_num_intransit_dc / w.intransit_to_dc : null;
             w.on_yard_wtavg_cube     = w.on_yard > 0     ? w._cube_num_on_yard / w.on_yard : null;
             // On Floor cube volume = Store cube volume − Backroom cube volume
-            w.on_floor_cube_vol      = w._cube_num_store - w._cube_num_backroom;
+            w.on_floor_cube_vol      = w._cube_num_intransit_dcre - w._cube_num_backroom;
         });
 
         let weeks = Object.values(weekMap).sort((a,b) => a.BUS_DT.localeCompare(b.BUS_DT));
@@ -1195,10 +1195,10 @@
         sbuSource.forEach(r => {
             const key = r.SBU + '|' + r.BUS_DT;
             if (!sbuWeekMap[key]) {
-                sbuWeekMap[key] = { SBU: r.SBU, BUS_DT: r.BUS_DT, WM_YEAR: r.WM_YEAR, WM_WEEK: r.WM_WEEK, total_network: 0, sto_to_dc: 0 };
+                sbuWeekMap[key] = { SBU: r.SBU, BUS_DT: r.BUS_DT, WM_YEAR: r.WM_YEAR, WM_WEEK: r.WM_WEEK, total_network: 0, intransit_to_dc: 0 };
             }
             sbuWeekMap[key].total_network += r.total_network || 0;
-            sbuWeekMap[key].sto_to_dc += r.sto_to_dc || 0;
+            sbuWeekMap[key].intransit_to_dc += r.intransit_to_dc || 0;
         });
         let sbuWeeks = Object.values(sbuWeekMap).sort((a,b) => a.BUS_DT.localeCompare(b.BUS_DT) || a.SBU.localeCompare(b.SBU));
         if (rangeFilter !== 'all') {
@@ -1402,8 +1402,8 @@
         setKPI('kpi-unlabeled', latest.dc_unlabeled || 0, prev ? (prev.dc_unlabeled || 0) : null, 'kpi-unlabeled-wow',
                lyWeek ? (lyWeek.dc_unlabeled || 0) : null, 'kpi-unlabeled-yoy');
         // STO KPI hidden per leadership direction
-        // setKPI('kpi-sto', latest.sto_to_dc, prev?.sto_to_dc, 'kpi-sto-wow',
-        //        lyWeek?.sto_to_dc, 'kpi-sto-yoy');
+        // setKPI('kpi-sto', latest.intransit_to_dc, prev?.intransit_to_dc, 'kpi-sto-wow',
+        //        lyWeek?.intransit_to_dc, 'kpi-sto-yoy');
         setKPI('kpi-fc', latest.fc_oh || 0, prev ? (prev.fc_oh || 0) : null, 'kpi-fc-wow',
                lyWeek ? (lyWeek.fc_oh || 0) : null, 'kpi-fc-yoy');
         setKPI('kpi-onyard', latest.on_yard || 0, prev ? (prev.on_yard || 0) : null, 'kpi-onyard-wow',
@@ -1472,7 +1472,7 @@
             (w.dc_oh       || 0) * (w.dc_oh_wtavg_cube       || 0) +
             (w.dc_labeled  || 0) * (w.dc_lbl_wtavg_cube      || 0) +
             (w.dc_unlabeled|| 0) * (w.dc_unlbl_wtavg_cube    || 0) +
-            (w.sto_to_dc   || 0) * (w.sto_wtavg_cube         || 0) +
+            (w.intransit_to_dc   || 0) * (w.intransit_dc_wtavg_cube         || 0) +
             (w.on_yard     || 0) * (w.on_yard_wtavg_cube     || 0)
         );
     }
@@ -2079,11 +2079,11 @@
     }
 
     // ============================================================
-    // Charts: STO to DC (Total YoY + by SBU YoY grid)
+    // Charts: In-Transit to DC (Total YoY + by SBU YoY grid)
     // ============================================================
     function updateSTOCharts(weeks, sbuWeeks) {
-        // ── Top: Total STO to DC — YoY ──
-        buildYoYChart('stoTotalChart', weeks, 'sto_to_dc');
+        // ── Top: Total In-Transit to DC — YoY ──
+        buildYoYChart('stoTotalChart', weeks, 'intransit_to_dc');
 
         // ── Bottom: STO by SBU — individual YoY grid ──
         const sbus = [...new Set(sbuWeeks.map(r => r.SBU))].sort();
@@ -2125,7 +2125,7 @@
                 const yr = r.WM_YEAR;
                 if (!byYear[yr]) byYear[yr] = {};
                 if (!byYear[yr][r.WM_WEEK]) byYear[yr][r.WM_WEEK] = 0;
-                byYear[yr][r.WM_WEEK] += r.sto_to_dc || 0;
+                byYear[yr][r.WM_WEEK] += r.intransit_to_dc || 0;
             });
 
             const years = Object.keys(byYear).sort();
@@ -2550,7 +2550,7 @@
                 // Enterprise total row for this date
                 const weekTotal = sorted.filter(x => x.BUS_DT === r.BUS_DT);
                 const totals = {};
-                ['store_oh','backroom','on_floor','dc_reserved','in_transit','dc_oh','dc_labeled','dc_unlabeled','sto_to_dc','on_yard','total_network','fc_oh',
+                ['store_oh','backroom','on_floor','dc_reserved','in_transit','dc_oh','dc_labeled','dc_unlabeled','intransit_to_dc','on_yard','total_network','fc_oh',
                  ...DC_OH_KEYS].forEach(k => {
                     totals[k] = weekTotal.reduce((s, x) => s + (x[k] || 0), 0);
                 });
@@ -2564,7 +2564,7 @@
                     <td class="text-end">${fmtM(totals.dc_oh)}</td>
                     <td class="text-end">${fmtM(totals.dc_labeled)}</td>
                     <td class="text-end">${fmtM(totals.dc_unlabeled)}</td>
-                    <td class="text-end">${fmtM(totals.sto_to_dc)}</td>
+                    <td class="text-end">${fmtM(totals.intransit_to_dc)}</td>
                     <td class="text-end" style="color:#dc2626;">${fmtM(totals.on_yard)}</td>
                     <td class="text-end" style="color: var(--walmart-yellow); font-weight:700;">${fmtM(totals.total_network)}</td>
                     ${DC_OH_KEYS.map(k => `<td class="text-end">${fmtM(totals[k])}</td>`).join('')}
@@ -2582,7 +2582,7 @@
                 <td class="text-end">${fmtM(r.dc_oh)}</td>
                 <td class="text-end">${fmtM(r.dc_labeled)}</td>
                 <td class="text-end">${fmtM(r.dc_unlabeled)}</td>
-                <td class="text-end">${fmtM(r.sto_to_dc)}</td>
+                <td class="text-end">${fmtM(r.intransit_to_dc)}</td>
                 <td class="text-end" style="color:#dc2626;">${fmtM(r.on_yard)}</td>
                 <td class="text-end" style="color: var(--walmart-yellow);">${fmtM(r.total_network)}</td>
                 ${DC_OH_KEYS.map(k => `<td class="text-end">${fmtM(r[k])}</td>`).join('')}
@@ -2615,11 +2615,11 @@
             source = source.filter(r => cutDates.includes(r.BUS_DT));
         }
 
-        const headers = ['BUS_DT','WM_YEAR','WM_WEEK','WM_YR_WK_NBR','SBU','Store OH','Backroom','On Floor','DC Reserved','In-Transit','DC OH','DC Labeled','DC Unlabeled','STO to DC','On Yard','Total Network',
+        const headers = ['BUS_DT','WM_YEAR','WM_WEEK','WM_YR_WK_NBR','SBU','Store OH','Backroom','On Floor','DC Reserved','In-Transit','DC OH','DC Labeled','DC Unlabeled','In-Transit to DC','On Yard','Total Network',
                         'FC OH',
                         'DC OH Regional','DC OH Grocery','DC OH Fashion','DC OH Imports','DC OH GIDC','DC OH MSC','DC OH Support','DC OH Other',
                         'STO to Regional','STO to Grocery','STO to Fashion','STO to Imports','STO to GIDC','STO to MSC','STO to Support','STO to Other'];
-        const keys = ['BUS_DT','WM_YEAR','WM_WEEK','WM_YR_WK_NBR','SBU','store_oh','backroom','on_floor','dc_reserved','in_transit','dc_oh','dc_labeled','dc_unlabeled','sto_to_dc','on_yard','total_network',
+        const keys = ['BUS_DT','WM_YEAR','WM_WEEK','WM_YR_WK_NBR','SBU','store_oh','backroom','on_floor','dc_reserved','in_transit','dc_oh','dc_labeled','dc_unlabeled','intransit_to_dc','on_yard','total_network',
                       'fc_oh',
                       ...DC_OH_KEYS, ...STO_DC_KEYS];
         const sorted = [...source].sort((a,b) => a.BUS_DT.localeCompare(b.BUS_DT) || a.SBU.localeCompare(b.SBU));
@@ -2963,7 +2963,7 @@
         in_transit: 'In-Transit',
         fc_oh: 'FC (eComm)',
         on_yard: 'On Yard',
-        sto_to_dc: 'STO to DC'
+        intransit_to_dc: 'In-Transit to DC'
     };
 
     // Load DC drilldown data with WoW/YoY comparison for all levels
@@ -3028,7 +3028,7 @@
                         key, SBU: r.SBU || '', dept: r.department || '', catg: r.category || '',
                         total_network: 0, store_oh: 0, on_floor: 0, backroom: 0,
                         in_transit: 0, dc_reserved: 0, fc_oh: 0,
-                        dc_oh: 0, dc_labeled: 0, dc_unlabeled: 0, sto_to_dc: 0, on_yard: 0
+                        dc_oh: 0, dc_labeled: 0, dc_unlabeled: 0, intransit_to_dc: 0, on_yard: 0
                     };
                     agg[key].total_network += r.total_network || 0;
                     agg[key].store_oh += r.store_oh || 0;
@@ -3040,7 +3040,7 @@
                     agg[key].dc_oh += r.dc_oh || 0;
                     agg[key].dc_labeled += r.dc_labeled || 0;
                     agg[key].dc_unlabeled += r.dc_unlabeled || 0;
-                    agg[key].sto_to_dc += r.sto_to_dc || 0;
+                    agg[key].intransit_to_dc += r.intransit_to_dc || 0;
                     agg[key].on_yard += r.on_yard || 0;
                 });
             return agg;
@@ -3094,7 +3094,7 @@
 
         // ── PERMANENT FIX ──────────────────────────────────────────────────────
         // ALWAYS use HIST_COMBINED (by_sbu/dept/catg) as the Change Analysis source.
-        // DC_LEVEL (dc_drill_*) only has dc_oh/dc_labeled/dc_unlabeled/sto_to_dc/on_yard
+        // DC_LEVEL (dc_drill_*) only has dc_oh/dc_labeled/dc_unlabeled/intransit_to_dc/on_yard
         // — it's missing store_oh, backroom, on_floor, in_transit, dc_reserved, fc_oh,
         // and total_network. Preferring dc_drill caused "No data" for those channels.
         // ──────────────────────────────────────────────────────────────────────
@@ -3222,7 +3222,7 @@
                 });
             const result = {};
             ['Regional', 'Grocery', 'Fashion', 'Imports'].forEach(t => {
-                result[t] = { key: t, name: t, dc_oh: types[t], dc_labeled: 0, dc_unlabeled: 0, sto_to_dc: 0, on_yard: 0 };
+                result[t] = { key: t, name: t, dc_oh: types[t], dc_labeled: 0, dc_unlabeled: 0, intransit_to_dc: 0, on_yard: 0 };
             });
             return result;
         }

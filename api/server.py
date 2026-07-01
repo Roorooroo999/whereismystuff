@@ -721,6 +721,7 @@ class HistoricalCache:
         self.loaded_date: Optional[str] = None
         self.load_time_sec: float = 0
         self.is_loading: bool = False
+        self.last_load_error: str = ""   # last BQ error — visible in /api/health
         # Cached JSON response to avoid repeated DataFrame → dict conversion
         self._cached_response: Optional[dict] = None
         # Pre-serialized JSON bytes for the lite response (enterprise+sbu+dept)
@@ -1132,7 +1133,7 @@ class HistoricalCache:
         results = {}
 
         def _strip_cube_columns(sql: str) -> str:
-            """Remove SAFE_DIVIDE cube lines from SQL for tables without cube columns."""
+            """Remove SAFE_DIVIDE cube lines from SQL for tables without TOTAL_CUBE columns."""
             import re as _re
             lines = sql.split('\n')
             clean = [ln for ln in lines if 'TOTAL_CUBE' not in ln.upper()]
@@ -1140,6 +1141,17 @@ class HistoricalCache:
             # Remove any trailing comma left on the last column before FROM/GROUP/ORDER
             result = _re.sub(r',\s*\n(\s*(FROM|GROUP BY|ORDER BY))', r'\n\1', result, flags=_re.IGNORECASE)
             return result
+
+        def _replace_intransit_with_sto(sql: str) -> str:
+            """Fallback: swap INTRANSIT_TO_DC columns for STO equivalents.
+
+            Used when HIST_COMBINED was built without the CDI_ATLAS join
+            (i.e. pipeline ran on old schema without HIST_INTRANSIT_DC step).
+            The alias names are preserved so the frontend still gets intransit_to_dc key.
+            """
+            sql = sql.replace('INTRANSIT_TO_DC_UNITS', 'STO_IN_TRANSIT_TO_DC_UNITS')
+            sql = sql.replace('INTRANSIT_TO_DC_COST',  'STO_IN_TRANSIT_TO_DC_COST')
+            return sql
 
         def run_query(name, sql):
             try:
@@ -1150,18 +1162,39 @@ class HistoricalCache:
                 return df
             except Exception as e:
                 err_str = str(e)
-                if "Unrecognized name" in err_str and ("TOTAL_CUBE" in err_str or "WTAVG_CUBE" in err_str):
-                    # Table doesn't have cube columns (e.g. old table on Posit) — retry without them
-                    print(f"[HIST] [WARN] {name}: cube columns not in table, retrying without cube... BQ error: {err_str[:300]}", flush=True)
-                    sql_no_cube = _strip_cube_columns(sql)
+                if "Unrecognized name" not in err_str:
+                    self.last_load_error = f"{name}: {err_str[:400]}"
+                    print(f"[HIST] [ERR] {name} FAILED: {e}", flush=True)
+                    return None
+
+                # ── Fallback 1: strip TOTAL_CUBE / WTAVG_CUBE cube lines ──────────
+                if "TOTAL_CUBE" in err_str or "WTAVG_CUBE" in err_str:
+                    print(f"[HIST] [WARN] {name}: cube cols missing, retrying without cube. BQ: {err_str[:200]}", flush=True)
+                    sql = _strip_cube_columns(sql)
                     try:
-                        df = client.query(sql_no_cube).to_dataframe()
+                        df = client.query(sql).to_dataframe()
                         print(f"[HIST] [OK] {name} (no-cube): {len(df):,} rows", flush=True)
                         return df
                     except Exception as e2:
-                        print(f"[HIST] [ERR] {name} fallback FAILED: {e2}", flush=True)
+                        err_str = str(e2)
+                        if "Unrecognized name" not in err_str:
+                            print(f"[HIST] [ERR] {name} no-cube retry FAILED: {e2}", flush=True)
+                            return None
+
+                # ── Fallback 2: replace INTRANSIT_TO_DC with STO columns ──────────
+                if "INTRANSIT" in err_str.upper():
+                    print(f"[HIST] [WARN] {name}: INTRANSIT cols missing, falling back to STO. BQ: {err_str[:200]}", flush=True)
+                    sql = _replace_intransit_with_sto(sql)
+                    try:
+                        df = client.query(sql).to_dataframe()
+                        print(f"[HIST] [OK] {name} (sto-compat): {len(df):,} rows", flush=True)
+                        return df
+                    except Exception as e3:
+                        print(f"[HIST] [ERR] {name} sto-compat retry FAILED: {e3}", flush=True)
                         return None
-                print(f"[HIST] [ERR] {name} FAILED: {e}", flush=True)
+
+                self.last_load_error = f"{name}: {err_str[:400]}"
+                print(f"[HIST] [ERR] {name} FAILED (unrecognized col): {err_str[:300]}", flush=True)
                 return None
 
         # ── STEP A: Core queries ──────────────────────────────────────
@@ -2383,6 +2416,7 @@ async def health_check():
             "loaded_at": hist_cache.loaded_date,
             "load_time_sec": hist_cache.load_time_sec,
             "loading": hist_cache.is_loading,
+            "last_error": hist_cache.last_load_error or None,
             "debug": hist_debug
         },
         "onorder_cache": {

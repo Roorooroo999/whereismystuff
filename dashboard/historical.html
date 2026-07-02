@@ -271,7 +271,7 @@
                     <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tab-trend">Total Trend</a></li>
                     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-sbu">SBU Comparison</a></li>
                     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-dctype">DC Type Trend</a></li>
-                    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-sto">STO to DC</a></li>
+                    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-sto">In-Transit to DC</a></li>
                     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-table">Data Table</a></li>
                     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-dc-drilldown"><i class="bi bi-arrow-left-right me-1"></i>Change Analysis</a></li>
                 </ul>
@@ -283,7 +283,7 @@
                             <div class="d-flex justify-content-between align-items-center mb-1">
                                 <div class="chart-title mb-0"><i class="bi bi-graph-up me-1"></i>Total Network Inventory Trend — YoY</div>
                                 <div class="d-flex align-items-center gap-2">
-                                    <div class="text-muted" style="font-size:0.65rem;">Total = Store OH + DC Reserved + DC OH + Labeled + Unlabeled + STO + On Yard + In-Transit</div>
+                                    <div class="text-muted" style="font-size:0.65rem;">Total = Store OH + DC Reserved + DC OH + Labeled + Unlabeled + In-Transit to DC + On Yard + In-Transit</div>
                                     <div class="btn-group btn-group-sm" role="group">
                                         <button type="button" class="btn btn-primary btn-sm active" id="trend-units-btn" onclick="setTrendMode('units')" style="font-size:0.7rem;padding:2px 8px;">Units</button>
                                         <button type="button" class="btn btn-outline-secondary btn-sm" id="trend-cube-btn" onclick="setTrendMode('cube')" style="font-size:0.7rem;padding:2px 8px;">Cube</button>
@@ -371,20 +371,20 @@
                         <div class="row" id="dctype-yoy-grid"></div>
                     </div>
 
-                    <!-- Tab: STO to DC -->
+                    <!-- Tab: In-Transit to DC -->
                     <div class="tab-pane fade" id="tab-sto">
                         <div class="chart-container">
-                            <div class="chart-title"><i class="bi bi-arrow-left-right me-1"></i>STO to DC — Total YoY Trend</div>
+                            <div class="chart-title"><i class="bi bi-arrow-left-right me-1"></i>In-Transit to DC — Total YoY Trend</div>
                             <canvas id="stoTotalChart" height="110"></canvas>
                         </div>
                         <div class="d-flex justify-content-between align-items-center mb-2 px-1">
-                            <div class="chart-title mb-0"><i class="bi bi-bar-chart me-1"></i>STO to DC by SBU — YoY Comparison</div>
+                            <div class="chart-title mb-0"><i class="bi bi-bar-chart me-1"></i>In-Transit to DC by SBU — YoY Comparison</div>
                             <div class="text-muted" style="font-size:0.7rem;"><span style="color:#6cb2eb;">●</span> FY25 &nbsp;&nbsp;<span style="color:#ffc220;">●</span> FY26</div>
                         </div>
                         <div class="row" id="sto-sbu-yoy-grid"></div>
 
                         <div class="d-flex justify-content-between align-items-center mb-2 mt-3 px-1">
-                            <div class="chart-title mb-0"><i class="bi bi-building me-1"></i>STO to DC by DC Type — YoY Comparison</div>
+                            <div class="chart-title mb-0"><i class="bi bi-building me-1"></i>In-Transit to DC by DC Type — YoY Comparison</div>
                             <div class="text-muted" style="font-size:0.7rem;"><span style="color:#6cb2eb;">●</span> FY25 &nbsp;&nbsp;<span style="color:#ffc220;">●</span> FY26</div>
                         </div>
                         <div class="row" id="sto-dctype-yoy-grid"></div>
@@ -533,7 +533,7 @@
                                             <th class="text-end" style="min-width:60px;">DC OH</th>
                                             <th class="text-end" style="min-width:70px;">DC Labeled</th>
                                             <th class="text-end" style="min-width:75px;">DC Unlabeled</th>
-                                            <th class="text-end" style="min-width:65px;">STO to DC</th>
+                                            <th class="text-end" style="min-width:65px;">In-Transit to DC</th>
                                             <th class="text-end" style="min-width:60px; color: #dc2626;">On Yard</th>
                                             <th class="text-end" style="min-width:85px; color: var(--walmart-yellow); font-weight:700;">Total Network</th>
                                             <th class="text-end" style="min-width:65px; color: #3b82f6;">DC OH Reg</th>

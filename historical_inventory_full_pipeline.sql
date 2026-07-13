@@ -1,75 +1,88 @@
 -- ==========================================
 -- SCRIPT: historical_inventory_full_pipeline.sql
 -- PURPOSE: Complete historical inventory pipeline with cost columns + ITEM_CUBE
--- DATE: May 25, 2026 (Updated Jun 2026 - Added ITEM_CUBE + daily mid-week refresh)
+-- DATE: May 25, 2026 (Updated Jul 2026 - New EI store source + comprehensive item filter)
 -- ============================================================
 
 
 -- ============================================================
 -- STEP 0: ITEM_CUR (TEMP TABLE)
+-- Filter: item_validity logic from mdse_omni_item (EI-aligned)
+-- Fields: from wmt-edw-prod.US_WM_VM.ITEM_CUR (ITEM_NBR, REPL_GROUP_NBR, WHPK_QTY)
+-- All downstream steps (1.5 → 8) reference ITEM_CUR unchanged
 -- ============================================================
 CREATE OR REPLACE TEMP TABLE ITEM_CUR
 CLUSTER BY MDS_FAM_ID
 AS (
-  SELECT *
-  FROM (
-    SELECT DISTINCT
-      MDS_FAM_ID,
-      ITEM_NBR,
-      ITEM_REPLENISHABLE_IND,
-      ACCTG_DEPT_NBR AS DEPT_NBR,
-      WHPK_QTY,
-      REPL_GROUP_NBR,
-      CASE
-        WHEN FINELINE_NBR = 8023 AND DEPT_NBR = 42 THEN 1
-        WHEN ACCTG_DEPT_NBR = 19  AND DEPT_CATEGORY_NBR = 3072 THEN 1
-        WHEN ACCTG_DEPT_NBR = 91  AND DEPT_CATEGORY_NBR = 3201 THEN 1
-        WHEN ACCTG_DEPT_NBR = 95  AND FINELINE_NBR IN (9225,9226,9998,2353) THEN 1
-        WHEN ACCTG_DEPT_NBR = 40  AND DEPT_CATEGORY_NBR IN (1808,1809,1788) THEN 1
-        WHEN ACCTG_DEPT_NBR = 8   AND DEPT_CATEGORY_NBR IN (676) THEN 1
-        WHEN ACCTG_DEPT_NBR = 2   AND DEPT_CATEGORY_NBR IN (546,542) THEN 1
-        WHEN ACCTG_DEPT_NBR = 95  AND VENDOR_NAME = 'MCLANE COMPANY' THEN 1
-        WHEN ITEM1_DESC IN (
+  WITH item_validity AS (
+    SELECT dim.mds_fam_id
+    FROM `wmt-gdap-dl-sec-merch-bq-prod.us_mdse_omni_dl_secure.mdse_omni_item` dim
+    WHERE dim.geo_region_cd = 'US'
+      AND dim.op_cmpny_cd   = 'WMT-US'
+      AND dim.val_ind        = 1
+      -- (a) Repl sub-type exclusions
+      AND (dim.repl_sub_type_cd NOT IN (99,16,89,6,21) OR dim.repl_sub_type_cd IS NULL)
+      -- (b) Vendor exclusions
+      AND dim.vendor_nbr <> 481890
+      -- (c) Dept / category combo exclusions
+      AND NOT (
+           (dim.omni_dept_nbr = 82 AND dim.omni_catg_nbr     = 1425)  -- Gift & Prepaid Cards
+        OR (dim.omni_dept_nbr = 82 AND dim.omni_catg_nbr     = 1435)  -- Collectibles
+        OR (dim.omni_dept_nbr = 82 AND dim.omni_catg_grp_nbr = 6379)  -- D82 catg group
+        OR (dim.omni_dept_nbr = 87 AND dim.omni_catg_nbr     = 2873)  -- Prepaid Wireless
+        OR (dim.omni_dept_nbr = 80 AND dim.repl_sub_type_cd IN (21,14)) -- Service Deli DSD
+        OR (dim.omni_dept_nbr = 98 AND dim.repl_sub_type_cd  = 21)    -- Bakery Non-PI
+      )
+      -- (d) PFS vendor exclusion
+      AND (dim.vendor_seq_nbr + 10 * dim.vendor_dept_nbr + 1000 * dim.vendor_nbr)
+          NOT IN (
+            SELECT (vendor_seq_nbr + 10 * dept_nbr + 1000 * vendor_nbr)
+            FROM `wmt-edw-prod.US_WM_VM.PFS_VENDOR_STORE`
+            WHERE pfs_production_ind = 'P'
+            GROUP BY vendor_nbr, dept_nbr, vendor_seq_nbr
+          )
+      -- (e) Item description exclusions
+      AND dim.item_desc_1 NOT IN (
           'PRICE ADJ','BR 15LB EXCHANGE','AMERIG PROPANE EXCH','0','1','4','42','72',
           '123','1408','1800','1843','1865','1917','1984','2067','71239','436166','453092',
-          '9509766','133538321','36881149149','36881431565','36881455820','70616024240',
-          '72286839404','323900040953','719410785109','861368000220',
-          '*** DISCONTINUED***','***DISCONTINUED BY C','***DISCONTINUED BY V','***DISCONTINUED***',
-          '***DISCONTINUED*** B','***DISCONTINUED*** L','***DISCONTINUED***BD',
-          '***DISCONTINUED***CO','***DISCONTINUED***GL','***DISCONTINUED***HA',
-          '***DISCONTINUED***LA','***DISCONTINUED***LY','***DISCONTINUED***MA',
-          '***DISCONTINUED***MR','***DISCONTINUED***RU','***DISCONTINUED***TO',
-          '**DISCONTINUED BY VE','**DISCONTINUED**','**DISCONTINUED** ARR',
-          'DIESEL','REG GAS UNLEADED','REUSABLE BAGS','REUSABLE BAGS ASST 2',
-          'FUEL PREPAY','HI-GRADE PREMIUM GAS','UNLEADED CLEAR','CAROUSEL REUSABLE BG'
-        ) THEN 1
-        ELSE 0
-      END AS ITEM_EXCEPTIONS
-    FROM `wmt-edw-prod.US_WM_VM.ITEM_CUR`
-    WHERE ACCTG_DEPT_NBR NOT IN (99,39,37,38,49,85,60,83,86,88)
-      AND MDSE_SEGMENT_DESC NOT IN ('HEALTH AND WELLNESS','WALMART SERVICES')
-      AND VENDOR_NBR <> 481890
-      AND REPL_SUBTYPE_CODE <> 99
-      AND REPL_SUBTYPE_CODE NOT IN (16,89)
-      AND REPL_SUBTYPE_CODE <> 21
-      AND REPL_SUBTYPE_CODE <> 6
-      AND DEPT_CATEGORY_NBR IS NOT NULL
-      AND CONCAT(ACCTG_DEPT_NBR, DEPT_CATEGORY_NBR) NOT IN ('821425','821435','872873')
-      AND CONCAT(ACCTG_DEPT_NBR, DEPT_CATG_GRP_NBR) NOT IN ('826379')
-      AND CONCAT(ACCTG_DEPT_NBR, REPL_SUBTYPE_CODE) NOT IN ('8021','8014','9821')
-      AND (VENDOR_SEQ_NBR + 10 * VENDOR_DEPT_NBR + 1000 * VENDOR_NBR) NOT IN (
-          SELECT (VENDOR_SEQ_NBR + 10 * DEPT_NBR + 1000 * VENDOR_NBR)
-          FROM `wmt-edw-prod.US_WM_VM.PFS_VENDOR_STORE`
-          WHERE PFS_PRODUCTION_IND = 'P'
-          GROUP BY VENDOR_NBR, DEPT_NBR, VENDOR_SEQ_NBR
+          '9509766','133538321','DIESEL','REG GAS UNLEADED','REUSABLE BAGS',
+          'REUSABLE BAGS ASST 2','FUEL PREPAY','HI-GRADE PREMIUM GAS',
+          'UNLEADED CLEAR','CAROUSEL REUSABLE BG'
       )
+      AND dim.item_desc_1 NOT LIKE '%DISCONTINUED%'
+      -- (f) Fineline / dept / category exclusions
+      AND NOT (dim.fineline_nbr  = 8023 AND dim.dept_nbr = 42)
+      AND NOT (dim.omni_dept_nbr = 19   AND dim.omni_catg_nbr = 3072)
+      AND NOT (dim.omni_dept_nbr = 91   AND dim.omni_catg_nbr = 3201)
+      AND NOT (dim.omni_dept_nbr = 95   AND dim.fineline_nbr IN (9225,9226,9998,2353))
+      AND NOT (dim.omni_dept_nbr = 40   AND dim.omni_catg_nbr IN (1808,1809,1788))
+      AND NOT (dim.omni_dept_nbr =  8   AND dim.omni_catg_nbr IN (676))
+      AND NOT (dim.omni_dept_nbr =  2   AND dim.omni_catg_nbr IN (546,542))
+      AND NOT (dim.omni_dept_nbr = 95   AND dim.vendor_nm = 'MCLANE COMPANY')
+      -- (g) Segment / dept exclusions — including full H&W exclusion
+      AND dim.omni_seg_desc IS NOT NULL
+      AND dim.omni_seg_desc <> 'OTHER'
+      AND NOT (dim.omni_seg_desc = 'HEALTH AND WELLNESS'
+               AND dim.omni_dept_nbr IN (38,50,75))
+      AND dim.omni_dept_nbr NOT IN (39,60,86,88,99,38,37,83,85)
   )
-  WHERE ITEM_EXCEPTIONS <> 1
+  SELECT DISTINCT
+    ic.MDS_FAM_ID,
+    ic.ITEM_NBR,
+    ic.ITEM_REPLENISHABLE_IND,
+    ic.ACCTG_DEPT_NBR  AS DEPT_NBR,
+    ic.WHPK_QTY,
+    ic.REPL_GROUP_NBR
+  FROM `wmt-edw-prod.US_WM_VM.ITEM_CUR` ic
+  INNER JOIN item_validity iv ON ic.MDS_FAM_ID = iv.mds_fam_id
 );
 
 
 -- ============================================================
--- STEP 1: STORE + FC CONSOLIDATED INVENTORY (with COST + ITEM_CUBE)
+-- STEP 1: STORE + FC CONSOLIDATED INVENTORY
+-- Store OH/InWhse/InTransit → NEW: repl_sku_ei_invt_dly_vw
+-- FC OH                     → UNCHANGED: fd_omni_chnl_item_dly
+-- H&W                       → excluded via ITEM_CUR + OV filter
 -- ============================================================
 DROP TABLE IF EXISTS `wmt-execution-intel-prod.WM_AD_HOC.R0C0JUG_WMUS_HIST_STORE_FC_INVT`;
 
@@ -77,36 +90,92 @@ CREATE OR REPLACE TABLE `wmt-execution-intel-prod.WM_AD_HOC.R0C0JUG_WMUS_HIST_ST
 PARTITION BY BUS_DT
 CLUSTER BY OMNI_CATG_NBR
 AS (
-  WITH store_channel AS (
-    SELECT
-      INVT.BUS_DT,
-      INVT.MDS_FAM_ID,
-      SUM(COALESCE(INVT.TY_ON_HAND_QTY, 0))       AS STORE_OH_UNITS,
-      SUM(COALESCE(INVT.TY_ON_HAND_COST_AMT, 0))   AS STORE_OH_COST,
-      SUM(COALESCE(INVT.TY_IN_WHSE_QTY, 0))        AS DC_RESERVED_UNITS,
-      SUM(COALESCE(INVT.TY_IN_WHSE_COST_AMT, 0))   AS DC_RESERVED_COST,
-      SUM(COALESCE(INVT.TY_IN_TRNST_QTY, 0))       AS IN_TRANSIT_UNITS,
-      SUM(COALESCE(INVT.TY_IN_TRNST_COST_AMT, 0))  AS IN_TRANSIT_COST,
-      INVT.OMNI_CATG_NBR,
-      INVT.OMNI_CATG_DESC,
-      INVT.OMNI_DEPT_NBR,
-      INVT.OMNI_DEPT_DESC
-    FROM `wmt-gdap-dl-sec-merch-bq-prod.us_fd_app_secure.fd_omni_chnl_item_dly` INVT
-    WHERE INVT.BUS_DT >= '2025-02-07'
-      AND (
-        EXTRACT(DAYOFWEEK FROM INVT.BUS_DT) = 6
-        OR (INVT.BUS_DT = DATE_SUB(CURRENT_DATE('America/Chicago'), INTERVAL 1 DAY)
-            AND EXTRACT(DAYOFWEEK FROM CURRENT_DATE('America/Chicago')) BETWEEN 2 AND 6)
-      )
-      AND INVT.BUS_DT < CURRENT_DATE('America/Chicago')
-      AND INVT.FULFMT_CHNL_NM = 'Store'
-      AND INVT.OMNI_SEG_DESC NOT IN ('HEALTH AND WELLNESS','OTHER','WALMART SERVICES')
-    GROUP BY
-      INVT.BUS_DT, INVT.MDS_FAM_ID,
-      INVT.OMNI_CATG_NBR, INVT.OMNI_CATG_DESC,
-      INVT.OMNI_DEPT_NBR, INVT.OMNI_DEPT_DESC
+  WITH
+
+  -- ── Store validity ────────────────────────────────────────────────────────
+  store_validity AS (
+    SELECT DISTINCT store_nbr
+    FROM `wmt-edw-prod.WW_CORE_DIM_DL_VM.DL_STORE_CLUB_DIM`
+    WHERE TRIM(op_cmpny_cd) = 'WMT-US'
+      AND geo_region_cd      = 'US'
+      AND UPPER(banner_cd)   NOT IN ('F4')
+      AND TRIM(subdiv_nbr)   IN ('A','B','C','D','E','F','I','M','N','O','X','Z')
   ),
 
+  -- ── OMNI hierarchy: item → catg/dept ─────────────────────────────────────
+  omni_validity AS (
+    SELECT
+      mds_fam_id,
+      omni_seg_desc,
+      omni_catg_nbr,
+      omni_catg_desc,
+      omni_dept_nbr,
+      omni_dept_desc
+    FROM `wmt-gdap-dl-sec-merch-bq-prod.us_mdse_omni_dl_secure.mdse_omni_item`
+    WHERE op_cmpny_cd = 'WMT-US'
+      AND val_ind     = 1
+  ),
+
+  -- ── Unit cost: derived from fd_omni_chnl_item_dly ────────────────────────
+  item_unit_cost AS (
+    SELECT
+      BUS_DT,
+      MDS_FAM_ID,
+      SAFE_DIVIDE(
+        SUM(COALESCE(TY_ON_HAND_COST_AMT, 0)),
+        NULLIF(SUM(COALESCE(TY_ON_HAND_QTY, 0)), 0)
+      ) AS UNIT_COST
+    FROM `wmt-gdap-dl-sec-merch-bq-prod.us_fd_app_secure.fd_omni_chnl_item_dly`
+    WHERE BUS_DT >= '2025-02-07'
+      AND (
+        EXTRACT(DAYOFWEEK FROM BUS_DT) = 6
+        OR (BUS_DT = DATE_SUB(CURRENT_DATE('America/Chicago'), INTERVAL 1 DAY)
+            AND EXTRACT(DAYOFWEEK FROM CURRENT_DATE('America/Chicago')) BETWEEN 2 AND 6)
+      )
+      AND BUS_DT < CURRENT_DATE('America/Chicago')
+      AND FULFMT_CHNL_NM = 'Store'
+      AND TY_ON_HAND_QTY > 0
+    GROUP BY BUS_DT, MDS_FAM_ID
+  ),
+
+  -- ── Store channel: NEW EI source ──────────────────────────────────────────
+  store_channel AS (
+    SELECT
+      INVT.bus_dt                                                       AS BUS_DT,
+      OV.mds_fam_id                                                     AS MDS_FAM_ID,
+      SUM(COALESCE(INVT.on_hand_qty,  0))                               AS STORE_OH_UNITS,
+      SUM(COALESCE(INVT.on_hand_qty,  0) * COALESCE(UC.UNIT_COST, 0))  AS STORE_OH_COST,
+      SUM(COALESCE(INVT.in_whse_qty,  0))                               AS DC_RESERVED_UNITS,
+      SUM(COALESCE(INVT.in_whse_qty,  0) * COALESCE(UC.UNIT_COST, 0))  AS DC_RESERVED_COST,
+      SUM(COALESCE(INVT.in_trnst_qty, 0))                               AS IN_TRANSIT_UNITS,
+      SUM(COALESCE(INVT.in_trnst_qty, 0) * COALESCE(UC.UNIT_COST, 0))  AS IN_TRANSIT_COST,
+      OV.omni_catg_nbr                                                   AS OMNI_CATG_NBR,
+      OV.omni_catg_desc                                                  AS OMNI_CATG_DESC,
+      OV.omni_dept_nbr                                                   AS OMNI_DEPT_NBR,
+      OV.omni_dept_desc                                                  AS OMNI_DEPT_DESC
+    FROM `wmt-gdap-dl-sec-merch-bq-prod.ww_repl_dl_secure.repl_sku_ei_invt_dly_vw` INVT
+    INNER JOIN store_validity  SV ON INVT.STORE_NBR  = SV.store_nbr
+    INNER JOIN ITEM_CUR        IC ON INVT.mds_fam_id = IC.MDS_FAM_ID
+    INNER JOIN omni_validity   OV ON INVT.mds_fam_id = OV.mds_fam_id
+    LEFT JOIN  item_unit_cost  UC ON INVT.bus_dt      = UC.BUS_DT
+                                 AND INVT.mds_fam_id  = UC.MDS_FAM_ID
+    WHERE INVT.bus_dt >= '2025-02-07'
+      AND (
+        EXTRACT(DAYOFWEEK FROM INVT.bus_dt) = 6
+        OR (INVT.bus_dt = DATE_SUB(CURRENT_DATE('America/Chicago'), INTERVAL 1 DAY)
+            AND EXTRACT(DAYOFWEEK FROM CURRENT_DATE('America/Chicago')) BETWEEN 2 AND 6)
+      )
+      AND INVT.bus_dt < CURRENT_DATE('America/Chicago')
+      AND INVT.rpt_excl_ind = 0
+      AND INVT.STORE_NBR NOT IN (2670,7611,2489,5169,3704,5997,7638,3971)
+      AND OV.omni_seg_desc NOT IN ('HEALTH AND WELLNESS','OTHER','WALMART SERVICES')
+    GROUP BY
+      INVT.bus_dt, OV.mds_fam_id,
+      OV.omni_catg_nbr, OV.omni_catg_desc,
+      OV.omni_dept_nbr, OV.omni_dept_desc
+  ),
+
+  -- ── FC channel: UNCHANGED ─────────────────────────────────────────────────
   fc_channel AS (
     SELECT
       INVT.BUS_DT,
@@ -135,24 +204,24 @@ AS (
   )
 
   SELECT
-    COALESCE(S.BUS_DT, F.BUS_DT)             AS BUS_DT,
-    CAL.WM_FULL_YR_NBR                        AS WM_YEAR,
-    CAL.WM_WK_NBR                             AS WM_WEEK,
+    COALESCE(S.BUS_DT, F.BUS_DT)                     AS BUS_DT,
+    CAL.WM_FULL_YR_NBR                                 AS WM_YEAR,
+    CAL.WM_WK_NBR                                      AS WM_WEEK,
     CAL.WM_YR_WK_NBR,
-    COALESCE(S.MDS_FAM_ID, F.MDS_FAM_ID)     AS MDS_FAM_ID,
+    COALESCE(S.MDS_FAM_ID, F.MDS_FAM_ID)              AS MDS_FAM_ID,
     SAFE_DIVIDE(OMNI.PKG_HT_IN_QTY * OMNI.PKG_WDTH_IN_QTY * OMNI.PKG_LEN_IN_QTY, 1728) AS ITEM_CUBE,
-    COALESCE(S.STORE_OH_UNITS, 0)             AS STORE_OH_UNITS,
-    COALESCE(S.STORE_OH_COST, 0)              AS STORE_OH_COST,
-    COALESCE(S.DC_RESERVED_UNITS, 0)          AS DC_RESERVED_UNITS,
-    COALESCE(S.DC_RESERVED_COST, 0)           AS DC_RESERVED_COST,
-    COALESCE(S.IN_TRANSIT_UNITS, 0)           AS IN_TRANSIT_UNITS,
-    COALESCE(S.IN_TRANSIT_COST, 0)            AS IN_TRANSIT_COST,
-    COALESCE(F.FC_OH_UNITS, 0)                AS FC_OH_UNITS,
-    COALESCE(F.FC_OH_COST, 0)                 AS FC_OH_COST,
-    COALESCE(S.OMNI_CATG_NBR, F.OMNI_CATG_NBR) AS OMNI_CATG_NBR,
-    COALESCE(S.OMNI_CATG_DESC, F.OMNI_CATG_DESC) AS OMNI_CATG_DESC,
-    COALESCE(S.OMNI_DEPT_NBR, F.OMNI_DEPT_NBR)   AS OMNI_DEPT_NBR,
-    COALESCE(S.OMNI_DEPT_DESC, F.OMNI_DEPT_DESC)  AS OMNI_DEPT_DESC,
+    COALESCE(S.STORE_OH_UNITS, 0)                      AS STORE_OH_UNITS,
+    COALESCE(S.STORE_OH_COST, 0)                       AS STORE_OH_COST,
+    COALESCE(S.DC_RESERVED_UNITS, 0)                   AS DC_RESERVED_UNITS,
+    COALESCE(S.DC_RESERVED_COST, 0)                    AS DC_RESERVED_COST,
+    COALESCE(S.IN_TRANSIT_UNITS, 0)                    AS IN_TRANSIT_UNITS,
+    COALESCE(S.IN_TRANSIT_COST, 0)                     AS IN_TRANSIT_COST,
+    COALESCE(F.FC_OH_UNITS, 0)                         AS FC_OH_UNITS,
+    COALESCE(F.FC_OH_COST, 0)                          AS FC_OH_COST,
+    COALESCE(S.OMNI_CATG_NBR,  F.OMNI_CATG_NBR)        AS OMNI_CATG_NBR,
+    COALESCE(S.OMNI_CATG_DESC, F.OMNI_CATG_DESC)       AS OMNI_CATG_DESC,
+    COALESCE(S.OMNI_DEPT_NBR,  F.OMNI_DEPT_NBR)        AS OMNI_DEPT_NBR,
+    COALESCE(S.OMNI_DEPT_DESC, F.OMNI_DEPT_DESC)       AS OMNI_DEPT_DESC,
     CASE
       WHEN COALESCE(S.OMNI_DEPT_NBR, F.OMNI_DEPT_NBR) IN (92,95)                      THEN 'PANTRY'
       WHEN COALESCE(S.OMNI_DEPT_NBR, F.OMNI_DEPT_NBR) IN (2,4,8,13,40,46,79)          THEN 'CONSUMABLES'
@@ -167,8 +236,8 @@ AS (
 
   FROM store_channel S
   FULL OUTER JOIN fc_channel F
-    ON S.BUS_DT = F.BUS_DT
-    AND S.MDS_FAM_ID = F.MDS_FAM_ID
+    ON S.BUS_DT         = F.BUS_DT
+    AND S.MDS_FAM_ID    = F.MDS_FAM_ID
     AND S.OMNI_CATG_NBR = F.OMNI_CATG_NBR
 
   INNER JOIN `wmt-edw-prod.WW_CORE_DIM_DL_VM.DL_CALENDAR_DIM` CAL
@@ -179,16 +248,17 @@ AS (
 
   LEFT JOIN `wmt-gdap-dl-sec-merch-bq-prod.us_mdse_omni_vm.mdse_omni_item_vw` OMNI
     ON COALESCE(S.MDS_FAM_ID, F.MDS_FAM_ID) = OMNI.MDS_FAM_ID
-    AND OMNI.VAL_IND = 1
-    AND OMNI.OP_CMPNY_CD = 'WMT-US'
-    AND OMNI.MDS_FAM_ID <> -1
+    AND OMNI.VAL_IND      = 1
+    AND OMNI.OP_CMPNY_CD  = 'WMT-US'
+    AND OMNI.MDS_FAM_ID  <> -1
 
   WHERE (
-    S.STORE_OH_UNITS > 0
+    S.STORE_OH_UNITS     > 0
     OR S.DC_RESERVED_UNITS > 0
-    OR S.IN_TRANSIT_UNITS > 0
-    OR F.FC_OH_UNITS > 0
+    OR S.IN_TRANSIT_UNITS  > 0
+    OR F.FC_OH_UNITS       > 0
   )
+  AND COALESCE(S.OMNI_DEPT_NBR, F.OMNI_DEPT_NBR) NOT IN (38,50,75)  -- H&W depts
 );
 
 

@@ -1,61 +1,56 @@
-# ══════════════════════════════════════════════════════════════════════════════
-# KITT Configuration — Where's My Stuff Dashboard
-# WCNP Migration from Posit Connect → AssortmentIntelligence Stage
-#
-# FILL IN before deploying:
-#   owner.group           → your AD Security Group (from ServiceNow)
-#   notify.slack.channel  → your team's public Slack channel
-#   deploy.namespace      → your reserved WCNP namespace (from DX Console)
-#   stages[stage].target.cluster_id → actual cluster ID from DX Console
-#
-# DX Console to reserve namespace: https://console.dx.walmart.com/wcnp
-# Slack for status:                #merch-execution-cicd
-# ══════════════════════════════════════════════════════════════════════════════
-
 profiles:
-  - basic-docker-build   # KITT builds from our custom Dockerfile (Python on Alpine GBI)
+  - basic-docker-build
 
 owner:
-  group: YOUR-AD-SECURITY-GROUP   # ← REPLACE: e.g. wmt-total-inventory-team
+  group: gcp-merch-execution-intel-writer
 
-notify:
-  slack:
-    channelName: YOUR-TEAM-SLACK-CHANNEL   # ← REPLACE: must be a PUBLIC channel
+app:
+  name: wheres-my-stuff
+
+build:
+  docker:
+    app:
+      contextDir: "."
+      dockerFile: "Dockerfile"
 
 deploy:
-  namespace: wheres-my-stuff   # ← REPLACE with your reserved namespace (max 48 chars)
+  namespace: merch-execution
 
   helm:
     values:
-      replicas: 2
-
-      # Resource requests & limits (required with basic-docker-build — no GBI profile defaults)
       min:
-        cpu: 250m
-        memory: 512Mi
+        cpu: "500m"
+        memory: "2Gi"
       max:
-        cpu: 1000m
-        memory: 2Gi
+        cpu: "2000m"
+        memory: "6Gi"      # 5 BQ tables cached as DataFrames concurrently — OOMKill risk at <4Gi
 
-      # Kubernetes liveness probe — is the process alive?
+      networking:
+        externalPort: 8080
+        internalPort: 8080
+        httpsEnabled: true
+        httpEnabled: true
+
       livenessProbe:
-        path: "/health"
-        initialDelaySeconds: 60    # FastAPI + BQ cache load takes ~30-60s
-        periodSeconds: 30
-        failureThreshold: 3
+        enabled: "true"
+        path: "/api/health"
+        wait: 120           # FastAPI starts in seconds; 120s buffer for Akeyless init
+        probeInterval: 30
+        timeout: 10
+        failureThreshold: 6
 
-      # Kubernetes readiness probe — ready to serve traffic?
       readinessProbe:
-        path: "/ready"
-        initialDelaySeconds: 30
-        periodSeconds: 15
-        failureThreshold: 6        # Allow up to 90s for BQ cache warm-up
+        enabled: "true"
+        path: "/api/health"
+        wait: 120           # /api/health returns 200 immediately (BQ loads are background)
+        probeInterval: 20
+        timeout: 10
+        failureThreshold: 8
 
-      # Port the container listens on
-      port: 8080
-
-      # Environment variables (non-secret)
       env:
+        PORT: "8080"
+        WMS_CACHE_DIR: "/tmp/wms_cache"
+        GOOGLE_APPLICATION_CREDENTIALS: "/etc/secrets/gcp-sa-key.json"
         PROJECT_ID: "wmt-execution-intel-prod"
         HIST_PROJECT_ID: "wmt-execution-intel-prod"
         DATASET: "WM_AD_HOC"
@@ -66,28 +61,42 @@ deploy:
         STO_TABLE: "R0C0JUG_WMUS_HIST_STO"
         PYTHONUNBUFFERED: "1"
 
-      # Secrets (BigQuery service account credentials)
-      # Store GOOGLE_CREDENTIALS in WCNP Vault, reference here:
-      # secretEnv:
-      #   GOOGLE_CREDENTIALS:
-      #     secretName: wheres-my-stuff-bq-creds
-      #     key: credentials.json
-
-      # Ping Federation (OIDC) auth — handled by WCNP ingress sidecar
-      # Configure via the AssortmentIntelligence boilerplate's PingFed settings
+      secrets:
+        engine: eso
+        akeyless: true
+        config:
+          akeyless:
+            path: "/Prod/WCNP/homeoffice/gcp-merch-execution-intel-writer"
+        files:
+          - destination: "gcp-sa-key.json"
+            content: "enablement-cale-gcp-sa"
 
   stages:
-    # ── STAGE environment (AssortmentIntelligence server) ─────────────────────
+    - name: dev
+      target:
+        cluster_id:
+          - "uscentral-dev-gke-002"
+
     - name: stage
       target:
-        cluster_id: ["YOUR-STAGE-CLUSTER-ID"]   # ← REPLACE: from DX Console (e.g. scus-stage-a2)
-      flows: [release]
+        cluster_id:
+          - "uscentral-stage-gke-002"
 
-    # ── PRODUCTION (add after stage validation) ───────────────────────────────
+    # Uncomment for prod after stage validation + CRQ approval
     # - name: prod
     #   target:
-    #     cluster_id: ["YOUR-PROD-CLUSTER-ID"]
-    #   flows: [release]
-    #   approvers:
-    #     groups:
-    #       - YOUR-AD-APPROVER-GROUP
+    #     cluster_id:
+    #       - "uscentral-prod-gke-001"
+    #   changeRecord:
+    #     type: auto
+    #     group: "Merchandising Execution"
+    #     managerGroup: "Change Managers - US"
+    #     affectedGEOs: ["US"]
+    #     businessUnits: ["Home Office"]
+    #     primaryCI: "wheres-my-stuff"
+    #     risk: "3"
+    #     impact: "3"
+
+notify:
+  slack:
+    channelName: "merch-execution-cicd"

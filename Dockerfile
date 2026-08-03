@@ -1,55 +1,59 @@
-# Where's My Stuff - WCNP Deployment
-# Uses Walmart GBI base image (Alpine) — includes non-root user + internal CA certs
-# WCNP requires non-root (UID 10000). Root containers are rejected by Pod Security Policy.
-#
-# Build:  podman build -t wheres-my-stuff .
-# Verify: podman run wheres-my-stuff id   # must show uid=10000
+FROM docker.ci.artifacts.walmart.com/hub-docker-release-remote/library/python:3.12-slim
 
-# ── Stage 1: dependency builder ──────────────────────────────────────────────
-FROM docker.ci.artifacts.walmart.com/wce-docker/alpine:3-main AS builder
+# Replace default Debian apt sources with Walmart internal ARK mirror
+# (deb.debian.org is blocked from WCNP clusters)
+RUN printf 'deb [trusted=yes] http://ark-repos.wal-mart.com/ark/apt/published/debian/12.0/direct/soe/noenv/os/ bookworm main\n\
+deb [trusted=yes] http://ark-repos.wal-mart.com/ark/apt/published/debian/12.0/direct/soe/noenv/updates/ bookworm-updates main\n\
+deb [trusted=yes] http://ark-repos.wal-mart.com/ark/apt/published/debian/12.0/direct/soe/noenv/security/ bookworm-security main\n' \
+  > /etc/apt/sources.list
 
-LABEL maintainer="r0c0jug@walmart.com"
-
-# Switch to root only to install OS packages
-USER root
-
-# Install Python 3 + pip + build tools
-RUN apk add --no-cache python3 py3-pip python3-dev gcc musl-dev linux-headers
+# System deps: gcc for cryptography/pandas native extensions + ca-certificates
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Install Python dependencies into /install so we can copy into final stage
-COPY --chown=10000:10000 api/requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+# Install Python dependencies first (layer-cache friendly)
+COPY api/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# ── Stage 2: minimal runtime image ───────────────────────────────────────────
-FROM docker.ci.artifacts.walmart.com/wce-docker/alpine:3-main
+# Copy FastAPI server and its package init
+COPY api/server.py .
+COPY api/__init__.py .
 
-USER root
+# Copy dashboard HTML files served by FastAPI's FileResponse
+# server.py checks /app/dashboard/index.html (cloud path) automatically
+COPY dashboard/ ./dashboard/
 
-# Python runtime only — no build tools, no pip
-RUN apk add --no-cache python3
+# Non-root user (UID 10000, GID 10001) — WCNP PSP requirement
+RUN groupadd -g 10001 appGrp && \
+    useradd -u 10000 -g appGrp -s /sbin/nologin -d /tmp app && \
+    chown -R 10000:10001 /app
 
-WORKDIR /app
-
-# Copy installed packages from builder
-COPY --from=builder --chown=10000:10000 /install /usr/local
-
-# Copy application code
-COPY --chown=10000:10000 api/server.py ./server.py
-COPY --chown=10000:10000 api/__init__.py ./__init__.py
-COPY --chown=10000:10000 dashboard/ ./dashboard/
-
-# WCNP: use non-root user (GBI provides uid 10000)
 USER 10000
 
-# Non-privileged port (ports < 1024 require root)
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONIOENCODING=utf-8 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PORT=8080 \
+    WMS_CACHE_DIR=/tmp/wms_cache \
+    GOOGLE_APPLICATION_CREDENTIALS=/etc/secrets/gcp-sa-key.json
+
 EXPOSE 8080
 
-# Environment defaults (override via ConfigMap / Helm values in WCNP)
-ENV PORT=8080 \
-    PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
-
-# Startup command
-CMD ["python3", "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8080"]
+# sleep 5: waits for Akeyless init container to finish mounting /etc/secrets/gcp-sa-key.json
+# UvicornWorker: FastAPI is ASGI (not WSGI) — must use UvicornWorker, NOT gthread
+# --workers 1: single worker keeps all background BQ-loading threads in one process
+#   (multiple workers would each spawn their own BQ load threads → N x BQ parallel loads)
+# --timeout 600: cold-start BQ fetch spans 5 tables and can take 5–10 min total
+CMD ["sh", "-c", \
+     "sleep 5 && exec gunicorn server:app \
+       -k uvicorn.workers.UvicornWorker \
+       --bind 0.0.0.0:8080 \
+       --workers 1 \
+       --timeout 600 \
+       --forwarded-allow-ips='*' \
+       --log-level info \
+       --access-logfile -"]

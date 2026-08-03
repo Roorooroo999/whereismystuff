@@ -1,0 +1,6 @@
+enable: true
+inherit: job:///strati/kitt/kitt-build-assets:looper/docker.yml
+
+flows:
+  build:
+    - call: buildDocker

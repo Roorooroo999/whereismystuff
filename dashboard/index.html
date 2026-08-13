@@ -103,7 +103,8 @@
         .view-badge-weekly { background: #a855f7; color: #fff; }
         #current-view, #historical-view { transition: opacity 0.2s ease-in-out; }
         #current-view.fade-out, #historical-view.fade-out { opacity: 0; }
-        #historical-view { display: none; opacity: 0; }
+        #current-view { display: none; }
+        #historical-view { display: block; opacity: 1; }
         #historical-view.visible { display: block; opacity: 1; }
         #historical-view iframe { width: 100%; height: calc(100vh - 56px); border: none; background: var(--bg-dark); }
         #historical-view .loading-iframe { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: var(--text-muted); }
@@ -118,10 +119,10 @@
         <div class="container-fluid">
             <a class="navbar-brand" href="#"><i class="bi bi-box-seam me-2"></i>Where's My Stuff</a>
             <div class="view-toggle">
-                <button class="btn-view active" id="btn-current" onclick="switchView('current')">
+                <button class="btn-view active" id="btn-current" onclick="switchView('current')" style="display:none;">
                     <i class="bi bi-speedometer2"></i> Current <span class="view-badge view-badge-live">LIVE</span>
                 </button>
-                <button class="btn-view" id="btn-historical" onclick="switchView('historical')">
+                <button class="btn-view active" id="btn-historical" onclick="switchView('historical')">
                     <i class="bi bi-graph-up"></i> Historical <span class="view-badge view-badge-weekly">WEEKLY</span>
                 </button>
                 <button class="btn-view" id="btn-buckets" onclick="switchView('buckets')">
@@ -485,7 +486,7 @@
 
     </div><!-- /current-view -->
 
-    <div id="historical-view" style="position: relative;">
+    <div id="historical-view" class="visible" style="position: relative;">
         <div id="iframe-loading" class="loading-iframe">
             <div class="text-center">
                 <div class="spinner-border text-primary" style="width: 2rem; height: 2rem;"></div>
@@ -526,7 +527,7 @@
         let historicalLoaded = false;
         let bucketsLoaded = false;
         let isTransitioning = false;
-        let currentActiveView = 'current';
+        let currentActiveView = 'historical';
 
         function switchView(view) {
             if (isTransitioning || view === currentActiveView) return;

@@ -1197,11 +1197,14 @@ class HistoricalCache:
                 print(f"[HIST] [ERR] {name} FAILED (unrecognized col): {err_str[:300]}", flush=True)
                 return None
 
-        # ── STEP A: Core queries ──────────────────────────────────────
-        print(f"[HIST] Starting 3 core queries in parallel...", flush=True)
+        # ── STEP A: All 4 queries in parallel (catg included from start) ────
+        # catg used to start AFTER core queries (~10s delay). Now all 4 run
+        # simultaneously so catg is ready ~10s sooner for WoW/YoY category view.
+        all_queries = {**core_queries, 'catg': q4}
+        print(f"[HIST] Starting 4 queries in parallel (enterprise/sbu/dept/catg)...", flush=True)
         core_start = time.time()
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            futures = {executor.submit(run_query, name, sql): name for name, sql in core_queries.items()}
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = {executor.submit(run_query, name, sql): name for name, sql in all_queries.items()}
             for future in as_completed(futures):
                 name = futures[future]
                 try:
@@ -1211,12 +1214,19 @@ class HistoricalCache:
                     results[name] = None
 
         core_elapsed = round(time.time() - core_start, 1)
-        print(f"[HIST] [FAST] Core queries done in {core_elapsed}s", flush=True)
+        print(f"[HIST] [FAST] All queries done in {core_elapsed}s", flush=True)
 
         # Assign core results
         self.enterprise_df = results.get('enterprise')
         self.sbu_df = results.get('sbu')
         self.dept_df = results.get('dept')
+
+        # Assign catg immediately (preloaded in parallel — no background thread needed)
+        if results.get('catg') is not None:
+            self.catg_df = results['catg']
+            print(f"[HIST] Catg preloaded: {len(self.catg_df):,} rows", flush=True)
+        else:
+            print(f"[HIST] [WARN] Catg query failed — category view unavailable", flush=True)
 
         # Validate
         if self.dept_df is not None and len(self.dept_df) > 0:
@@ -1258,37 +1268,10 @@ class HistoricalCache:
         else:
             print(f"[HIST] [CUBE_MISSING] store_wtavg_cube NOT in enterprise df — cube will show 0", flush=True)
 
-        # Save core to disk now (catg saved separately when bg thread finishes)
+        # Save all data to disk (catg now included since it loaded in parallel)
         self._save_to_disk()
-
-        # ── STEP B: Catg in background thread ───────────────────────
-        import threading
-
-        def _load_catg_bg():
-            print("[HIST] [BG] Starting background catg query...", flush=True)
-            _retry_delays = [30, 60, 120]
-            for attempt in range(len(_retry_delays) + 1):
-                bg_t = time.time()
-                catg_df = run_query('catg', q4)
-                if catg_df is not None:
-                    self.catg_df = catg_df
-                    self._cached_catg_bytes = None
-                    self._cached_response = None
-                    elapsed = round(time.time() - bg_t, 1)
-                    print(f"[HIST] [BG] Catg ready: {len(catg_df):,} rows in {elapsed}s", flush=True)
-                    self._save_catg_to_disk()
-                    break
-                else:
-                    if attempt < len(_retry_delays):
-                        delay = _retry_delays[attempt]
-                        print(f"[HIST] [BG] Catg attempt {attempt+1} failed, retrying in {delay}s...", flush=True)
-                        time.sleep(delay)
-                    else:
-                        print("[HIST] [BG] Catg all retries exhausted — category view unavailable until next restart.", flush=True)
-
-        catg_thread = threading.Thread(target=_load_catg_bg, daemon=True, name="hist-catg-loader")
-        catg_thread.start()
-        print("[HIST] Catg loading in background thread (won't block health check)...", flush=True)
+        if self.catg_df is not None:
+            self._save_catg_to_disk()
 
     def to_lite_response(self) -> dict:
         """LITE response dict — no by_catg (80-90% of payload).
@@ -1974,28 +1957,16 @@ async def startup_event():
         print(f"[STARTUP] GOOGLE_CREDENTIALS starts with: {creds_preview}...", flush=True)
     print("[STARTUP] ========================================", flush=True)
 
-    loop = asyncio.get_event_loop()
-    try:
-        print("[STARTUP] Beginning cache load...", flush=True)
-        await loop.run_in_executor(None, cache.load)
-        print("[STARTUP] Cache load function completed", flush=True)
-        print(f"[STARTUP] cache.is_ready = {cache.is_ready}", flush=True)
-        print(f"[STARTUP] cache.df is None = {cache.df is None}", flush=True)
-        if cache.df is not None:
-            print(f"[STARTUP] cache.df rows = {len(cache.df)}", flush=True)
-        else:
-            print("[STARTUP] WARNING: cache.df is None - load likely failed!", flush=True)
-    except Exception as e:
-        print(f"[CACHE] Initial load failed: {e}", flush=True)
-        import traceback
-        print(f"[CACHE] Traceback: {traceback.format_exc()}", flush=True)
+    # Current view (DataCache) is hidden — skip its blocking BQ load at startup.
+    # Historical and On-Order caches load in background and are always available.
+    print("[STARTUP] Current view disabled — skipping DataCache load", flush=True)
+
     # Load historical and on-order caches in background — don't block server startup
     asyncio.create_task(_load_hist_cache_background())
     asyncio.create_task(_load_onorder_cache_background())
     asyncio.create_task(cache_refresh_loop())
-    # STO-DC: load from disk or kick off BQ query in background
-    loop2 = asyncio.get_event_loop()
-    await loop2.run_in_executor(None, _load_sto_dc_startup)
+    # STO-DC: disabled along with Current view (only used by Current view endpoints)
+    # await loop2.run_in_executor(None, _load_sto_dc_startup)
 
 
 # ============================================================

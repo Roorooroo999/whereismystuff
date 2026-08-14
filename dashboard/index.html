@@ -487,13 +487,14 @@
     </div><!-- /current-view -->
 
     <div id="historical-view" class="visible" style="position: relative;">
-        <div id="iframe-loading" class="loading-iframe">
+        <div id="iframe-loading" class="loading-iframe" style="background:rgba(15,15,26,0.92); display:flex; align-items:center; justify-content:center; position:absolute; inset:0; z-index:10;">
             <div class="text-center">
-                <div class="spinner-border text-primary" style="width: 2rem; height: 2rem;"></div>
-                <p class="mt-2" style="font-size: 0.85rem;">Loading Historical Trends...</p>
+                <div class="spinner-border text-primary" style="width: 2.5rem; height: 2.5rem;"></div>
+                <p class="mt-3" style="font-size: 0.9rem; color:#a0aec0;">Loading inventory data…</p>
+                <p id="hist-loading-status" style="font-size: 0.78rem; color:#6b7280; margin-top:4px;">Connecting to data server…</p>
             </div>
         </div>
-        <iframe id="historical-iframe" src="" title="Historical Trends" onload="document.getElementById('iframe-loading').style.display='none';"></iframe>
+        <iframe id="historical-iframe" src="" title="Historical Trends"></iframe>
     </div>
 
     <div id="buckets-view" style="position: relative;">
@@ -528,6 +529,56 @@
         let bucketsLoaded = false;
         let isTransitioning = false;
         let currentActiveView = 'historical';
+
+        // ── Historical view: set iframe src immediately + poll until data ready ──
+        (function initHistoricalView() {
+            const histIframe = document.getElementById('historical-iframe');
+            const overlay   = document.getElementById('iframe-loading');
+            const statusEl  = document.getElementById('hist-loading-status');
+
+            // Set iframe src right away so the page shell loads
+            const path = window.location.pathname;
+            histIframe.src = path.endsWith('.html') || path.endsWith('.htm')
+                ? path.replace(/[^\/]+$/, 'historical.html')
+                : (path.endsWith('/') ? path : path + '/') + 'historical.html';
+            historicalLoaded = true;
+
+            const startTime = Date.now();
+            let pollTimer = null;
+            let reloaded = false;
+
+            function checkReady() {
+                const elapsed = Math.round((Date.now() - startTime) / 1000);
+                fetch('/api/health')
+                    .then(r => r.json())
+                    .then(data => {
+                        const hc = data.historical_cache || {};
+                        if (hc.ready) {
+                            // Data ready — reload iframe once so charts render with real data
+                            if (!reloaded && elapsed > 2) {
+                                reloaded = true;
+                                try { histIframe.contentWindow.location.reload(); } catch(e) {}
+                                // Give the reload a moment then hide overlay
+                                setTimeout(() => { overlay.style.display = 'none'; }, 1500);
+                            } else {
+                                overlay.style.display = 'none';
+                            }
+                        } else {
+                            const rows = hc.rows ? ` · ${hc.rows.toLocaleString()} rows` : '';
+                            statusEl.textContent = `${elapsed}s elapsed${rows} — please wait…`;
+                            pollTimer = setTimeout(checkReady, 2000);
+                        }
+                    })
+                    .catch(() => {
+                        const elapsed = Math.round((Date.now() - startTime) / 1000);
+                        statusEl.textContent = `Connecting… ${elapsed}s`;
+                        pollTimer = setTimeout(checkReady, 2000);
+                    });
+            }
+
+            // Start polling after a short delay (let iframe shell load first)
+            setTimeout(checkReady, 800);
+        })();
 
         function switchView(view) {
             if (isTransitioning || view === currentActiveView) return;

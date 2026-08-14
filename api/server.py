@@ -1958,15 +1958,22 @@ async def startup_event():
     print("[STARTUP] ========================================", flush=True)
 
     # Current view (DataCache) is hidden — skip its blocking BQ load at startup.
-    # Historical and On-Order caches load in background and are always available.
-    print("[STARTUP] Current view disabled — skipping DataCache load", flush=True)
+    # All caches load in background — server starts instantly, data ready in ~15-40s.
+    # DataCache (Current view) is still loaded for dept-categories filter used by all views.
+    print("[STARTUP] Loading all caches in background (non-blocking)...", flush=True)
 
-    # Load historical and on-order caches in background — don't block server startup
+    async def _load_current_cache_background():
+        loop = asyncio.get_event_loop()
+        try:
+            await loop.run_in_executor(None, cache.load)
+            print(f"[STARTUP] DataCache ready ({cache.row_count:,} rows)", flush=True)
+        except Exception as e:
+            print(f"[STARTUP] DataCache background load failed: {e}", flush=True)
+
+    asyncio.create_task(_load_current_cache_background())
     asyncio.create_task(_load_hist_cache_background())
     asyncio.create_task(_load_onorder_cache_background())
     asyncio.create_task(cache_refresh_loop())
-    # STO-DC: disabled along with Current view (only used by Current view endpoints)
-    # await loop2.run_in_executor(None, _load_sto_dc_startup)
 
 
 # ============================================================

@@ -123,7 +123,7 @@
         window.BUCKETS_IN_IFRAME = (window.location.search || '').indexOf('iframe=1') !== -1 || window.self !== window.top;
         console.log('[BUCKETS] Iframe detection:', window.BUCKETS_IN_IFRAME, '| URL:', window.location.href);
         if (window.BUCKETS_IN_IFRAME) {
-            document.write('<style>#main-navbar{display:none!important}.sidebar{min-height:calc(100vh - 10px)!important}</style>');
+            document.write('<style>#main-navbar{display:none!important}#loading{display:none!important}.sidebar{min-height:calc(100vh - 10px)!important}</style>');
         }
     </script>
 </head>
@@ -1040,6 +1040,9 @@
 
             // Pre-initialize Change Analysis tab
             initBucketDrillFilters();
+            // Eagerly pre-fetch hist catg in background so Change Analysis → By Category
+            // is instant when user navigates there — mirrors historical.html behaviour.
+            loadHistCatgBackground();
 
         } catch (err) {
             console.error('[BUCKETS] Load failed:', err);

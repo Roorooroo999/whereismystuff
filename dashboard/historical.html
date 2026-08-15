@@ -88,10 +88,10 @@
     </style>
 </head>
 <body>
-    <!-- Hide navbar when loaded inside index.html iframe -->
+    <!-- Hide navbar + inner spinner when loaded inside index.html iframe (parent has its own overlay) -->
     <script>
         if (window.self !== window.top) {
-            document.write('<style>nav.navbar{display:none!important}</style>');
+            document.write('<style>nav.navbar{display:none!important}#loading{display:none!important}</style>');
         }
     </script>
     <nav class="navbar navbar-expand-lg navbar-dark" style="background: var(--walmart-blue);">
@@ -3250,17 +3250,24 @@
             console.log('DC Drilldown sample Category data:', DC_DRILL_DATA.catg.current[sampleKey]);
         }
 
-        // Populate SBU filter
-        const sbuFilter = document.getElementById('dc-drill-sbu-filter');
-        if (sbuFilter) {
-            sbuFilter.innerHTML = '<option value="">All SBUs</option>';
+        // Populate SBU filter — save/restore selection because innerHTML rebuild resets it
+        const sbuEl = document.getElementById('dc-drill-sbu-filter');
+        const prevSBU = sbuEl ? sbuEl.value : '';
+        if (sbuEl) {
+            sbuEl.innerHTML = '<option value="">All SBUs</option>';
             Object.keys(DC_DRILL_DATA.sbu.current).sort().forEach(sbu => {
-                sbuFilter.innerHTML += `<option value="${sbu}">${sbu}</option>`;
+                sbuEl.innerHTML += `<option value="${sbu}">${sbu}</option>`;
             });
+            if (prevSBU) sbuEl.value = prevSBU;  // restore explicitly — innerHTML rebuild clears it
         }
 
-        // Populate Dept filter
-        populateDeptFilter();
+        // Populate Dept filter — save/restore selection for the same reason
+        const prevDept = document.getElementById('dc-drill-dept-filter')?.value || '';
+        populateDeptFilter();  // now reads the correctly restored SBU value
+        if (prevDept) {
+            const deptEl = document.getElementById('dc-drill-dept-filter');
+            if (deptEl) deptEl.value = prevDept;  // restore dept — browser may not preserve after rebuild
+        }
 
         renderDCDrilldown();
     }
@@ -3329,14 +3336,30 @@
     }
 
     function switchDrillViewMode() {
+        // Save dept selection BEFORE populateDeptFilter rebuilds innerHTML (which resets value to "")
+        const _savedDept = document.getElementById('dc-drill-dept-filter')?.value || '';
         populateDeptFilter();
+        // Restore immediately — innerHTML rebuild clears the selection even if option still exists
+        if (_savedDept) {
+            const _de = document.getElementById('dc-drill-dept-filter');
+            if (_de) _de.value = _savedDept;
+        }
+
         const viewMode = document.getElementById('dc-drill-view-filter').value;
         if (viewMode === 'catg' && !CATG_LOADED) {
-            // Show loading state immediately so user knows it's working
+            // Catg still fetching from server — show spinner and wait
             showCatgLoadingState();
             ensureCatgLoaded(() => {
                 loadDCDrilldownData();
             });
+            return;
+        }
+        // Catg is loaded but DC_DRILL_DATA.catg may not have been aggregated yet
+        // (loadDCDrilldownData was first called before catg arrived → catg.current = {}).
+        // Re-run full aggregation so the catg table renders with real data.
+        if (viewMode === 'catg' && CATG_LOADED &&
+            Object.keys(DC_DRILL_DATA.catg && DC_DRILL_DATA.catg.current || {}).length === 0) {
+            loadDCDrilldownData();
             return;
         }
         renderDCDrilldown();
@@ -3534,12 +3557,16 @@
             document.getElementById('dc-drill-view-filter').value = 'dept';
             populateDeptFilter();
         } else if (currentView === 'dept') {
-            // Drill from Dept to Category
+            // Drill from Dept to Category.
+            // Must set SBU filter FIRST so populateDeptFilter includes this dept's option,
+            // otherwise the browser silently reverts the <select> to "All Departments".
+            if (row.SBU) document.getElementById('dc-drill-sbu-filter').value = row.SBU;
+            populateDeptFilter();
             document.getElementById('dc-drill-dept-filter').value = row.name;
             document.getElementById('dc-drill-view-filter').value = 'catg';
         }
         updateBreadcrumb();
-        renderDCDrilldown();
+        switchDrillViewMode();   // handles catg-loaded check + renderDCDrilldown
     }
 
     function renderChangeChart(changes, channel, compareLabel, viewMode) {

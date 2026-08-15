@@ -803,6 +803,10 @@ class HistoricalCache:
                     self._cached_response = None
                     print(f"[HIST] [BG] Catg ready: {len(df):,} rows in {round(time.time()-t0,1)}s", flush=True)
                     self._save_catg_to_disk()
+                    # Save fingerprint — include MAX(BUS_DT) so intra-week daily updates detected
+                    if 'WM_YR_WK_NBR' in df.columns and len(df) > 0:
+                        bus_dt = self._catg_max_bus_dt(client)
+                        self._save_catg_check(int(df['WM_YR_WK_NBR'].max()), len(df), bus_dt)
                     break  # success
                 except Exception as e:
                     if attempt < len(_retry_delays):
@@ -844,6 +848,115 @@ class HistoricalCache:
         except Exception as e:
             print(f"[HIST] [WARN] Failed to save catg to disk: {e}", flush=True)
 
+    def _catg_max_bus_dt(self, client) -> str:
+        """Return CAST(MAX(BUS_DT) AS STRING) from HIST_TABLE for catg rows (~1s scalar query).
+        Used to stamp the fingerprint so intra-week daily pipeline updates are detected.
+        """
+        fqn = f"`{HIST_PROJECT_ID}.{DATASET}.{HIST_TABLE}`"
+        try:
+            result = client.query(
+                f"SELECT CAST(MAX(BUS_DT) AS STRING) AS max_dt FROM {fqn} "
+                f"WHERE WM_YEAR >= 2024 AND OMNI_CATG_NBR IS NOT NULL"
+            ).to_dataframe()
+            return str(result["max_dt"].iloc[0]) if not result.empty else ""
+        except Exception as e:
+            print(f"[HIST] [CATG_CHECK] Failed to get max BUS_DT: {e}", flush=True)
+            return ""
+
+    def _save_catg_check(self, latest_week: int, row_count: int, latest_bus_dt: str = ""):
+        """Save catg fingerprint for smart refresh detection.
+
+        Tracks three signals:
+          latest_week   — detects when a new WM week is added (e.g. WK28 → WK29)
+          latest_bus_dt — detects intra-week daily pipeline updates (Mon→Tue→Wed within WK29).
+                          HIST_COMBINED uses CREATE OR REPLACE so each daily run REPLACES the
+                          current week's BUS_DT — no double-counting risk on refresh.
+          row_count     — detects category additions/removals
+        """
+        try:
+            check = {
+                "latest_week": int(latest_week),
+                "latest_bus_dt": str(latest_bus_dt),
+                "row_count": int(row_count),
+                "saved_at": time.time()
+            }
+            with open(self.CACHE_DIR / "catg_check.json", "w") as f:
+                json.dump(check, f)
+            print(f"[HIST] [CATG_CHECK] Fingerprint saved: week={latest_week}, "
+                  f"bus_dt={latest_bus_dt}, rows={row_count:,}", flush=True)
+        except Exception as e:
+            print(f"[HIST] [CATG_CHECK] Failed to save fingerprint: {e}", flush=True)
+
+    def _catg_needs_refresh(self, client) -> bool:
+        """Fast BQ check: has catg data changed since last load?
+
+        Runs a cheap 3-scalar aggregate query to detect:
+          • New WM week added (weekly pipeline completed)
+          • Intra-week daily update (Mon→Tue pipeline replaces WK29 BUS_DT)
+          • Category count change (new/removed categories)
+
+        HIST_COMBINED is CREATE OR REPLACE — each daily run replaces the current
+        week's rows, so detecting MAX(BUS_DT) changes is safe (no double-counting).
+        Returns True if catg BQ re-query is needed, False if parquet is still valid.
+        """
+        catg_file = self.CACHE_DIR / "catg.parquet"
+        check_file = self.CACHE_DIR / "catg_check.json"
+
+        if not catg_file.exists():
+            print("[HIST] [CATG_CHECK] catg.parquet missing → refresh needed", flush=True)
+            return True
+
+        if not check_file.exists():
+            print("[HIST] [CATG_CHECK] No fingerprint file → refresh needed", flush=True)
+            return True
+
+        try:
+            with open(check_file) as f:
+                cached = json.load(f)
+            cached_latest = cached.get("latest_week", 0)
+            cached_count = cached.get("row_count", 0)
+            cached_bus_dt = cached.get("latest_bus_dt", "")
+        except Exception as e:
+            print(f"[HIST] [CATG_CHECK] Failed to load fingerprint: {e} → refresh needed", flush=True)
+            return True
+
+        # Fast BQ metadata query — 3 scalars, no row-level data transfer (~1-2s)
+        fqn = f"`{HIST_PROJECT_ID}.{DATASET}.{HIST_TABLE}`"
+        check_sql = f"""
+            SELECT
+                IFNULL(MAX(WM_YR_WK_NBR), 0)          AS latest_week,
+                IFNULL(CAST(MAX(BUS_DT) AS STRING), '') AS latest_bus_dt,
+                COUNT(DISTINCT OMNI_CATG_NBR)           AS catg_count
+            FROM {fqn}
+            WHERE WM_YEAR >= 2024 AND OMNI_CATG_NBR IS NOT NULL
+        """
+        try:
+            t0_chk = time.time()
+            result = client.query(check_sql).to_dataframe()
+            elapsed_chk = round(time.time() - t0_chk, 1)
+            if result.empty:
+                return True
+            latest_week  = int(result["latest_week"].iloc[0])
+            latest_bus_dt = str(result["latest_bus_dt"].iloc[0])
+            catg_count   = int(result["catg_count"].iloc[0])
+            changed = (
+                latest_week   != cached_latest   or
+                catg_count    != cached_count    or
+                latest_bus_dt != cached_bus_dt        # intra-week daily update
+            )
+            status = "CHANGED → refresh" if changed else "UNCHANGED → use parquet"
+            print(f"[HIST] [CATG_CHECK] BQ check in {elapsed_chk}s: "
+                  f"week={latest_week} (was {cached_latest}), "
+                  f"bus_dt={latest_bus_dt} (was {cached_bus_dt}), "
+                  f"count={catg_count:,} (was {cached_count:,}) → {status}", flush=True)
+            # Save the current BQ fingerprint even when unchanged — updates bus_dt baseline
+            if not changed:
+                self._save_catg_check(latest_week, catg_count, latest_bus_dt)
+            return changed
+        except Exception as e:
+            print(f"[HIST] [CATG_CHECK] Check query failed ({e}) → assuming refresh needed", flush=True)
+            return True
+
     def _load_from_disk(self, stale_ok: bool = False) -> bool:
         """Load DataFrames from parquet cache. Returns True if core data loaded successfully.
 
@@ -880,6 +993,15 @@ class HistoricalCache:
             catg_file = self.CACHE_DIR / "catg.parquet"
             if catg_file.exists():
                 self.catg_df = pd.read_parquet(catg_file)
+                # Bootstrap catg fingerprint from parquet if not already saved.
+                # This ensures the hourly refresh smart-check has a baseline to compare against.
+                check_file = self.CACHE_DIR / "catg_check.json"
+                if not check_file.exists() and self.catg_df is not None and 'WM_YR_WK_NBR' in self.catg_df.columns:
+                    try:
+                        latest_wk = int(self.catg_df['WM_YR_WK_NBR'].max())
+                        self._save_catg_check(latest_wk, len(self.catg_df))
+                    except Exception:
+                        pass
             else:
                 print("[HIST] [DISK] catg.parquet not found, will load from BQ in background", flush=True)
 
@@ -919,11 +1041,15 @@ class HistoricalCache:
             return bigquery.Client(project=CLIENT_PROJECT, credentials=credentials)
         return bigquery.Client(project=CLIENT_PROJECT)
 
-    def load(self, force_refresh: bool = False):
+    def load(self, force_refresh: bool = False, check_catg: bool = False):
         """Load historical data - from disk cache first, then BigQuery.
 
         On restart: Loads from parquet cache in ~1s (instant user experience)
         Then refreshes from BigQuery in background if cache is stale.
+
+        check_catg=True: before re-querying catg from BQ, run a fast metadata check
+        to see if the category mapping has actually changed.  If unchanged, catg is
+        served from the existing parquet (saves ~35-40s every hourly refresh).
         """
         self.is_loading = True
         self._cached_response = None  # Clear cache on reload
@@ -948,10 +1074,12 @@ class HistoricalCache:
             self.load_time_sec = round(time.time() - t0, 1)
             print(f"[HIST] Serving stale disk cache; BQ refresh starting in background...", flush=True)
 
+            _cc = check_catg  # capture for closure
+
             def _hist_bg_refresh():
                 try:
                     client = self._get_client()
-                    self._do_load(client, time.time())
+                    self._do_load(client, time.time(), check_catg=_cc)
                 except Exception as e:
                     print(f"[HIST] [BG] Refresh failed: {e}", flush=True)
 
@@ -969,7 +1097,7 @@ class HistoricalCache:
 
         # Wrap entire load in try/finally to ALWAYS reset is_loading
         try:
-            self._do_load(client, t0)
+            self._do_load(client, t0, check_catg=check_catg)
         except Exception as e:
             print(f"[HIST] Load failed with error: {e}", flush=True)
             import traceback
@@ -978,11 +1106,14 @@ class HistoricalCache:
             self.is_loading = False
             print(f"[HIST] Load finished. is_ready={self.is_ready}", flush=True)
 
-    def _do_load(self, client, t0):
+    def _do_load(self, client, t0, check_catg: bool = False):
         """Internal load logic - called by load() with error handling.
 
         PERFORMANCE: Queries run in PARALLEL using ThreadPoolExecutor.
         This reduces load time from ~50s (sequential) to ~25s (parallel).
+
+        check_catg=True: run a fast BQ metadata check before catg BQ query.
+        If catg mapping is unchanged (same latest week + count), load from parquet.
         """
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -1197,11 +1328,30 @@ class HistoricalCache:
                 print(f"[HIST] [ERR] {name} FAILED (unrecognized col): {err_str[:300]}", flush=True)
                 return None
 
-        # ── STEP A: All 4 queries in parallel (catg included from start) ────
-        # catg used to start AFTER core queries (~10s delay). Now all 4 run
-        # simultaneously so catg is ready ~10s sooner for WoW/YoY category view.
-        all_queries = {**core_queries, 'catg': q4}
-        print(f"[HIST] Starting 4 queries in parallel (enterprise/sbu/dept/catg)...", flush=True)
+        # ── STEP A: Smart catg check — skip BQ re-query if mapping unchanged ────
+        # Catg mapping (dept→category assignments) changes only when the weekly
+        # pipeline adds new categories.  On hourly refresh we run a 1-2s BQ count
+        # query instead of the full 35-40s catg scan.  If week + count are unchanged,
+        # we load catg from the existing parquet (instant, <0.5s).
+        catg_from_disk = False
+        if check_catg:
+            if not self._catg_needs_refresh(client):
+                try:
+                    self.catg_df = pd.read_parquet(self.CACHE_DIR / "catg.parquet")
+                    catg_from_disk = True
+                    print(f"[HIST] [CATG] Catg unchanged — loaded {len(self.catg_df):,} rows from parquet (no BQ query)", flush=True)
+                except Exception as e:
+                    print(f"[HIST] [CATG] Parquet load failed ({e}) → will re-query BQ", flush=True)
+                    catg_from_disk = False
+
+        # ── STEP B: Run queries in parallel ────────────────────────────────
+        if catg_from_disk:
+            all_queries = core_queries   # 3 queries — catg already in memory
+            print(f"[HIST] Starting 3 queries in parallel (catg from disk cache)...", flush=True)
+        else:
+            all_queries = {**core_queries, 'catg': q4}   # 4 queries
+            print(f"[HIST] Starting 4 queries in parallel (enterprise/sbu/dept/catg)...", flush=True)
+
         core_start = time.time()
         with ThreadPoolExecutor(max_workers=4) as executor:
             futures = {executor.submit(run_query, name, sql): name for name, sql in all_queries.items()}
@@ -1221,10 +1371,17 @@ class HistoricalCache:
         self.sbu_df = results.get('sbu')
         self.dept_df = results.get('dept')
 
-        # Assign catg immediately (preloaded in parallel — no background thread needed)
-        if results.get('catg') is not None:
+        # Assign catg — either from BQ result (fresh query) or already from disk above
+        if catg_from_disk:
+            print(f"[HIST] Catg serving from disk: {len(self.catg_df):,} rows", flush=True)
+        elif results.get('catg') is not None:
             self.catg_df = results['catg']
-            print(f"[HIST] Catg preloaded: {len(self.catg_df):,} rows", flush=True)
+            print(f"[HIST] Catg preloaded from BQ: {len(self.catg_df):,} rows", flush=True)
+            # Save fingerprint — include MAX(BUS_DT) so intra-week daily updates detected
+            if 'WM_YR_WK_NBR' in self.catg_df.columns and len(self.catg_df) > 0:
+                latest_wk = int(self.catg_df['WM_YR_WK_NBR'].max())
+                bus_dt = self._catg_max_bus_dt(client)
+                self._save_catg_check(latest_wk, len(self.catg_df), bus_dt)
         else:
             print(f"[HIST] [WARN] Catg query failed — category view unavailable", flush=True)
 
@@ -1906,8 +2063,9 @@ async def cache_refresh_loop():
             # Current snapshot
             await loop.run_in_executor(None, cache.load)
 
-            # Historical — force BQ query (bypass disk cache) so new pipeline data is picked up
-            await loop.run_in_executor(None, lambda: hist_cache.load(force_refresh=True))
+            # Historical — force BQ refresh for enterprise/sbu/dept; smart catg check (only
+            # re-queries catg from BQ if the week or category count has changed since last load).
+            await loop.run_in_executor(None, lambda: hist_cache.load(force_refresh=True, check_catg=True))
 
             # On-order
             await loop.run_in_executor(None, onorder_cache.load)
@@ -2619,6 +2777,35 @@ async def get_onorder_catg():
     if not onorder_cache.catg_ready:
         return SafeJSONResponse(content={"by_catg": [], "loading": True})
     return SafeJSONResponse(content=onorder_cache.to_catg_response())
+
+
+@app.api_route("/api/cache/refresh-catg", methods=["GET", "POST"])
+async def refresh_hist_catg():
+    """Force-refresh historical catg from BigQuery, bypassing the smart fingerprint check.
+
+    Use when catg.parquet is stale (e.g. catg_check.json fingerprint doesn't match
+    actual parquet content, or new weeks were added to R0C0JUG_WMUS_HIST_COMBINED).
+    Deletes both catg.parquet and catg_check.json, then triggers a background BQ reload.
+    """
+    if not hist_cache.is_ready:
+        raise HTTPException(status_code=503, detail="Historical cache not ready")
+    try:
+        # Wipe stale parquet + fingerprint so _do_load goes straight to BQ
+        for fname in ["catg.parquet", "catg_check.json"]:
+            p = hist_cache.CACHE_DIR / fname
+            if p.exists():
+                p.unlink()
+                print(f"[CATG_REFRESH] Deleted {fname}", flush=True)
+        # Clear in-memory catg cache flags
+        hist_cache._cached_catg_bytes = None
+        hist_cache._cached_response = None
+        hist_cache.catg_df = None
+        print("[CATG_REFRESH] Triggering background BQ catg reload...", flush=True)
+        hist_cache._start_catg_bg_load()
+        return {"status": "catg refresh started", "note": "poll /api/health for catg_ready status"}
+    except Exception as e:
+        logger.error(f"[CATG_REFRESH] Failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.api_route("/api/cache/refresh-onorder", methods=["GET", "POST"])

@@ -1040,9 +1040,9 @@
 
             // Pre-initialize Change Analysis tab
             initBucketDrillFilters();
-            // Eagerly pre-fetch hist catg in background so Change Analysis → By Category
-            // is instant when user navigates there — mirrors historical.html behaviour.
-            loadHistCatgBackground();
+            // NOTE: catg (127K rows) is NOT pre-fetched here — parsing that payload on
+            // page open blocks the JS thread and delays chart render by 10+ seconds.
+            // Catg loads lazily when user opens Change Analysis → By Category.
 
         } catch (err) {
             console.error('[BUCKETS] Load failed:', err);

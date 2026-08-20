@@ -657,7 +657,7 @@
                     bucketsView.style.display = 'block';
                     bucketsView.offsetHeight;
                     bucketsView.classList.add('visible');
-                    // Lazy-load iframe with health-check polling (same pattern as historical)
+                    // Lazy-load iframe — overlay dismisses via postMessage from iframe
                     if (!bucketsLoaded) {
                         const iframe = document.getElementById('buckets-iframe');
                         let path = window.location.pathname;
@@ -668,36 +668,41 @@
                         console.log('[BUCKETS] Loading iframe URL:', bucketsUrl);
                         iframe.src = bucketsUrl;
                         bucketsLoaded = true;
-                        // Show overlay (starts hidden, only displayed when Buckets is first loaded)
+                        // Show overlay
                         const bucketsOverlay = document.getElementById('buckets-iframe-loading');
-                        bucketsOverlay.style.display = 'flex';
                         const bucketsStatus = document.getElementById('buckets-loading-status');
+                        bucketsOverlay.style.display = 'flex';
                         const bucketsStart = Date.now();
-                        let bucketsReloaded = false;
-                        function checkBucketsReady() {
+
+                        // Update status text while loading so the user knows what's happening
+                        function tickBucketsStatus() {
                             const elapsed = Math.round((Date.now() - bucketsStart) / 1000);
-                            fetch('/api/health')
-                                .then(r => r.json())
-                                .then(data => {
-                                    const hc = data.historical_cache || {};
-                                    if (hc.ready) {
-                                        if (!bucketsReloaded && elapsed > 2) {
-                                            bucketsReloaded = true;
-                                            try { iframe.contentWindow.location.reload(); } catch(e) {}
-                                            setTimeout(() => { bucketsOverlay.style.display = 'none'; }, 1200);
-                                        } else { bucketsOverlay.style.display = 'none'; }
-                                    } else {
-                                        const rows = hc.rows ? ` · ${hc.rows.toLocaleString()} rows` : '';
-                                        bucketsStatus.textContent = `${elapsed}s elapsed${rows} — please wait…`;
-                                        setTimeout(checkBucketsReady, 2000);
-                                    }
-                                })
-                                .catch(() => {
-                                    bucketsStatus.textContent = `Connecting… ${elapsed}s`;
-                                    setTimeout(checkBucketsReady, 2000);
-                                });
+                            if (elapsed < 3) {
+                                bucketsStatus.textContent = 'Fetching pipeline data…';
+                            } else {
+                                bucketsStatus.textContent = `Rendering charts… ${elapsed}s`;
+                            }
+                            if (bucketsOverlay.style.display !== 'none') {
+                                setTimeout(tickBucketsStatus, 1000);
+                            }
                         }
-                        setTimeout(checkBucketsReady, 800);
+                        setTimeout(tickBucketsStatus, 1000);
+
+                        // Dismiss overlay when the iframe signals charts are rendered (postMessage)
+                        // This is more accurate than health-check polling — overlay stays until
+                        // inventory-buckets.html calls renderCharts(), not just until server is ready.
+                        // Fallback: dismiss after 20s regardless (handles slow on-order loads)
+                        const bucketsReadyHandler = function(event) {
+                            if (event.data && event.data.type === 'BUCKETS_READY') {
+                                window.removeEventListener('message', bucketsReadyHandler);
+                                bucketsOverlay.style.display = 'none';
+                            }
+                        };
+                        window.addEventListener('message', bucketsReadyHandler);
+                        setTimeout(() => {
+                            window.removeEventListener('message', bucketsReadyHandler);
+                            bucketsOverlay.style.display = 'none';
+                        }, 20000);
                     }
                 }
 

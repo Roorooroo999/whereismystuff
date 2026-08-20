@@ -1035,6 +1035,11 @@
             // Render charts
             renderCharts();
 
+            // Signal parent frame (index.html) that buckets data has rendered.
+            // Parent listens for this to dismiss its loading overlay at the right time
+            // (not just when the server is ready, but when charts are actually drawn).
+            try { window.parent.postMessage({ type: 'BUCKETS_READY' }, '*'); } catch(e) {}
+
             // If user navigated to On Order tab while page was loading, render it now
             if (onOrderTabVisible && ONORDER_DATA?.by_sbu?.length) renderOnOrderTab();
 

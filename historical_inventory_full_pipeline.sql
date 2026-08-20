@@ -1,10 +1,3 @@
--- ==========================================
--- SCRIPT: historical_inventory_full_pipeline.sql
--- PURPOSE: Complete historical inventory pipeline with cost columns + ITEM_CUBE
--- DATE: May 25, 2026 (Updated Jul 2026 - New EI store source + comprehensive item filter)
--- ============================================================
-
-
 -- ============================================================
 -- STEP 0: ITEM_CUR (TEMP TABLE)
 -- Filter: item_validity logic from mdse_omni_item (EI-aligned)
@@ -52,7 +45,7 @@ AS (
       AND dim.item_desc_1 NOT LIKE '%DISCONTINUED%'
       -- (f) Fineline / dept / category exclusions
       AND NOT (dim.fineline_nbr  = 8023 AND dim.dept_nbr = 42)
-      AND NOT (dim.omni_dept_nbr = 19   AND dim.omni_catg_nbr = 3072)
+      -- AND NOT (dim.omni_dept_nbr = 19   AND dim.omni_catg_nbr = 3072)
       AND NOT (dim.omni_dept_nbr = 91   AND dim.omni_catg_nbr = 3201)
       AND NOT (dim.omni_dept_nbr = 95   AND dim.fineline_nbr IN (9225,9226,9998,2353))
       AND NOT (dim.omni_dept_nbr = 40   AND dim.omni_catg_nbr IN (1808,1809,1788))
@@ -116,7 +109,7 @@ AS (
       AND val_ind     = 1
   ),
 
-  -- ── Unit cost: derived from fd_omni_chnl_item_dly ────────────────────────
+  -- ── Unit cost: unchanged — derived from old table ─────────────────────────
   item_unit_cost AS (
     SELECT
       BUS_DT,
@@ -155,7 +148,7 @@ AS (
       OV.omni_dept_desc                                                  AS OMNI_DEPT_DESC
     FROM `wmt-gdap-dl-sec-merch-bq-prod.ww_repl_dl_secure.repl_sku_ei_invt_dly_vw` INVT
     INNER JOIN store_validity  SV ON INVT.STORE_NBR  = SV.store_nbr
-    INNER JOIN ITEM_CUR        IC ON INVT.mds_fam_id = IC.MDS_FAM_ID
+    INNER JOIN ITEM_CUR        IC ON INVT.mds_fam_id = IC.MDS_FAM_ID  -- ITEM_CUR now carries item_validity filter
     INNER JOIN omni_validity   OV ON INVT.mds_fam_id = OV.mds_fam_id
     LEFT JOIN  item_unit_cost  UC ON INVT.bus_dt      = UC.BUS_DT
                                  AND INVT.mds_fam_id  = UC.MDS_FAM_ID
@@ -168,7 +161,9 @@ AS (
       AND INVT.bus_dt < CURRENT_DATE('America/Chicago')
       AND INVT.rpt_excl_ind = 0
       AND INVT.STORE_NBR NOT IN (2670,7611,2489,5169,3704,5997,7638,3971)
-      AND OV.omni_seg_desc NOT IN ('HEALTH AND WELLNESS','OTHER','WALMART SERVICES')
+      AND NOT (OV.omni_seg_desc = 'HEALTH AND WELLNESS' AND OV.omni_dept_nbr IN (38, 50, 75))
+      AND OV.omni_seg_desc <> 'OTHER'
+      AND OV.omni_seg_desc IS NOT NULL
     GROUP BY
       INVT.bus_dt, OV.mds_fam_id,
       OV.omni_catg_nbr, OV.omni_catg_desc,
@@ -176,32 +171,68 @@ AS (
   ),
 
   -- ── FC channel: UNCHANGED ─────────────────────────────────────────────────
-  fc_channel AS (
-    SELECT
-      INVT.BUS_DT,
-      INVT.MDS_FAM_ID,
-      SUM(COALESCE(INVT.TY_FC_ON_HAND_UNIT_QTY, 0)) AS FC_OH_UNITS,
-      SUM(COALESCE(INVT.TY_FC_ON_HAND_COST_AMT, 0))  AS FC_OH_COST,
-      INVT.OMNI_CATG_NBR,
-      INVT.OMNI_CATG_DESC,
-      INVT.OMNI_DEPT_NBR,
-      INVT.OMNI_DEPT_DESC
-    FROM `wmt-gdap-dl-sec-merch-bq-prod.us_fd_app_secure.fd_omni_chnl_item_dly` INVT
-    WHERE INVT.BUS_DT >= '2025-02-07'
-      AND (
-        EXTRACT(DAYOFWEEK FROM INVT.BUS_DT) = 6
-        OR (INVT.BUS_DT = DATE_SUB(CURRENT_DATE('America/Chicago'), INTERVAL 1 DAY)
-            AND EXTRACT(DAYOFWEEK FROM CURRENT_DATE('America/Chicago')) BETWEEN 2 AND 6)
-      )
-      AND INVT.BUS_DT < CURRENT_DATE('America/Chicago')
-      AND INVT.FULFMT_CHNL_NM = 'OWNED'
-      AND INVT.TY_FC_ON_HAND_UNIT_QTY > 0
-      AND INVT.OMNI_SEG_DESC NOT IN ('HEALTH AND WELLNESS','OTHER','WALMART SERVICES')
-    GROUP BY
-      INVT.BUS_DT, INVT.MDS_FAM_ID,
-      INVT.OMNI_CATG_NBR, INVT.OMNI_CATG_DESC,
-      INVT.OMNI_DEPT_NBR, INVT.OMNI_DEPT_DESC
-  )
+-- ── FC Sort/Nonsort attribute lookup ─────────────────────────────────────
+fc_attr AS (
+  SELECT DISTINCT
+    CAST(fc_id AS STRING) AS fc_id,
+    is_sortable
+  FROM `wmt-instockinventory-datamart.WM_AD_HOC.sce2e_aims_lkup_fc_attr`
+),
+
+-- ── FC item bridge: catlg_item_id → MDS_FAM_ID + OMNI hierarchy ──────────
+-- Using mdse_omni_item_vw (authoritative item dimension — no partition filter needed)
+fc_item_bridge AS (
+  SELECT DISTINCT
+    catlg_item_id,
+    mds_fam_id,
+    omni_catg_nbr,
+    omni_catg_desc,
+    omni_dept_nbr,
+    omni_dept_desc,
+    omni_seg_desc
+  FROM `wmt-gdap-dl-sec-merch-bq-prod.us_mdse_omni_vm.mdse_omni_item_vw`
+  WHERE catlg_item_id IS NOT NULL
+    AND mds_fam_id    IS NOT NULL
+    AND omni_seg_desc NOT IN ('HEALTH AND WELLNESS','OTHER','WALMART SERVICES')
+    AND val_ind     = 1
+    AND op_cmpny_cd = 'WMT-US'
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY catlg_item_id ORDER BY mds_fam_id) = 1
+),
+
+-- ── FC channel: NEW source + Sort/Nonsort breakdown ───────────────────────
+fc_channel AS (
+  SELECT
+    INVT.RPT_DT                                                        AS BUS_DT,
+    BRG.MDS_FAM_ID,
+    SUM(COALESCE(INVT.ON_HAND_UNIT_QTY, 0))                           AS FC_OH_UNITS,
+    SUM(COALESCE(INVT.ON_HAND_COST_AMT, 0))                           AS FC_OH_COST,
+    SUM(CASE WHEN FA.is_sortable = 1 THEN COALESCE(INVT.ON_HAND_UNIT_QTY, 0) ELSE 0 END) AS FC_OH_SORT_UNITS,
+    SUM(CASE WHEN FA.is_sortable = 1 THEN COALESCE(INVT.ON_HAND_COST_AMT, 0) ELSE 0 END) AS FC_OH_SORT_COST,
+    SUM(CASE WHEN FA.is_sortable = 0 THEN COALESCE(INVT.ON_HAND_UNIT_QTY, 0) ELSE 0 END) AS FC_OH_NONSORT_UNITS,
+    SUM(CASE WHEN FA.is_sortable = 0 THEN COALESCE(INVT.ON_HAND_COST_AMT, 0) ELSE 0 END) AS FC_OH_NONSORT_COST,
+    BRG.OMNI_CATG_NBR,
+    BRG.OMNI_CATG_DESC,
+    BRG.OMNI_DEPT_NBR,
+    BRG.OMNI_DEPT_DESC
+  FROM `wmt-gdap-dl-sec-merch-bq-prod.us_repl_cnsm_secure.repl_fc_item_invt_dly` INVT
+  INNER JOIN fc_item_bridge BRG
+    ON INVT.CATLG_ITEM_ID = BRG.CATLG_ITEM_ID
+  LEFT JOIN fc_attr FA
+    ON CAST(INVT.SHIP_NODE_ORG_CD AS STRING) = FA.fc_id
+  WHERE INVT.RPT_DT >= '2025-02-07'
+    AND (
+      EXTRACT(DAYOFWEEK FROM INVT.RPT_DT) = 6
+      OR (INVT.RPT_DT = DATE_SUB(CURRENT_DATE('America/Chicago'), INTERVAL 1 DAY)
+          AND EXTRACT(DAYOFWEEK FROM CURRENT_DATE('America/Chicago')) BETWEEN 2 AND 6)
+    )
+    AND INVT.RPT_DT < CURRENT_DATE('America/Chicago')
+    AND INVT.ON_HAND_UNIT_QTY  > 0
+    AND INVT.ON_HAND_UNIT_QTY  < 500000
+  GROUP BY
+    INVT.RPT_DT, BRG.MDS_FAM_ID,
+    BRG.OMNI_CATG_NBR, BRG.OMNI_CATG_DESC,
+    BRG.OMNI_DEPT_NBR, BRG.OMNI_DEPT_DESC
+)
 
   SELECT
     COALESCE(S.BUS_DT, F.BUS_DT)                     AS BUS_DT,
@@ -218,6 +249,10 @@ AS (
     COALESCE(S.IN_TRANSIT_COST, 0)                     AS IN_TRANSIT_COST,
     COALESCE(F.FC_OH_UNITS, 0)                         AS FC_OH_UNITS,
     COALESCE(F.FC_OH_COST, 0)                          AS FC_OH_COST,
+    COALESCE(F.FC_OH_SORT_UNITS, 0)                    AS FC_OH_SORT_UNITS,
+    COALESCE(F.FC_OH_SORT_COST, 0)                     AS FC_OH_SORT_COST,
+    COALESCE(F.FC_OH_NONSORT_UNITS, 0)                 AS FC_OH_NONSORT_UNITS,
+    COALESCE(F.FC_OH_NONSORT_COST, 0)                  AS FC_OH_NONSORT_COST,
     COALESCE(S.OMNI_CATG_NBR,  F.OMNI_CATG_NBR)        AS OMNI_CATG_NBR,
     COALESCE(S.OMNI_CATG_DESC, F.OMNI_CATG_DESC)       AS OMNI_CATG_DESC,
     COALESCE(S.OMNI_DEPT_NBR,  F.OMNI_DEPT_NBR)        AS OMNI_DEPT_NBR,
@@ -258,7 +293,7 @@ AS (
     OR S.IN_TRANSIT_UNITS  > 0
     OR F.FC_OH_UNITS       > 0
   )
-  AND COALESCE(S.OMNI_DEPT_NBR, F.OMNI_DEPT_NBR) NOT IN (38,50,75)  -- H&W depts
+  -- AND COALESCE(S.OMNI_DEPT_NBR, F.OMNI_DEPT_NBR) NOT IN (38,50,75)  -- H&W depts
 );
 
 
@@ -298,9 +333,7 @@ WHERE FC_OH_UNITS > 0;
 
 
 -- ============================================================
--- STEP 1.5: BACKROOM INVENTORY (daily grain via store_backroom_qty)
--- Single source: RS001_WM_AD_HOC.store_backroom_qty covers full history from WK01 FY25.
--- LEFT JOIN repl_item_map so all backroom items pass through (unmapped → OMNI_CATG_NBR=0/'OTHER').
+-- STEP 1.5: BACKROOM INVENTORY (no ITEM_CUBE - no OMNI join in source)
 -- ============================================================
 DROP TABLE IF EXISTS `wmt-execution-intel-prod.WM_AD_HOC.R0C0JUG_WMUS_HIST_BACKROOM`;
 
@@ -324,78 +357,128 @@ AS (
       AND CAL_DT < CURRENT_DATE('America/Chicago')
   ),
 
-  -- Prefer OMNI-mapped items when a REPL_GROUP_NBR maps to multiple MDS_FAM_IDs.
-  -- ROW_NUMBER: OMNI-present (0) sorts before OMNI-missing (1); ties broken by lowest MDS_FAM_ID.
   repl_item_map AS (
-    SELECT rim.REPL_GROUP_NBR, rim.MDS_FAM_ID
-    FROM (
-      SELECT
-        ic.REPL_GROUP_NBR,
-        ic.MDS_FAM_ID,
-        CASE WHEN omni.MDS_FAM_ID IS NOT NULL THEN 0 ELSE 1 END AS omni_missing
-      FROM ITEM_CUR ic
-      LEFT JOIN (
-        SELECT DISTINCT MDS_FAM_ID
-        FROM `wmt-gdap-dl-sec-merch-bq-prod.us_mdse_omni_vm.mdse_omni_item_vw`
-        WHERE VAL_IND = 1 AND OP_CMPNY_CD = 'WMT-US'
-      ) omni ON omni.MDS_FAM_ID = ic.MDS_FAM_ID
-      WHERE ic.REPL_GROUP_NBR IS NOT NULL
-      QUALIFY ROW_NUMBER() OVER (
-        PARTITION BY ic.REPL_GROUP_NBR
-        ORDER BY
-          CASE WHEN omni.MDS_FAM_ID IS NOT NULL THEN 0 ELSE 1 END,
-          ic.MDS_FAM_ID
-      ) = 1
-    ) rim
+  SELECT rim.REPL_GROUP_NBR, rim.MDS_FAM_ID
+  FROM (
+    SELECT
+      ic.REPL_GROUP_NBR,
+      ic.MDS_FAM_ID,
+      CASE WHEN omni.MDS_FAM_ID IS NOT NULL THEN 0 ELSE 1 END AS omni_missing
+    FROM ITEM_CUR ic
+    LEFT JOIN (
+      SELECT DISTINCT MDS_FAM_ID
+      FROM `wmt-gdap-dl-sec-merch-bq-prod.us_mdse_omni_vm.mdse_omni_item_vw`
+      WHERE VAL_IND = 1 AND OP_CMPNY_CD = 'WMT-US'
+    ) omni ON omni.MDS_FAM_ID = ic.MDS_FAM_ID
+    WHERE ic.REPL_GROUP_NBR IS NOT NULL
+    QUALIFY ROW_NUMBER() OVER (
+      PARTITION BY ic.REPL_GROUP_NBR
+      ORDER BY
+        CASE WHEN omni.MDS_FAM_ID IS NOT NULL THEN 0 ELSE 1 END,  
+        ic.MDS_FAM_ID                                               
+    ) = 1
+  ) rim
   )
+    SELECT
+        FRI.BUS_DT,
+        FRI.WM_YEAR,
+        FRI.WM_WEEK,
+        FRI.WM_YR_WK_NBR,
+        RIM.MDS_FAM_ID,
+        SUM(COALESCE(BKRM.TOTAL_BACKROOM_QTY, 0))                                AS BACKROOM_UNITS,
+        SAFE_DIVIDE(
+          SUM(COALESCE(BKRM.TOTAL_BACKROOM_QTY, 0)
+              * SAFE_DIVIDE(OMNI.PKG_HT_IN_QTY * OMNI.PKG_WDTH_IN_QTY * OMNI.PKG_LEN_IN_QTY, 1728)),
+          NULLIF(SUM(COALESCE(BKRM.TOTAL_BACKROOM_QTY, 0)), 0)
+        )                                                                         AS BACKROOM_WTAVG_CUBE,
+        COALESCE(OMNI.OMNI_CATG_NBR,  0)         AS OMNI_CATG_NBR,
+        COALESCE(OMNI.OMNI_CATG_DESC, 'OTHER')   AS OMNI_CATG_DESC,
+        COALESCE(OMNI.OMNI_DEPT_NBR,  0)         AS OMNI_DEPT_NBR,
+        COALESCE(OMNI.OMNI_DEPT_DESC, 'OTHER')   AS OMNI_DEPT_DESC,
+        CASE
+          WHEN OMNI.OMNI_DEPT_NBR IN (92,95)                      THEN 'PANTRY'
+          WHEN OMNI.OMNI_DEPT_NBR IN (2,4,8,13,40,46,79)          THEN 'CONSUMABLES'
+          WHEN OMNI.OMNI_DEPT_NBR IN (3,9,10,11,12,16,19,56)      THEN 'HARDLINES'
+          WHEN OMNI.OMNI_DEPT_NBR IN (90,91,1,82,96)              THEN 'CAC'
+          WHEN OMNI.OMNI_DEPT_NBR IN (23,24,25,26,29,31,32,33,34) THEN 'FASHION'
+          WHEN OMNI.OMNI_DEPT_NBR IN (14,17,20,22,71,74)          THEN 'HOME'
+          WHEN OMNI.OMNI_DEPT_NBR IN (80,81,93,94,97,98)          THEN 'FRESH'
+          WHEN OMNI.OMNI_DEPT_NBR IN (5,6,7,18,21,67,72,87)       THEN 'ETS'
+          ELSE 'OTHER'
+        END                                                                       AS SBU
+      FROM `wmt-instockinventory-datamart.RS001_WM_AD_HOC.store_backroom_qty` BKRM
+      INNER JOIN FRIDAY_DATES FRI
+        ON BKRM.CAL_DATE = FRI.BUS_DT
+      LEFT JOIN repl_item_map RIM
+        ON BKRM.REPL_GRP_NBR = RIM.REPL_GROUP_NBR
+      LEFT JOIN `wmt-gdap-dl-sec-merch-bq-prod.us_mdse_omni_vm.mdse_omni_item_vw` OMNI
+        ON RIM.MDS_FAM_ID = OMNI.MDS_FAM_ID
+        AND OMNI.VAL_IND = 1
+        AND OMNI.OP_CMPNY_CD = 'WMT-US'
+        AND OMNI.MDS_FAM_ID <> -1
+      WHERE COALESCE(BKRM.TOTAL_BACKROOM_QTY, 0) > 0
+      GROUP BY ALL
+    );
 
-  SELECT
-    FRI.BUS_DT,
-    FRI.WM_YEAR,
-    FRI.WM_WEEK,
-    FRI.WM_YR_WK_NBR,
-    RIM.MDS_FAM_ID,
-    SUM(COALESCE(BKRM.TOTAL_BACKROOM_QTY, 0))                                AS BACKROOM_UNITS,
-    SAFE_DIVIDE(
-      SUM(COALESCE(BKRM.TOTAL_BACKROOM_QTY, 0)
-          * SAFE_DIVIDE(OMNI.PKG_HT_IN_QTY * OMNI.PKG_WDTH_IN_QTY * OMNI.PKG_LEN_IN_QTY, 1728)),
-      NULLIF(SUM(COALESCE(BKRM.TOTAL_BACKROOM_QTY, 0)), 0)
-    )                                                                         AS BACKROOM_WTAVG_CUBE,
-    COALESCE(OMNI.OMNI_CATG_NBR,  0)         AS OMNI_CATG_NBR,
-    COALESCE(OMNI.OMNI_CATG_DESC, 'OTHER')   AS OMNI_CATG_DESC,
-    COALESCE(OMNI.OMNI_DEPT_NBR,  0)         AS OMNI_DEPT_NBR,
-    COALESCE(OMNI.OMNI_DEPT_DESC, 'OTHER')   AS OMNI_DEPT_DESC,
-    CASE
-      WHEN OMNI.OMNI_DEPT_NBR IN (92,95)                      THEN 'PANTRY'
-      WHEN OMNI.OMNI_DEPT_NBR IN (2,4,8,13,40,46,79)          THEN 'CONSUMABLES'
-      WHEN OMNI.OMNI_DEPT_NBR IN (3,9,10,11,12,16,19,56)      THEN 'HARDLINES'
-      WHEN OMNI.OMNI_DEPT_NBR IN (90,91,1,82,96)              THEN 'CAC'
-      WHEN OMNI.OMNI_DEPT_NBR IN (23,24,25,26,29,31,32,33,34) THEN 'FASHION'
-      WHEN OMNI.OMNI_DEPT_NBR IN (14,17,20,22,71,74)          THEN 'HOME'
-      WHEN OMNI.OMNI_DEPT_NBR IN (80,81,93,94,97,98)          THEN 'FRESH'
-      WHEN OMNI.OMNI_DEPT_NBR IN (5,6,7,18,21,67,72,87)       THEN 'ETS'
-      ELSE 'OTHER'
-    END                                                                       AS SBU
-  FROM `wmt-instockinventory-datamart.RS001_WM_AD_HOC.store_backroom_qty` BKRM
-  INNER JOIN FRIDAY_DATES FRI
-    ON BKRM.CAL_DATE = FRI.BUS_DT
-  LEFT JOIN repl_item_map RIM
-    ON BKRM.REPL_GRP_NBR = RIM.REPL_GROUP_NBR
-  LEFT JOIN `wmt-gdap-dl-sec-merch-bq-prod.us_mdse_omni_vm.mdse_omni_item_vw` OMNI
-    ON RIM.MDS_FAM_ID = OMNI.MDS_FAM_ID
-    AND OMNI.VAL_IND = 1
-    AND OMNI.OP_CMPNY_CD = 'WMT-US'
-    AND OMNI.MDS_FAM_ID <> -1
-  WHERE COALESCE(BKRM.TOTAL_BACKROOM_QTY, 0) > 0
-  GROUP BY ALL
-);
-
+--   SELECT
+--     FRI.BUS_DT,
+--     FRI.WM_YEAR,
+--     FRI.WM_WEEK,
+--     FRI.WM_YR_WK_NBR,
+--     BKRM.MDS_FAM_ID,
+--     SUM(
+--       CASE
+--         WHEN BKRM.WM_YEAR = 25 THEN COALESCE(BKRM.BACKROOM_QTY_LY, 0)
+--         WHEN BKRM.WM_YEAR = 26 THEN COALESCE(BKRM.BACKROOM_QTY_TY, 0)
+--         ELSE 0
+--       END
+--     ) AS BACKROOM_UNITS,
+--     SUM(
+--       CASE
+--         WHEN BKRM.WM_YEAR = 25 THEN COALESCE(BKRM.LY_OH, 0)
+--         WHEN BKRM.WM_YEAR = 26 THEN COALESCE(BKRM.TY_OH, 0)
+--         ELSE 0
+--       END
+--     ) AS STORE_OH_UNITS,
+--     SAFE_DIVIDE(
+--       SUM(
+--         CASE WHEN BKRM.WM_YEAR = 25 THEN COALESCE(BKRM.BACKROOM_QTY_LY, 0)
+--              WHEN BKRM.WM_YEAR = 26 THEN COALESCE(BKRM.BACKROOM_QTY_TY, 0) ELSE 0 END
+--         * SAFE_DIVIDE(OMNI.PKG_HT_IN_QTY * OMNI.PKG_WDTH_IN_QTY * OMNI.PKG_LEN_IN_QTY, 1728)
+--       ),
+--       NULLIF(SUM(
+--         CASE WHEN BKRM.WM_YEAR = 25 THEN COALESCE(BKRM.BACKROOM_QTY_LY, 0)
+--              WHEN BKRM.WM_YEAR = 26 THEN COALESCE(BKRM.BACKROOM_QTY_TY, 0) ELSE 0 END
+--       ), 0)
+--     ) AS BACKROOM_WTAVG_CUBE,
+--     CAST(BKRM.omni_catg_nbr AS INT64)  AS OMNI_CATG_NBR,
+--     BKRM.omni_catg_desc                AS OMNI_CATG_DESC,
+--     CAST(BKRM.omni_dept_nbr AS INT64)  AS OMNI_DEPT_NBR,
+--     BKRM.omni_dept_desc                AS OMNI_DEPT_DESC,
+--     BKRM.SBU_NM                        AS SBU
+--   FROM `wmt-instockinventory-datamart.WM_AD_HOC.o0c046n_backroom_oh_inv_inv_sol_reporting_pre_20260126` BKRM
+--   INNER JOIN FRIDAY_DATES FRI
+--     ON (BKRM.WM_YEAR + 2000) = FRI.WM_YEAR
+--     AND BKRM.WM_WEEK = FRI.WM_WEEK
+--   LEFT JOIN `wmt-gdap-dl-sec-merch-bq-prod.us_mdse_omni_vm.mdse_omni_item_vw` OMNI
+--     ON BKRM.MDS_FAM_ID = OMNI.MDS_FAM_ID
+--     AND OMNI.VAL_IND = 1
+--     AND OMNI.OP_CMPNY_CD = 'WMT-US'
+--   WHERE BKRM.WM_YEAR IN (25, 26)
+--     AND (
+--       (BKRM.WM_YEAR = 25 AND BKRM.BACKROOM_QTY_LY > 0)
+--       OR
+--       (BKRM.WM_YEAR = 26 AND BKRM.BACKROOM_QTY_TY > 0)
+--     )
+--   GROUP BY
+--     FRI.BUS_DT, FRI.WM_YEAR, FRI.WM_WEEK, FRI.WM_YR_WK_NBR,
+--     BKRM.MDS_FAM_ID, BKRM.omni_catg_nbr, BKRM.omni_catg_desc,
+--     BKRM.omni_dept_nbr, BKRM.omni_dept_desc, BKRM.SBU_NM
+-- );
 
 -- ============================================================
--- STEP 2: IN TRANSIT TO DC (CDI_ATLAS — RDC + ICC/ACC inbound)
+-- STEP 2: IN TRANSIT TO DC (CDI_ATLAS — RDC + GDC inbound)
 -- ============================================================
-DROP TABLE IF EXISTS `wmt-execution-intel-prod.WM_AD_HOC.R0C0JUG_WMUS_HIST_INTRANSIT_DC`;
-
 CREATE OR REPLACE TABLE `wmt-execution-intel-prod.WM_AD_HOC.R0C0JUG_WMUS_HIST_INTRANSIT_DC`
 PARTITION BY BUS_DT
 CLUSTER BY OMNI_CATG_NBR
@@ -412,21 +495,37 @@ AS (
       AND FULFMT_CHNL_NM = 'Store' AND TY_ON_HAND_QTY > 0
     GROUP BY BUS_DT, MDS_FAM_ID
   ),
+
+  -- ── Friday date spine ─────────────────────────────────────
+  friday_spine AS (
+    SELECT DISTINCT
+      CAL_DT AS BUS_DT,
+      WM_FULL_YR_NBR AS WM_YEAR,
+      WM_WK_NBR      AS WM_WEEK,
+      WM_YR_WK_NBR
+    FROM `wmt-edw-prod.WW_CORE_DIM_DL_VM.DL_CALENDAR_DIM`
+    WHERE (EXTRACT(DAYOFWEEK FROM CAL_DT) = 6
+           OR (CAL_DT = DATE_SUB(CURRENT_DATE('America/Chicago'), INTERVAL 1 DAY)
+               AND EXTRACT(DAYOFWEEK FROM CURRENT_DATE('America/Chicago')) BETWEEN 2 AND 6))
+      AND CAL_DT >= '2025-02-07'
+      AND CAL_DT < CURRENT_DATE('America/Chicago')
+  ),
+
   rdc_intransit AS (
-    SELECT DATE(cdi.MERGE_TS) AS BUS_DT, itm.MDS_FAM_ID,
-           cdi.IT_DC_NUM AS DC_NBR, SUM(cdi.IT_INTRANSIT_QTY) AS INTRANSIT_QTY
-    FROM `wmt-edw-prod.US_SUPPLY_CHAIN_AMBIENT_RAW_VM.CDI_ATLAS_INV_ITEM_INVENTORY` cdi
+    SELECT
+      F.BUS_DT, F.WM_YEAR, F.WM_WEEK, F.WM_YR_WK_NBR,
+      itm.MDS_FAM_ID,          
+      cdi.IT_DC_NUM AS DC_NBR,
+      SUM(cdi.IT_INTRANSIT_QTY) AS INTRANSIT_QTY
+    FROM friday_spine F
+    JOIN `wmt-edw-prod.US_SUPPLY_CHAIN_AMBIENT_RAW_VM.CDI_ATLAS_INV_ITEM_INVENTORY` cdi
+      ON DATE(cdi.MERGE_TS) = F.BUS_DT
     INNER JOIN ITEM_CUR itm ON itm.ITEM_NBR = cdi.IT_ITEM_NBR
     WHERE cdi.IT_INTRANSIT_QTY > 0
-      AND DATE(cdi.MERGE_TS) >= '2025-02-07'
-      AND (EXTRACT(DAYOFWEEK FROM DATE(cdi.MERGE_TS)) = 6
-           OR (DATE(cdi.MERGE_TS) = DATE_SUB(CURRENT_DATE('America/Chicago'), INTERVAL 1 DAY)
-               AND EXTRACT(DAYOFWEEK FROM CURRENT_DATE('America/Chicago')) BETWEEN 2 AND 6))
-      AND DATE(cdi.MERGE_TS) < CURRENT_DATE('America/Chicago')
     GROUP BY ALL
   ),
   gdc_intransit AS (
-    SELECT DATE(cdi.MERGE_TS) AS BUS_DT, itm.MDS_FAM_ID,
+    SELECT DATE(cdi.MERGE_TS) AS BUS_DT, itm.MDS_FAM_ID,  
            cdi.FACILITY_NUMBER AS DC_NBR, SUM(cdi.IT_INTRANSIT_QTY) AS INTRANSIT_QTY
     FROM `wmt-edw-prod.US_SUPPLY_CHAIN_GROCERY_RAW_VM.CDI_ATLAS_INV_ITEM_INVENTORY` cdi
     INNER JOIN ITEM_CUR itm ON itm.ITEM_NBR = cdi.IT_ITEM_NBR
@@ -440,20 +539,15 @@ AS (
   ),
   icc_acc_intransit AS (
     SELECT
-      DATE(cdi.MERGE_TS)        AS BUS_DT,
-      itm.MDS_FAM_ID,
-      cdi.IT_DC_NUM             AS DC_NBR,
+      F.BUS_DT, F.WM_YEAR, F.WM_WEEK, F.WM_YR_WK_NBR,
+      itm.MDS_FAM_ID,          -- ← TRUE MDS_FAM_ID (was cdi.IT_ITEM_NBR — BUG)
+      cdi.IT_DC_NUM AS DC_NBR,
       SUM(cdi.IT_INTRANSIT_QTY) AS INTRANSIT_QTY
-    FROM `wmt-edw-prod.US_SUPPLY_CHAIN_AMB_CC_IMPORTS_RAW_VM.CDI_ATLAS_INV_ITEM_INVENTORY` cdi
+    FROM friday_spine F
+    JOIN `wmt-edw-prod.US_SUPPLY_CHAIN_AMB_CC_IMPORTS_RAW_VM.CDI_ATLAS_INV_ITEM_INVENTORY` cdi
+      ON DATE(cdi.MERGE_TS) = F.BUS_DT
     INNER JOIN ITEM_CUR itm ON itm.ITEM_NBR = cdi.IT_ITEM_NBR
     WHERE cdi.IT_INTRANSIT_QTY > 0
-      AND DATE(cdi.MERGE_TS) >= '2025-02-07'
-      AND (
-        EXTRACT(DAYOFWEEK FROM DATE(cdi.MERGE_TS)) = 6
-        OR (DATE(cdi.MERGE_TS) = DATE_SUB(CURRENT_DATE('America/Chicago'), INTERVAL 1 DAY)
-            AND EXTRACT(DAYOFWEEK FROM CURRENT_DATE('America/Chicago')) BETWEEN 2 AND 6)
-      )
-      AND DATE(cdi.MERGE_TS) < CURRENT_DATE('America/Chicago')
     GROUP BY ALL
   ),
   combined AS (
@@ -461,7 +555,7 @@ AS (
     UNION ALL
     -- SELECT * FROM gdc_intransit
     -- UNION ALL
-    SELECT * FROM icc_acc_intransit
+    SELECT * FROM icc_acc_intransit   
   )
   SELECT
     c.BUS_DT,
@@ -491,12 +585,14 @@ AS (
   LEFT JOIN `wmt-edw-prod.WW_CORE_DIM_VM.DC_DIM_CUR` DC_DIM
     ON DC_DIM.COUNTRY_CODE = 'US' AND DC_DIM.DC_NBR = c.DC_NBR AND DC_DIM.CURRENT_IND = 'Y'
   LEFT JOIN item_unit_cost UC ON c.BUS_DT = UC.BUS_DT AND c.MDS_FAM_ID = UC.MDS_FAM_ID
-  WHERE (OMNI.OMNI_SEG_DESC IS NULL OR OMNI.OMNI_SEG_DESC NOT IN ('HEALTH AND WELLNESS','OTHER','WALMART SERVICES'))
-    AND COALESCE(UPPER(DC_DIM.DC_TYPE_DESC), '') NOT LIKE '%ECOMM%'
-    AND COALESCE(UPPER(DC_DIM.DC_TYPE_DESC), '') NOT LIKE '%FULFILLMENT%'
-    AND COALESCE(UPPER(DC_DIM.DC_TYPE_DESC), '') NOT LIKE 'FC%'
+  WHERE OMNI.OMNI_SEG_DESC NOT IN ('HEALTH AND WELLNESS','OTHER','WALMART SERVICES')
+    AND DC_DIM.DC_TYPE_DESC IS NOT NULL
+    AND UPPER(DC_DIM.DC_TYPE_DESC) NOT LIKE '%ECOMM%'
+    AND UPPER(DC_DIM.DC_TYPE_DESC) NOT LIKE '%FULFILLMENT%'
+    AND UPPER(DC_DIM.DC_TYPE_DESC) NOT LIKE 'FC%'
   GROUP BY ALL
 );
+
 
 
 -- ============================================================
@@ -765,7 +861,10 @@ AS (
 
 
 -- ============================================================
--- STEP 5.5: ON YARD INVENTORY (with ITEM_CUBE)
+-- STEP 5.5: ON YARD INVENTORY (TUP-based — replaces RDC_FDC_EVENT_POS_HIST)
+-- Trailer source : wmt-cp-prod.TUP.TRAILER_STATUS_CHANGES
+-- Unit paths     : OMS (PO_NBR join) + STO (XREF → ALLOC_ORDER_FACT)
+-- Inflation fixes: V4 (multi-alloc), V5 (multi-delivery per PO), V6 (sched dups)
 -- ============================================================
 DROP TABLE IF EXISTS `wmt-execution-intel-prod.WM_AD_HOC.R0C0JUG_WMUS_HIST_ON_YARD`;
 
@@ -773,7 +872,10 @@ CREATE OR REPLACE TABLE `wmt-execution-intel-prod.WM_AD_HOC.R0C0JUG_WMUS_HIST_ON
 PARTITION BY BUS_DT
 CLUSTER BY OMNI_CATG_NBR
 AS (
-  WITH item_unit_cost AS (
+  WITH
+
+  -- ── Unit cost: aligned with all other steps ──────────────────
+  item_unit_cost AS (
     SELECT
       BUS_DT,
       MDS_FAM_ID,
@@ -794,79 +896,169 @@ AS (
     GROUP BY BUS_DT, MDS_FAM_ID
   ),
 
-  FRIDAY_DATES AS (
+  -- ── Friday date spine × TUP DC list ──────────────────────────
+  -- TUP_DCS_CONFIG auto-includes all active RDC/FDC + provides timezone
+  DATES AS (
     SELECT DISTINCT
-      CAL_DT AS BUS_DT,
-      WM_FULL_YR_NBR AS WM_YEAR,
-      WM_WK_NBR AS WM_WEEK,
-      WM_YR_WK_NBR
-    FROM `wmt-edw-prod.WW_CORE_DIM_DL_VM.DL_CALENDAR_DIM`
-    WHERE (
-      EXTRACT(DAYOFWEEK FROM CAL_DT) = 6
-      OR (CAL_DT = DATE_SUB(CURRENT_DATE('America/Chicago'), INTERVAL 1 DAY)
-          AND EXTRACT(DAYOFWEEK FROM CURRENT_DATE('America/Chicago')) BETWEEN 2 AND 6)
-    )
-      AND CAL_DT >= '2025-02-07'
-      AND CAL_DT < CURRENT_DATE('America/Chicago')
-  ),
-
-  po_first_gate AS (
-    SELECT
-      PO_NBR,
-      WHSE_NBR AS DC_NBR,
-      MIN(LEFT(GATE_IN_DATE, 10)) AS first_gate_date
-    FROM `wmt-cp-prod.TUP.RDC_FDC_EVENT_POS_HIST`
-    WHERE TRAILER_STATUS_CODE IN ('IN', 'XI', 'CI', 'XD')
-      AND PO_NBR IS NOT NULL
-      AND GATE_IN_DATE IS NOT NULL
-    GROUP BY PO_NBR, WHSE_NBR
-  ),
-
-  on_yard_base AS (
-    SELECT
-      pfg.first_gate_date AS GATE_DATE,
-      itm.MDS_FAM_ID,
-      pfg.DC_NBR,
-      SUM(pol.VNPK_ORD_QTY * pol.VNPK_QTY) AS ON_YARD_UNITS
-    FROM `wmt-edw-prod.US_WM_OMS_VM.OMS_PURCHASE_ORDER` po
-    INNER JOIN `wmt-edw-prod.US_WM_OMS_VM.OMS_PO_LINE` pol
-      ON pol.OMS_PO_NBR = po.OMS_PO_NBR
-    INNER JOIN (
-      SELECT DISTINCT ITEM_NBR, MDS_FAM_ID
-      FROM `wmt-edw-prod.US_WM_VM.ITEM_CUR`
-      WHERE ITEM_NBR IS NOT NULL AND MDS_FAM_ID IS NOT NULL
-      QUALIFY ROW_NUMBER() OVER (PARTITION BY ITEM_NBR ORDER BY OBSOLETE_DATE DESC) = 1
-    ) itm ON itm.ITEM_NBR = pol.ITEM_NBR
-    INNER JOIN po_first_gate pfg ON pfg.PO_NBR = po.PO_NBR
-    WHERE pol.PO_LINE_STATUS_CD <> 1300
-      AND po.CHG_REASON_CD <> 49
-      AND po.COUNTRY_CODE = 'US'
-      AND pfg.first_gate_date >= '2025-02-07'
-      AND (
-        EXTRACT(DAYOFWEEK FROM DATE(pfg.first_gate_date)) = 6
-        OR (DATE(pfg.first_gate_date) = DATE_SUB(CURRENT_DATE('America/Chicago'), INTERVAL 1 DAY)
+      DC.DC_NUMBER,
+      CAL.CAL_DT                    AS REPORT_DATE,
+      DC.TIMEZONE,
+      TIMESTAMP_TRUNC(
+        TIMESTAMP(
+          DATETIME_ADD(DATETIME(CAL.CAL_DT), INTERVAL 6 HOUR),
+          DC.TIMEZONE
+        ),
+        SECOND
+      )                             AS SNAPSHOT_TIME_UTC
+    FROM `wmt-cp-prod.TUP.TUP_DCS_CONFIG` DC
+    CROSS JOIN (
+      SELECT DISTINCT CAL_DT
+      FROM `wmt-edw-prod.WW_CORE_DIM_DL_VM.DL_CALENDAR_DIM`
+      WHERE (
+        EXTRACT(DAYOFWEEK FROM CAL_DT) = 6
+        OR (CAL_DT = DATE_SUB(CURRENT_DATE('America/Chicago'), INTERVAL 1 DAY)
             AND EXTRACT(DAYOFWEEK FROM CURRENT_DATE('America/Chicago')) BETWEEN 2 AND 6)
       )
-      AND DATE(pfg.first_gate_date) < CURRENT_DATE('America/Chicago')
-      AND pol.VNPK_ORD_QTY > 0
-    GROUP BY pfg.first_gate_date, itm.MDS_FAM_ID, pfg.DC_NBR
+        AND CAL_DT >= '2025-02-07'
+        AND CAL_DT < CURRENT_DATE('America/Chicago')
+    ) CAL
+    WHERE DC.RDC_IND = 1 OR DC.FDC_IND = 1
+  ),
+
+  -- ── Trailer layer: latest status per trip before 6 AM snapshot ─
+  on_yard_raw AS (
+    SELECT
+      D.DC_NUMBER,
+      D.REPORT_DATE,
+      S.TRIP_ID,
+      T.DELIVERY_NUMBER,
+      S.TRAILER_STATUS_CODE
+    FROM DATES D
+    INNER JOIN `wmt-cp-prod.TUP.TRAILER_STATUS_CHANGES` S
+      ON D.DC_NUMBER = S.DC_NUMBER
+      AND S.ENTITY_OPERATION_TS <= D.SNAPSHOT_TIME_UTC
+    INNER JOIN `wmt-edw-prod.US_SUPPLY_CHAIN_SCT_NONCAT_VM.TRAILER` T
+      ON (D.DC_NUMBER = CAST(T.DC_NUMBER AS INT64)
+       OR D.DC_NUMBER = CAST(T.PRIMARY_DC_NUMBER AS INT64))
+      AND S.TRIP_ID = T.TRIP_ID
+      AND (TIMESTAMP_TRUNC(T.GATE_OUT_TS, SECOND) >= TIMESTAMP_TRUNC(D.SNAPSHOT_TIME_UTC, SECOND)
+           OR T.GATE_OUT_TS IS NULL)
+      AND TIMESTAMP_TRUNC(T.ARRIVAL_TIME, SECOND) <= TIMESTAMP_TRUNC(D.SNAPSHOT_TIME_UTC, SECOND)
+      AND T.SOURCE_SYSTEM = 'yms2'
+      AND T.ARRIVAL_TIME IS NOT NULL
+      AND DATE(T.ENTITY_OPERATION_TS) >= DATE(D.SNAPSHOT_TIME_UTC) - 21  -- reduced from 60; trailers rarely on yard >3 weeks
+    QUALIFY ROW_NUMBER() OVER (
+      PARTITION BY D.DC_NUMBER, S.TRIP_ID, D.SNAPSHOT_TIME_UTC
+      ORDER BY S.ENTITY_OPERATION_TS DESC
+    ) = 1
+  ),
+
+  on_yard AS (
+    SELECT * FROM on_yard_raw
+    WHERE TRAILER_STATUS_CODE IN ('IN','CI','XI','XD','CS','XR')
+  ),
+
+  -- ── Scheduler dedup — fixes V6 duplicate rows ────────────────
+  sched_dedup AS (
+    SELECT DISTINCT
+      CAST(dc_nbr AS INT64) AS dc_nbr,
+      delivery_number,
+      po_number,
+      po_type
+    FROM `wmt-supply-chain-ais.IVCM.scheduler_ais_deliveries_src`
+    WHERE po_number IS NOT NULL
+      AND po_number <> '9999999999'
+  ),
+
+  -- ── OMS path: DISTINCT POs per day per DC — fixes V5 ─────────
+  -- Corrected join key: PO_NBR (not OMS_PO_NBR)
+  oms_pos_on_yard AS (
+    SELECT DISTINCT
+      oy.REPORT_DATE,
+      oy.DC_NUMBER,
+      po.OMS_PO_NBR
+    FROM on_yard oy
+    INNER JOIN sched_dedup del
+      ON del.dc_nbr        = oy.DC_NUMBER
+      AND del.delivery_number = oy.DELIVERY_NUMBER
+      AND del.po_type NOT IN (23, 28, 29)
+    INNER JOIN `wmt-edw-prod.US_WM_OMS_VM.OMS_PURCHASE_ORDER` po
+      ON del.po_number     = po.PO_NBR
+      AND po.COUNTRY_CODE  = 'US'
+  ),
+
+  -- OMS → item units (ITEM_CUR from STEP 0 applies item exclusions)
+  oms_units AS (
+    SELECT
+      p.REPORT_DATE,
+      p.DC_NUMBER,
+      ic.MDS_FAM_ID,
+      SUM(pol.VNPK_ORD_QTY * pol.VNPK_QTY)  AS ON_YARD_UNITS
+    FROM oms_pos_on_yard p
+    INNER JOIN `wmt-edw-prod.US_WM_OMS_VM.OMS_PO_LINE` pol
+      ON pol.OMS_PO_NBR         = p.OMS_PO_NBR
+      AND pol.PO_LINE_STATUS_CD <> 1300
+      AND pol.VNPK_ORD_QTY      > 0
+    INNER JOIN ITEM_CUR ic ON ic.ITEM_NBR = pol.ITEM_NBR
+    GROUP BY 1, 2, 3
+  ),
+
+  -- ── STO path: DISTINCT STOs per day per DC — fixes V5 + V4 ───
+  sto_nbrs_on_yard AS (
+    SELECT DISTINCT
+      oy.REPORT_DATE,
+      oy.DC_NUMBER,
+      sx.STOCK_TRANSFER_ORD_NBR
+    FROM on_yard oy
+    INNER JOIN sched_dedup del
+      ON del.dc_nbr           = oy.DC_NUMBER
+      AND del.delivery_number = oy.DELIVERY_NUMBER
+      AND del.po_type IN (23, 28, 29)
+    INNER JOIN `wmt-edw-prod.US_WM_OMS_VM.OMS_STO_PO_XREF` sx
+      ON del.po_number = CAST(sx.XREF_PO_NBR AS STRING)
+  ),
+
+  -- STO → item units (GROUP BY collapses multi-alloc rows — fixes V4)
+  sto_units AS (
+    SELECT
+      s.REPORT_DATE,
+      s.DC_NUMBER,
+      ic.MDS_FAM_ID,
+      SUM(aof.WHPK_ORD_QTY * aof.WHPK_QTY)  AS ON_YARD_UNITS
+    FROM sto_nbrs_on_yard s
+    INNER JOIN `wmt-edw-prod.US_WM_OMS_VM.ALLOC_ORDER_FACT` aof
+      ON aof.STOCK_TRANSFER_ORD_NBR = s.STOCK_TRANSFER_ORD_NBR
+    INNER JOIN ITEM_CUR ic ON ic.ITEM_NBR = aof.ITEM_NBR
+    GROUP BY 1, 2, 3
+  ),
+
+  -- ── Combine both paths ───────────────────────────────────────
+  all_units AS (
+    SELECT * FROM oms_units
+    UNION ALL
+    SELECT * FROM sto_units
   )
 
+  -- ── Final output — same schema as old STEP 5.5 ───────────────
+  -- MDS_FAM_ID × DC_NBR grain so STEP 7's ITEM_CUBE multiplication is correct
   SELECT
-    FRI.BUS_DT,
-    FRI.WM_YEAR,
-    FRI.WM_WEEK,
-    FRI.WM_YR_WK_NBR,
-    OY.MDS_FAM_ID,
-    OY.DC_NBR,
-    COALESCE(DC_DIM.DC_TYPE_DESC, 'UNKNOWN') AS DC_TYPE,
-    SUM(OY.ON_YARD_UNITS)                                    AS ON_YARD_UNITS,
-    SUM(OY.ON_YARD_UNITS * COALESCE(UC.UNIT_COST, 0))        AS ON_YARD_COST,
+    u.REPORT_DATE                                                       AS BUS_DT,
+    CAL.WM_FULL_YR_NBR                                                  AS WM_YEAR,
+    CAL.WM_WK_NBR                                                       AS WM_WEEK,
+    CAL.WM_YR_WK_NBR,
+    u.MDS_FAM_ID,
+    u.DC_NUMBER                                                         AS DC_NBR,
+    COALESCE(DC_DIM.DC_TYPE_DESC, 'UNKNOWN')                            AS DC_TYPE,
+    SUM(u.ON_YARD_UNITS)                                                AS ON_YARD_UNITS,
+    SUM(u.ON_YARD_UNITS * COALESCE(UC.UNIT_COST, 0))                    AS ON_YARD_COST,
     OMNI.OMNI_CATG_NBR,
     OMNI.OMNI_CATG_DESC,
     OMNI.OMNI_DEPT_NBR,
     OMNI.OMNI_DEPT_DESC,
-    SAFE_DIVIDE(OMNI.PKG_HT_IN_QTY * OMNI.PKG_WDTH_IN_QTY * OMNI.PKG_LEN_IN_QTY, 1728) AS ITEM_CUBE,
+    SAFE_DIVIDE(
+      OMNI.PKG_HT_IN_QTY * OMNI.PKG_WDTH_IN_QTY * OMNI.PKG_LEN_IN_QTY,
+      1728
+    )                                                                   AS ITEM_CUBE,
     CASE
       WHEN OMNI.OMNI_DEPT_NBR IN (92,95)                      THEN 'PANTRY'
       WHEN OMNI.OMNI_DEPT_NBR IN (2,4,8,13,40,46,79)          THEN 'CONSUMABLES'
@@ -877,28 +1069,29 @@ AS (
       WHEN OMNI.OMNI_DEPT_NBR IN (80,81,93,94,97,98)          THEN 'FRESH'
       WHEN OMNI.OMNI_DEPT_NBR IN (5,6,7,18,21,67,72,87)       THEN 'ETS'
       ELSE 'OTHER'
-    END AS SBU
-  FROM FRIDAY_DATES FRI
-  INNER JOIN on_yard_base OY ON FRI.BUS_DT = DATE(OY.GATE_DATE)
-  INNER JOIN ITEM_CUR ON OY.MDS_FAM_ID = ITEM_CUR.MDS_FAM_ID
+    END                                                                 AS SBU
+  FROM all_units u
+  INNER JOIN `wmt-edw-prod.WW_CORE_DIM_DL_VM.DL_CALENDAR_DIM` CAL
+    ON CAL.CAL_DT = u.REPORT_DATE
   LEFT JOIN `wmt-gdap-dl-sec-merch-bq-prod.us_mdse_omni_vm.mdse_omni_item_vw` OMNI
-    ON OY.MDS_FAM_ID = OMNI.MDS_FAM_ID
-    AND OMNI.VAL_IND = 1
+    ON u.MDS_FAM_ID      = OMNI.MDS_FAM_ID
+    AND OMNI.VAL_IND     = 1
     AND OMNI.OP_CMPNY_CD = 'WMT-US'
   LEFT JOIN `wmt-edw-prod.WW_CORE_DIM_VM.DC_DIM_CUR` DC_DIM
     ON DC_DIM.COUNTRY_CODE = 'US'
-    AND DC_DIM.DC_NBR = OY.DC_NBR
+    AND DC_DIM.DC_NBR      = u.DC_NUMBER
     AND DC_DIM.CURRENT_IND = 'Y'
   LEFT JOIN item_unit_cost UC
-    ON FRI.BUS_DT = UC.BUS_DT
-    AND OY.MDS_FAM_ID = UC.MDS_FAM_ID
+    ON UC.BUS_DT      = u.REPORT_DATE
+    AND UC.MDS_FAM_ID = u.MDS_FAM_ID
   WHERE OMNI.OMNI_SEG_DESC NOT IN ('HEALTH AND WELLNESS','OTHER','WALMART SERVICES')
   GROUP BY ALL
+
 );
 
 
 -- ============================================================
--- STEP 7: COMBINED INVENTORY TABLE (TOTAL_CUBE columns, no WTAVG_CUBE)
+-- STEP 7: COMBINED INVENTORY TABLE (with AVG_ITEM_CUBE)
 -- ============================================================
 DROP TABLE IF EXISTS `wmt-execution-intel-prod.WM_AD_HOC.R0C0JUG_WMUS_HIST_COMBINED`;
 
@@ -921,63 +1114,63 @@ AS (
       SUM(IN_TRANSIT_COST)   AS IN_TRANSIT_COST,
       SUM(FC_OH_UNITS)       AS FC_OH_UNITS,
       SUM(FC_OH_COST)        AS FC_OH_COST,
-      SUM(STORE_OH_UNITS    * ITEM_CUBE) AS STORE_TOTAL_CUBE,
+      SUM(FC_OH_SORT_UNITS)        AS FC_OH_SORT_UNITS,
+      SUM(FC_OH_SORT_COST)         AS FC_OH_SORT_COST,
+      SUM(FC_OH_NONSORT_UNITS)     AS FC_OH_NONSORT_UNITS,
+      SUM(FC_OH_NONSORT_COST)      AS FC_OH_NONSORT_COST,
+      SUM(STORE_OH_UNITS * ITEM_CUBE) AS STORE_TOTAL_CUBE,
       SUM(DC_RESERVED_UNITS * ITEM_CUBE) AS DC_RESERVED_TOTAL_CUBE,
-      SUM(IN_TRANSIT_UNITS  * ITEM_CUBE) AS TRANSIT_TOTAL_CUBE,
-      SUM(FC_OH_UNITS       * ITEM_CUBE) AS FC_TOTAL_CUBE
+      SUM(IN_TRANSIT_UNITS  * ITEM_CUBE)  AS TRANSIT_TOTAL_CUBE,
+      SUM(FC_OH_UNITS       * ITEM_CUBE)     AS FC_TOTAL_CUBE
     FROM `wmt-execution-intel-prod.WM_AD_HOC.R0C0JUG_WMUS_HIST_STORE_FC_INVT`
     GROUP BY ALL
   ),
 
-  -- Backroom rows that match a store_fc_agg category (joined in main SELECT).
-  -- OMNI_CATG_NBR <> 0 filter avoids double-counting with backroom_other_agg below.
-  backroom_agg AS (
-    SELECT
-      BUS_DT,
-      OMNI_CATG_NBR,
-      SUM(BACKROOM_UNITS)                                        AS BACKROOM_UNITS,
-      SUM(BACKROOM_UNITS * COALESCE(BACKROOM_WTAVG_CUBE, 0))     AS BACKROOM_TOTAL_CUBE
-    FROM `wmt-execution-intel-prod.WM_AD_HOC.R0C0JUG_WMUS_HIST_BACKROOM`
-    WHERE OMNI_CATG_NBR <> 0
-    GROUP BY BUS_DT, OMNI_CATG_NBR
-  ),
 
-  -- Backroom rows whose (BUS_DT, OMNI_CATG_NBR) has NO matching store_fc_agg row.
-  -- Includes both OMNI_CATG_NBR=0 (unmapped) and valid categories absent from store_fc.
-  -- These are appended via UNION ALL so other channels are unaffected.
-  backroom_other_agg AS (
-    SELECT
-      b.BUS_DT, b.WM_YEAR, b.WM_WEEK, b.WM_YR_WK_NBR,
-      b.OMNI_CATG_NBR, b.OMNI_CATG_DESC,
-      b.OMNI_DEPT_NBR, b.OMNI_DEPT_DESC,
-      b.SBU,
-      SUM(b.BACKROOM_UNITS)                                       AS BACKROOM_UNITS,
-      SUM(b.BACKROOM_UNITS * COALESCE(b.BACKROOM_WTAVG_CUBE, 0)) AS BACKROOM_TOTAL_CUBE
-    FROM `wmt-execution-intel-prod.WM_AD_HOC.R0C0JUG_WMUS_HIST_BACKROOM` b
-    WHERE NOT EXISTS (
-      SELECT 1 FROM store_fc_agg sfc
-      WHERE sfc.BUS_DT = b.BUS_DT
-        AND sfc.OMNI_CATG_NBR = b.OMNI_CATG_NBR
-    )
-    GROUP BY ALL
-  ),
+    backroom_agg AS (
+      SELECT
+        BUS_DT,
+        OMNI_CATG_NBR,
+        SUM(BACKROOM_UNITS)                          AS BACKROOM_UNITS,
+        SUM(BACKROOM_UNITS * COALESCE(b.BACKROOM_WTAVG_CUBE, 0))    AS BACKROOM_TOTAL_CUBE
+      FROM `wmt-execution-intel-prod.WM_AD_HOC.R0C0JUG_WMUS_HIST_BACKROOM` b
+      WHERE OMNI_CATG_NBR <> 0   -- matched rows join to store_fc normally
+      GROUP BY BUS_DT, OMNI_CATG_NBR
+    ),
+
+    backroom_other_agg AS (
+  SELECT
+    b.BUS_DT, b.WM_YEAR, b.WM_WEEK, b.WM_YR_WK_NBR,
+    b.OMNI_CATG_NBR, b.OMNI_CATG_DESC,
+    b.OMNI_DEPT_NBR, b.OMNI_DEPT_DESC,
+    b.SBU,
+    SUM(b.BACKROOM_UNITS)                          AS BACKROOM_UNITS,
+    SUM(b.BACKROOM_UNITS * COALESCE(b.BACKROOM_WTAVG_CUBE, 0)) AS BACKROOM_TOTAL_CUBE
+  FROM `wmt-execution-intel-prod.WM_AD_HOC.R0C0JUG_WMUS_HIST_BACKROOM` b
+  WHERE NOT EXISTS (
+    SELECT 1 FROM store_fc_agg sfc
+    WHERE sfc.BUS_DT = b.BUS_DT
+      AND sfc.OMNI_CATG_NBR = b.OMNI_CATG_NBR
+  )
+  GROUP BY ALL
+),
 
   intransit_dc_agg AS (
-    SELECT
-      BUS_DT, OMNI_CATG_NBR,
-      SUM(INTRANSIT_TO_DC_UNITS)             AS INTRANSIT_TO_DC_UNITS,
-      SUM(INTRANSIT_TO_DC_COST)              AS INTRANSIT_TO_DC_COST,
-      SUM(INTRANSIT_TO_DC_UNITS * ITEM_CUBE) AS INTRANSIT_DC_TOTAL_CUBE
-    FROM `wmt-execution-intel-prod.WM_AD_HOC.R0C0JUG_WMUS_HIST_INTRANSIT_DC`
-    GROUP BY BUS_DT, OMNI_CATG_NBR
+  SELECT
+    BUS_DT, OMNI_CATG_NBR,
+    SUM(INTRANSIT_TO_DC_UNITS)  AS INTRANSIT_TO_DC_UNITS,
+    SUM(INTRANSIT_TO_DC_COST)   AS INTRANSIT_TO_DC_COST,
+    SUM(INTRANSIT_TO_DC_UNITS * ITEM_CUBE) AS INTRANSIT_DC_TOTAL_CUBE
+  FROM `wmt-execution-intel-prod.WM_AD_HOC.R0C0JUG_WMUS_HIST_INTRANSIT_DC`
+  GROUP BY BUS_DT, OMNI_CATG_NBR
   ),
 
   dc_oh_agg AS (
     SELECT
       BUS_DT,
       OMNI_CATG_NBR,
-      SUM(DC_OH_UNITS)             AS DC_OH_UNITS,
-      SUM(DC_OH_COST)              AS DC_OH_COST,
+      SUM(DC_OH_UNITS)  AS DC_OH_UNITS,
+      SUM(DC_OH_COST)   AS DC_OH_COST,
       SUM(DC_OH_UNITS * ITEM_CUBE) AS DC_OH_TOTAL_CUBE,
       SUM(CASE WHEN DC_TYPE = 'Regional'              THEN DC_OH_UNITS ELSE 0 END) AS DC_OH_REGIONAL_UNITS,
       SUM(CASE WHEN DC_TYPE = 'Grocery'               THEN DC_OH_UNITS ELSE 0 END) AS DC_OH_GROCERY_UNITS,
@@ -1000,8 +1193,9 @@ AS (
       SUM(CASE WHEN INVT_TYPE_CODE IN ('L','S') THEN DC_LBL_UNLBL_COST  ELSE 0 END) AS DC_LABELED_COST,
       SUM(CASE WHEN INVT_TYPE_CODE = 'U'        THEN DC_LBL_UNLBL_UNITS ELSE 0 END) AS DC_UNLABELED_UNITS,
       SUM(CASE WHEN INVT_TYPE_CODE = 'U'        THEN DC_LBL_UNLBL_COST  ELSE 0 END) AS DC_UNLABELED_COST,
-      SUM(CASE WHEN INVT_TYPE_CODE IN ('L','S') THEN DC_LBL_UNLBL_UNITS * ITEM_CUBE ELSE 0 END) AS DC_LBL_TOTAL_CUBE,
-      SUM(CASE WHEN INVT_TYPE_CODE = 'U'        THEN DC_LBL_UNLBL_UNITS * ITEM_CUBE ELSE 0 END) AS DC_UNLBL_TOTAL_CUBE
+
+        SUM(CASE WHEN INVT_TYPE_CODE IN ('L','S') THEN DC_LBL_UNLBL_UNITS * ITEM_CUBE ELSE 0 END) AS DC_LBL_TOTAL_CUBE,
+        SUM(CASE WHEN INVT_TYPE_CODE = 'U' THEN DC_LBL_UNLBL_UNITS * ITEM_CUBE ELSE 0 END) AS DC_UNLBL_TOTAL_CUBE
     FROM `wmt-execution-intel-prod.WM_AD_HOC.R0C0JUG_WMUS_HIST_DC_LBL`
     GROUP BY BUS_DT, OMNI_CATG_NBR
   ),
@@ -1031,8 +1225,8 @@ AS (
     SELECT
       BUS_DT,
       OMNI_CATG_NBR,
-      SUM(ON_YARD_UNITS)             AS ON_YARD_UNITS,
-      SUM(ON_YARD_COST)              AS ON_YARD_COST,
+      SUM(ON_YARD_UNITS)  AS ON_YARD_UNITS,
+      SUM(ON_YARD_COST)   AS ON_YARD_COST,
       SUM(ON_YARD_UNITS * ITEM_CUBE) AS ON_YARD_TOTAL_CUBE,
       SUM(CASE WHEN DC_TYPE = 'Regional'              THEN ON_YARD_UNITS ELSE 0 END) AS ON_YARD_REGIONAL_UNITS,
       SUM(CASE WHEN DC_TYPE = 'Grocery'               THEN ON_YARD_UNITS ELSE 0 END) AS ON_YARD_GROCERY_UNITS,
@@ -1058,9 +1252,11 @@ AS (
     sfc.SBU,
 
     sfc.STORE_TOTAL_CUBE,
-    COALESCE(b.BACKROOM_TOTAL_CUBE, 0)                              AS BACKROOM_TOTAL_CUBE,
+    COALESCE(b.BACKROOM_TOTAL_CUBE, 0)   AS BACKROOM_TOTAL_CUBE,
+
     idc.INTRANSIT_DC_TOTAL_CUBE,
-    sfc.STORE_TOTAL_CUBE - COALESCE(b.BACKROOM_TOTAL_CUBE, 0)       AS ON_FLOOR_TOTAL_CUBE,
+
+    sfc.STORE_TOTAL_CUBE - COALESCE(b.BACKROOM_TOTAL_CUBE, 0)   AS ON_FLOOR_TOTAL_CUBE,
     sfc.DC_RESERVED_TOTAL_CUBE,
     sfc.TRANSIT_TOTAL_CUBE,
     sfc.FC_TOTAL_CUBE,
@@ -1072,18 +1268,18 @@ AS (
 
     sfc.STORE_OH_UNITS,
     sfc.STORE_OH_COST,
-    COALESCE(b.BACKROOM_UNITS, 0)                                   AS BACKROOM_UNITS,
-    sfc.STORE_OH_UNITS - COALESCE(b.BACKROOM_UNITS, 0)              AS ON_FLOOR_UNITS,
+    COALESCE(b.BACKROOM_UNITS, 0)   AS BACKROOM_UNITS,
+    sfc.STORE_OH_UNITS - COALESCE(b.BACKROOM_UNITS, 0)    AS ON_FLOOR_UNITS,
     sfc.DC_RESERVED_UNITS,
     sfc.DC_RESERVED_COST,
     sfc.IN_TRANSIT_UNITS,
     sfc.IN_TRANSIT_COST,
-    COALESCE(d.DC_OH_UNITS, 0)          AS DC_OH_UNITS,
-    COALESCE(d.DC_OH_COST, 0)           AS DC_OH_COST,
-    COALESCE(l.DC_LABELED_UNITS, 0)     AS DC_LABELED_UNITS,
-    COALESCE(l.DC_LABELED_COST, 0)      AS DC_LABELED_COST,
-    COALESCE(l.DC_UNLABELED_UNITS, 0)   AS DC_UNLABELED_UNITS,
-    COALESCE(l.DC_UNLABELED_COST, 0)    AS DC_UNLABELED_COST,
+    COALESCE(d.DC_OH_UNITS, 0)         AS DC_OH_UNITS,
+    COALESCE(d.DC_OH_COST, 0)          AS DC_OH_COST,
+    COALESCE(l.DC_LABELED_UNITS, 0)    AS DC_LABELED_UNITS,
+    COALESCE(l.DC_LABELED_COST, 0)     AS DC_LABELED_COST,
+    COALESCE(l.DC_UNLABELED_UNITS, 0)  AS DC_UNLABELED_UNITS,
+    COALESCE(l.DC_UNLABELED_COST, 0)   AS DC_UNLABELED_COST,
     COALESCE(d.DC_OH_REGIONAL_UNITS, 0) AS DC_OH_REGIONAL_UNITS,
     COALESCE(d.DC_OH_GROCERY_UNITS, 0)  AS DC_OH_GROCERY_UNITS,
     COALESCE(d.DC_OH_FASHION_UNITS, 0)  AS DC_OH_FASHION_UNITS,
@@ -1094,8 +1290,8 @@ AS (
     COALESCE(d.DC_OH_OTHER_UNITS, 0)    AS DC_OH_OTHER_UNITS,
     COALESCE(st.STO_IN_TRANSIT_TO_DC_UNITS, 0) AS STO_IN_TRANSIT_TO_DC_UNITS,
     COALESCE(st.STO_IN_TRANSIT_TO_DC_COST, 0)  AS STO_IN_TRANSIT_TO_DC_COST,
-    COALESCE(idc.INTRANSIT_TO_DC_UNITS, 0)     AS INTRANSIT_TO_DC_UNITS,
-    COALESCE(idc.INTRANSIT_TO_DC_COST, 0)      AS INTRANSIT_TO_DC_COST,
+    COALESCE(idc.INTRANSIT_TO_DC_UNITS, 0) AS INTRANSIT_TO_DC_UNITS,
+    COALESCE(idc.INTRANSIT_TO_DC_COST, 0)  AS INTRANSIT_TO_DC_COST, 
     COALESCE(st.STO_TO_REGIONAL_UNITS, 0)       AS STO_TO_REGIONAL_UNITS,
     COALESCE(st.STO_TO_GROCERY_UNITS, 0)        AS STO_TO_GROCERY_UNITS,
     COALESCE(st.STO_TO_FASHION_UNITS, 0)        AS STO_TO_FASHION_UNITS,
@@ -1106,6 +1302,10 @@ AS (
     COALESCE(st.STO_TO_OTHER_UNITS, 0)          AS STO_TO_OTHER_UNITS,
     sfc.FC_OH_UNITS,
     sfc.FC_OH_COST,
+    sfc.FC_OH_SORT_UNITS,
+    sfc.FC_OH_SORT_COST,
+    sfc.FC_OH_NONSORT_UNITS,
+    sfc.FC_OH_NONSORT_COST,
     COALESCE(oy.ON_YARD_UNITS, 0)          AS ON_YARD_UNITS,
     COALESCE(oy.ON_YARD_COST, 0)           AS ON_YARD_COST,
     COALESCE(oy.ON_YARD_REGIONAL_UNITS, 0) AS ON_YARD_REGIONAL_UNITS,
@@ -1122,7 +1322,7 @@ AS (
     + COALESCE(d.DC_OH_UNITS, 0)
     + COALESCE(l.DC_LABELED_UNITS, 0)
     + COALESCE(l.DC_UNLABELED_UNITS, 0)
-    -- STO_IN_TRANSIT_TO_DC excluded from total (replaced by INTRANSIT_TO_DC from CDI_ATLAS)
+    -- + COALESCE(st.STO_IN_TRANSIT_TO_DC_UNITS, 0)
     + sfc.FC_OH_UNITS
     + COALESCE(oy.ON_YARD_UNITS, 0)
     + COALESCE(idc.INTRANSIT_TO_DC_UNITS, 0)
@@ -1134,80 +1334,83 @@ AS (
     + COALESCE(d.DC_OH_COST, 0)
     + COALESCE(l.DC_LABELED_COST, 0)
     + COALESCE(l.DC_UNLABELED_COST, 0)
-    -- STO_IN_TRANSIT_TO_DC excluded from total (replaced by INTRANSIT_TO_DC from CDI_ATLAS)
+    -- + COALESCE(st.STO_IN_TRANSIT_TO_DC_COST, 0)
     + sfc.FC_OH_COST
     + COALESCE(oy.ON_YARD_COST, 0)
     + COALESCE(idc.INTRANSIT_TO_DC_COST, 0)
     ) AS TOTAL_NETWORK_COST
 
   FROM store_fc_agg sfc
-  LEFT JOIN backroom_agg b   ON sfc.BUS_DT = b.BUS_DT  AND sfc.OMNI_CATG_NBR = b.OMNI_CATG_NBR
-  LEFT JOIN dc_oh_agg d      ON sfc.BUS_DT = d.BUS_DT  AND sfc.OMNI_CATG_NBR = d.OMNI_CATG_NBR
-  LEFT JOIN dc_lbl_agg l     ON sfc.BUS_DT = l.BUS_DT  AND sfc.OMNI_CATG_NBR = l.OMNI_CATG_NBR
+  LEFT JOIN backroom_agg b  ON sfc.BUS_DT = b.BUS_DT  AND sfc.OMNI_CATG_NBR = b.OMNI_CATG_NBR
+  -- LEFT JOIN backroom_other_agg bo ON sfc.BUS_DT = bo.BUS_DT
+  LEFT JOIN dc_oh_agg d     ON sfc.BUS_DT = d.BUS_DT  AND sfc.OMNI_CATG_NBR = d.OMNI_CATG_NBR
+  LEFT JOIN dc_lbl_agg l    ON sfc.BUS_DT = l.BUS_DT  AND sfc.OMNI_CATG_NBR = l.OMNI_CATG_NBR
   LEFT JOIN intransit_dc_agg idc ON sfc.BUS_DT = idc.BUS_DT AND sfc.OMNI_CATG_NBR = idc.OMNI_CATG_NBR
-  LEFT JOIN sto_agg st       ON sfc.BUS_DT = st.BUS_DT AND sfc.OMNI_CATG_NBR = st.OMNI_CATG_NBR
-  LEFT JOIN on_yard_agg oy   ON sfc.BUS_DT = oy.BUS_DT AND sfc.OMNI_CATG_NBR = oy.OMNI_CATG_NBR
+  LEFT JOIN sto_agg st      ON sfc.BUS_DT = st.BUS_DT AND sfc.OMNI_CATG_NBR = st.OMNI_CATG_NBR
+  LEFT JOIN on_yard_agg oy  ON sfc.BUS_DT = oy.BUS_DT AND sfc.OMNI_CATG_NBR = oy.OMNI_CATG_NBR
+  -- Append unmapped backroom units as OTHER rows — zero for all other channels
+UNION ALL
 
-  -- Append backroom-only rows (no store_fc grain) — all other channels = 0
-  UNION ALL
+SELECT
+  bo.BUS_DT,
+  bo.WM_YEAR,
+  bo.WM_WEEK,
+  bo.WM_YR_WK_NBR,
+  bo.OMNI_CATG_NBR,
+  bo.OMNI_CATG_DESC,
+  bo.OMNI_DEPT_NBR,
+  bo.OMNI_DEPT_DESC,
+  bo.SBU,
+  -- Cube columns (all other channels zero/null)
+  0               AS STORE_TOTAL_CUBE,
+  bo.BACKROOM_TOTAL_CUBE,
+  NULL            AS INTRANSIT_DC_TOTAL_CUBE,
+   0               AS ON_FLOOR_TOTAL_CUBE,
+  0               AS DC_RESERVED_TOTAL_CUBE,
+  0               AS TRANSIT_TOTAL_CUBE,
+  0               AS FC_TOTAL_CUBE,
+  NULL            AS DC_OH_TOTAL_CUBE,
+  NULL            AS DC_LBL_TOTAL_CUBE,
+  NULL            AS DC_UNLBL_TOTAL_CUBE,
+  NULL            AS STO_TOTAL_CUBE,
+  NULL            AS ON_YARD_TOTAL_CUBE,
+  -- Units: only backroom is non-zero
+  0               AS STORE_OH_UNITS,
+  0               AS STORE_OH_COST,
+  bo.BACKROOM_UNITS,
+  0               AS ON_FLOOR_UNITS,
+  0               AS DC_RESERVED_UNITS,    0 AS DC_RESERVED_COST,
+  0               AS IN_TRANSIT_UNITS,     0 AS IN_TRANSIT_COST,
+  0               AS DC_OH_UNITS,          0 AS DC_OH_COST,
+  0               AS DC_LABELED_UNITS,     0 AS DC_LABELED_COST,
+  0               AS DC_UNLABELED_UNITS,   0 AS DC_UNLABELED_COST,
+  0 AS DC_OH_REGIONAL_UNITS, 0 AS DC_OH_GROCERY_UNITS,
+  0 AS DC_OH_FASHION_UNITS,  0 AS DC_OH_IMPORTS_UNITS,
+  0 AS DC_OH_GIDC_UNITS,     0 AS DC_OH_MSC_UNITS,
+  0 AS DC_OH_SUPPORT_UNITS,  0 AS DC_OH_OTHER_UNITS,
+  0 AS STO_IN_TRANSIT_TO_DC_UNITS, 0 AS STO_IN_TRANSIT_TO_DC_COST,
+  0 AS INTRANSIT_TO_DC_UNITS,      0 AS INTRANSIT_TO_DC_COST,
+  0 AS STO_TO_REGIONAL_UNITS, 0 AS STO_TO_GROCERY_UNITS,
+  0 AS STO_TO_FASHION_UNITS,  0 AS STO_TO_IMPORTS_UNITS,
+  0 AS STO_TO_GIDC_UNITS,     0 AS STO_TO_MSC_UNITS,
+  0 AS STO_TO_SUPPORT_UNITS,  0 AS STO_TO_OTHER_UNITS,
+  0               AS FC_OH_UNITS,          0 AS FC_OH_COST,
+  0 AS FC_OH_SORT_UNITS,    0 AS FC_OH_SORT_COST,
+  0 AS FC_OH_NONSORT_UNITS, 0 AS FC_OH_NONSORT_COST,
+  0               AS ON_YARD_UNITS,        0 AS ON_YARD_COST,
+  0 AS ON_YARD_REGIONAL_UNITS, 0 AS ON_YARD_GROCERY_UNITS,
+  0 AS ON_YARD_FASHION_UNITS,  0 AS ON_YARD_IMPORTS_UNITS,
+  0 AS ON_YARD_GIDC_UNITS,     0 AS ON_YARD_MSC_UNITS,
+  0 AS ON_YARD_OTHER_UNITS,
+  0               AS TOTAL_NETWORK_UNITS,
+  0               AS TOTAL_NETWORK_COST,
 
-  SELECT
-    bo.BUS_DT,
-    bo.WM_YEAR,
-    bo.WM_WEEK,
-    bo.WM_YR_WK_NBR,
-    bo.OMNI_CATG_NBR,
-    bo.OMNI_CATG_DESC,
-    bo.OMNI_DEPT_NBR,
-    bo.OMNI_DEPT_DESC,
-    bo.SBU,
-    -- Cube columns
-    0                      AS STORE_TOTAL_CUBE,
-    bo.BACKROOM_TOTAL_CUBE,
-    NULL                   AS INTRANSIT_DC_TOTAL_CUBE,
-    0                      AS ON_FLOOR_TOTAL_CUBE,
-    0                      AS DC_RESERVED_TOTAL_CUBE,
-    0                      AS TRANSIT_TOTAL_CUBE,
-    0                      AS FC_TOTAL_CUBE,
-    NULL                   AS DC_OH_TOTAL_CUBE,
-    NULL                   AS DC_LBL_TOTAL_CUBE,
-    NULL                   AS DC_UNLBL_TOTAL_CUBE,
-    NULL                   AS STO_TOTAL_CUBE,
-    NULL                   AS ON_YARD_TOTAL_CUBE,
-    -- Unit/cost columns
-    0                      AS STORE_OH_UNITS,
-    0                      AS STORE_OH_COST,
-    bo.BACKROOM_UNITS,
-    0                      AS ON_FLOOR_UNITS,
-    0                      AS DC_RESERVED_UNITS,    0 AS DC_RESERVED_COST,
-    0                      AS IN_TRANSIT_UNITS,     0 AS IN_TRANSIT_COST,
-    0                      AS DC_OH_UNITS,           0 AS DC_OH_COST,
-    0                      AS DC_LABELED_UNITS,      0 AS DC_LABELED_COST,
-    0                      AS DC_UNLABELED_UNITS,    0 AS DC_UNLABELED_COST,
-    0 AS DC_OH_REGIONAL_UNITS, 0 AS DC_OH_GROCERY_UNITS,
-    0 AS DC_OH_FASHION_UNITS,  0 AS DC_OH_IMPORTS_UNITS,
-    0 AS DC_OH_GIDC_UNITS,     0 AS DC_OH_MSC_UNITS,
-    0 AS DC_OH_SUPPORT_UNITS,  0 AS DC_OH_OTHER_UNITS,
-    0 AS STO_IN_TRANSIT_TO_DC_UNITS, 0 AS STO_IN_TRANSIT_TO_DC_COST,
-    0 AS INTRANSIT_TO_DC_UNITS,      0 AS INTRANSIT_TO_DC_COST,
-    0 AS STO_TO_REGIONAL_UNITS, 0 AS STO_TO_GROCERY_UNITS,
-    0 AS STO_TO_FASHION_UNITS,  0 AS STO_TO_IMPORTS_UNITS,
-    0 AS STO_TO_GIDC_UNITS,     0 AS STO_TO_MSC_UNITS,
-    0 AS STO_TO_SUPPORT_UNITS,  0 AS STO_TO_OTHER_UNITS,
-    0                      AS FC_OH_UNITS,           0 AS FC_OH_COST,
-    0                      AS ON_YARD_UNITS,          0 AS ON_YARD_COST,
-    0 AS ON_YARD_REGIONAL_UNITS, 0 AS ON_YARD_GROCERY_UNITS,
-    0 AS ON_YARD_FASHION_UNITS,  0 AS ON_YARD_IMPORTS_UNITS,
-    0 AS ON_YARD_GIDC_UNITS,     0 AS ON_YARD_MSC_UNITS,
-    0 AS ON_YARD_OTHER_UNITS,
-    0                      AS TOTAL_NETWORK_UNITS,
-    0                      AS TOTAL_NETWORK_COST
-  FROM backroom_other_agg bo
+FROM backroom_other_agg bo
 );
 
 
 -- ============================================================
--- STEP 8: DC-LEVEL HISTORICAL TABLE (with WTAVG_CUBE — DC_LEVEL keeps wtavg pattern)
+-- STEP 8: DC-LEVEL HISTORICAL TABLE (with AVG_ITEM_CUBE)
 -- ============================================================
 DROP TABLE IF EXISTS `wmt-execution-intel-prod.WM_AD_HOC.R0C0JUG_WMUS_HIST_DC_LEVEL`;
 

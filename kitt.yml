@@ -23,7 +23,7 @@ deploy:
         memory: "2Gi"
       max:
         cpu: "2000m"
-        memory: "6Gi"      # 5 BQ tables cached as DataFrames concurrently — OOMKill risk at <4Gi
+        memory: "8Gi"      # 5 BQ tables cached as DataFrames concurrently — bumped from 6Gi for headroom
 
       networking:
         externalPort: 8080
@@ -60,6 +60,9 @@ deploy:
         ONORDER_TABLE: "R0C0JUG_WMUS_HIST_ONORDER"
         STO_TABLE: "R0C0JUG_WMUS_HIST_STO"
         PYTHONUNBUFFERED: "1"
+        # GCS parquet cache — pod restarts download from GCS (~5-8s) instead of re-querying BQ (~35-40s)
+        # Bucket must exist in wmt-execution-intel-prod and SA must have storage.objectAdmin on it
+        WMS_CACHE_BUCKET: "wmt-execution-intel-prod-wms-cache"
 
       secrets:
         engine: eso

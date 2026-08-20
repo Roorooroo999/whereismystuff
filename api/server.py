@@ -27,6 +27,85 @@ from pathlib import Path
 
 logger = logging.getLogger("uvicorn.error")
 
+# ============================================================
+# GCS Parquet Cache — pod-restart speed: 35-40s BQ → 5-8s GCS download
+# Activated only when WMS_CACHE_BUCKET env var is set.
+# Falls back gracefully to local disk / BQ on any GCS error.
+# ============================================================
+
+def _gcs_get_client():
+    """Return a GCS client using the same credentials as BigQuery."""
+    try:
+        from google.cloud import storage
+        creds_json = os.environ.get("GOOGLE_CREDENTIALS", "")
+        if creds_json:
+            info = json.loads(creds_json)
+            credentials = service_account.Credentials.from_service_account_info(info)
+            return storage.Client(project=os.environ.get("PROJECT_ID", "wmt-execution-intel-prod"),
+                                  credentials=credentials)
+        return storage.Client(project=os.environ.get("PROJECT_ID", "wmt-execution-intel-prod"))
+    except Exception as e:
+        logger.warning(f"[GCS] Failed to create client: {e}")
+        return None
+
+
+def _gcs_upload(local_path: Path, blob_name: str):
+    """Upload a local file to GCS (non-blocking — caller should run in a thread)."""
+    bucket_name = os.environ.get("WMS_CACHE_BUCKET", "")
+    if not bucket_name or not local_path.exists():
+        return
+    try:
+        client = _gcs_get_client()
+        if client is None:
+            return
+        t0 = time.time()
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(blob_name)
+        blob.upload_from_filename(str(local_path))
+        print(f"[GCS] Uploaded {blob_name} in {round(time.time()-t0,1)}s", flush=True)
+    except Exception as e:
+        print(f"[GCS] Upload failed for {blob_name}: {e}", flush=True)
+
+
+def _gcs_download(blob_name: str, local_path: Path) -> bool:
+    """Download a GCS blob to a local path. Returns True on success."""
+    bucket_name = os.environ.get("WMS_CACHE_BUCKET", "")
+    if not bucket_name:
+        return False
+    try:
+        client = _gcs_get_client()
+        if client is None:
+            return False
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(blob_name)
+        if not blob.exists():
+            print(f"[GCS] {blob_name} not found in bucket", flush=True)
+            return False
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        blob.download_to_filename(str(local_path))
+        print(f"[GCS] Downloaded {blob_name}", flush=True)
+        return True
+    except Exception as e:
+        print(f"[GCS] Download failed for {blob_name}: {e}", flush=True)
+        return False
+
+
+def _gcs_upload_dir(local_dir: Path, prefix: str, filenames: list):
+    """Upload multiple parquet files to GCS in a background thread."""
+    def _do():
+        for fname in filenames:
+            p = local_dir / fname
+            if p.exists():
+                _gcs_upload(p, f"{prefix}/{fname}")
+    threading.Thread(target=_do, daemon=True, name=f"gcs-upload-{prefix}").start()
+
+
+def _gcs_download_dir(local_dir: Path, prefix: str, filenames: list) -> bool:
+    """Download multiple parquet files from GCS. Returns True if ALL downloaded."""
+    local_dir.mkdir(parents=True, exist_ok=True)
+    results = [_gcs_download(f"{prefix}/{f}", local_dir / f) for f in filenames]
+    return all(results)
+
 
 def _df_records(df) -> list:
     """Convert DataFrame to records list with NaN/Inf replaced by None (valid JSON null).
@@ -819,8 +898,9 @@ class HistoricalCache:
         threading.Thread(target=_bg, daemon=True, name="hist-catg-loader").start()
 
     def _save_to_disk(self):
-        """Save core DataFrames to parquet for instant load on restart.
+        """Save core DataFrames to parquet (local disk + async GCS upload).
         Catg is saved separately by _save_catg_to_disk() once it finishes loading.
+        GCS upload runs in a background thread — non-blocking.
         """
         try:
             t0 = time.time()
@@ -836,15 +916,18 @@ class HistoricalCache:
             with open(self.CACHE_DIR / "metadata.json", "w") as f:
                 json.dump(metadata, f)
             print(f"[HIST] [DISK] Saved core cache to disk in {round(time.time() - t0, 1)}s", flush=True)
+            # Upload to GCS in background (pod restarts download from GCS → skip BQ)
+            _gcs_upload_dir(self.CACHE_DIR, "hist", ["enterprise.parquet", "sbu.parquet", "dept.parquet", "metadata.json"])
         except Exception as e:
             print(f"[HIST] [WARN] Failed to save cache to disk: {e}", flush=True)
 
     def _save_catg_to_disk(self):
-        """Save catg parquet after background load completes."""
+        """Save catg parquet after background load completes. Also uploads to GCS."""
         try:
             if self.catg_df is not None:
                 self.catg_df.to_parquet(self.CACHE_DIR / "catg.parquet")
                 print(f"[HIST] [DISK] Saved catg cache to disk ({len(self.catg_df):,} rows)", flush=True)
+                _gcs_upload_dir(self.CACHE_DIR, "hist", ["catg.parquet"])
         except Exception as e:
             print(f"[HIST] [WARN] Failed to save catg to disk: {e}", flush=True)
 
@@ -961,9 +1044,25 @@ class HistoricalCache:
         """Load DataFrames from parquet cache. Returns True if core data loaded successfully.
 
         stale_ok=True: load even if cache date doesn't match today (caller will refresh in background).
+
+        On WCNP, /tmp is ephemeral — pod restarts lose local parquets. If local cache is missing,
+        this method tries to download from GCS first (WMS_CACHE_BUCKET env var). This makes pod
+        restart time 5-8s (GCS download) instead of 35-40s (full BQ re-query).
         """
         try:
             metadata_file = self.CACHE_DIR / "metadata.json"
+            if not metadata_file.exists():
+                # Try GCS before giving up — pod restart with empty /tmp
+                print("[HIST] No local disk cache — attempting GCS download...", flush=True)
+                core_files = ["enterprise.parquet", "sbu.parquet", "dept.parquet", "metadata.json"]
+                if _gcs_download_dir(self.CACHE_DIR, "hist", core_files):
+                    print("[HIST] [GCS] Core parquets downloaded from GCS", flush=True)
+                    # Also try catg (optional — OK if missing)
+                    _gcs_download(f"hist/catg.parquet", self.CACHE_DIR / "catg.parquet")
+                    _gcs_download(f"hist/catg_check.json", self.CACHE_DIR / "catg_check.json")
+                else:
+                    print("[HIST] No disk cache and GCS unavailable/empty", flush=True)
+                    return False
             if not metadata_file.exists():
                 print("[HIST] No disk cache found", flush=True)
                 return False
@@ -1552,7 +1651,9 @@ class OnOrderCache:
         self.CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
     def _save_to_disk(self):
-        """Save core DataFrames (enterprise/sbu/dept) to parquet — NOT catg (saved separately)."""
+        """Save core DataFrames (enterprise/sbu/dept) to parquet — NOT catg (saved separately).
+        Also triggers async GCS upload so future pod restarts can skip BQ.
+        """
         try:
             t0 = time.time()
             if self.enterprise_df is not None:
@@ -1568,15 +1669,19 @@ class OnOrderCache:
             with open(self.CACHE_DIR / "onorder_metadata.json", "w") as f:
                 json.dump(metadata, f)
             print(f"[ONORDER] [DISK] Saved core cache to disk in {round(time.time() - t0, 1)}s", flush=True)
+            _gcs_upload_dir(self.CACHE_DIR, "onorder",
+                            ["onorder_enterprise.parquet", "onorder_sbu.parquet",
+                             "onorder_dept.parquet", "onorder_metadata.json"])
         except Exception as e:
             print(f"[ONORDER] [WARN] Failed to save core cache to disk: {e}", flush=True)
 
     def _save_catg_to_disk(self):
-        """Save catg DataFrame to parquet (called from background thread after catg query)."""
+        """Save catg DataFrame to parquet. Also uploads to GCS."""
         try:
             if self.catg_df is not None:
                 self.catg_df.to_parquet(self.CACHE_DIR / "onorder_catg.parquet")
                 print(f"[ONORDER] [DISK] Saved catg cache to disk ({len(self.catg_df):,} rows)", flush=True)
+                _gcs_upload_dir(self.CACHE_DIR, "onorder", ["onorder_catg.parquet"])
         except Exception as e:
             print(f"[ONORDER] [WARN] Failed to save catg to disk: {e}", flush=True)
 
@@ -1584,9 +1689,21 @@ class OnOrderCache:
         """Load DataFrames from parquet cache. Returns True if successful.
 
         stale_ok=True: load even if cache date doesn't match today (caller refreshes in background).
+        On WCNP pod restart with empty /tmp, attempts GCS download before giving up.
         """
         try:
             metadata_file = self.CACHE_DIR / "onorder_metadata.json"
+            if not metadata_file.exists():
+                # Try GCS before giving up — pod restart with empty /tmp
+                print("[ONORDER] No local disk cache — attempting GCS download...", flush=True)
+                core_files = ["onorder_enterprise.parquet", "onorder_sbu.parquet",
+                              "onorder_dept.parquet", "onorder_metadata.json"]
+                if _gcs_download_dir(self.CACHE_DIR, "onorder", core_files):
+                    print("[ONORDER] [GCS] Core parquets downloaded from GCS", flush=True)
+                    _gcs_download("onorder/onorder_catg.parquet", self.CACHE_DIR / "onorder_catg.parquet")
+                else:
+                    print("[ONORDER] No disk cache and GCS unavailable/empty", flush=True)
+                    return False
             if not metadata_file.exists():
                 print("[ONORDER] No disk cache found", flush=True)
                 return False

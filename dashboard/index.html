@@ -1727,7 +1727,8 @@
             } catch (err) {
                 console.error('refreshData error:', err);
                 setStatus('error', 'Error');
-                alert('Failed to load data from API: ' + err.message + '\n\nMake sure FastAPI is running:\n  cd api && uvicorn server:app --reload --port 8001');
+                // Silent failure — Current view is hidden; Historical view loads independently
+                // Do NOT show an alert dialog for WCNP cold-start 503s
             } finally {
                 showLoading(false);
             }
@@ -1738,7 +1739,11 @@
             // Initialize filter pills
             const pillsContainer = document.getElementById('active-filter-pills');
             if (pillsContainer) pillsContainer.innerHTML = '<span class="text-muted" style="font-size:0.65rem;">No filters active</span>';
-            await refreshData();
+            // Current view is permanently hidden — skip refreshData() on page load.
+            // Calling it would hit 7 Current view API endpoints that return 503 on
+            // WCNP cold start (DataCache loads in background). Historical view loads
+            // independently via initHistoricalView() IIFE above.
+            // refreshData() is only triggered when user explicitly clicks Current view.
         });
     </script>
 </body>

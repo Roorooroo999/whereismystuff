@@ -974,6 +974,7 @@ AS (
 
   -- ── OMS path: DISTINCT POs per day per DC — fixes V5 ─────────
   -- Corrected join key: PO_NBR (not OMS_PO_NBR)
+  -- No po_type gate: OMS_PURCHASE_ORDER self-selects (vendor POs only; STOs won't match)
   oms_pos_on_yard AS (
     SELECT DISTINCT
       oy.REPORT_DATE,
@@ -983,7 +984,6 @@ AS (
     INNER JOIN sched_dedup del
       ON del.dc_nbr        = oy.DC_NUMBER
       AND del.delivery_number = oy.DELIVERY_NUMBER
-      AND del.po_type NOT IN (23, 28, 29)
     INNER JOIN `wmt-edw-prod.US_WM_OMS_VM.OMS_PURCHASE_ORDER` po
       ON del.po_number     = po.PO_NBR
       AND po.COUNTRY_CODE  = 'US'
@@ -1006,6 +1006,10 @@ AS (
   ),
 
   -- ── STO path: DISTINCT STOs per day per DC — fixes V5 + V4 ───
+  -- No po_type gate: OMS_STO_PO_XREF self-selects (STOs only, including po_type 43)
+  -- po_type 43 trailers are STOs that were previously routed to OMS and dropped;
+  -- removing the gate captures them here without any risk of double-counting
+  -- (a PO number cannot appear in both OMS_PURCHASE_ORDER and OMS_STO_PO_XREF)
   sto_nbrs_on_yard AS (
     SELECT DISTINCT
       oy.REPORT_DATE,
@@ -1015,7 +1019,6 @@ AS (
     INNER JOIN sched_dedup del
       ON del.dc_nbr           = oy.DC_NUMBER
       AND del.delivery_number = oy.DELIVERY_NUMBER
-      AND del.po_type IN (23, 28, 29)
     INNER JOIN `wmt-edw-prod.US_WM_OMS_VM.OMS_STO_PO_XREF` sx
       ON del.po_number = CAST(sx.XREF_PO_NBR AS STRING)
   ),

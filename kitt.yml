@@ -22,7 +22,7 @@ deploy:
         cpu: "500m"
         memory: "2Gi"
       max:
-        cpu: "2000m"
+        cpu: "1800m"       # reduced from 2000m: rolling restart needs 2×max; namespace has ~3900m free, 2×1800=3600m fits
         memory: "8Gi"      # 5 BQ tables cached as DataFrames concurrently — bumped from 6Gi for headroom
 
       networking:

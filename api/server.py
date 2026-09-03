@@ -297,6 +297,7 @@ class DataCache:
             SUM(COALESCE(ON_YARD_REGIONAL_UNITS, 0)) AS on_yard_regional,
             SUM(COALESCE(ON_YARD_FASHION_UNITS, 0)) AS on_yard_fashion,
             SUM(COALESCE(ON_YARD_IMPORTS_UNITS, 0)) AS on_yard_imports,
+            SUM(COALESCE(ON_YARD_ICC_UNITS, 0)) AS on_yard_icc,
             SUM(COALESCE(STO_TO_GROCERY_UNITS, 0)) AS sto_grocery,
             SUM(COALESCE(STO_TO_REGIONAL_UNITS, 0)) AS sto_regional,
             SUM(COALESCE(STO_TO_FASHION_UNITS, 0)) AS sto_fashion,
@@ -449,7 +450,8 @@ class DataCache:
             )
             filtered["on_yard_units"] = (
                 filtered.get("on_yard_grocery", 0) + filtered.get("on_yard_regional", 0) +
-                filtered.get("on_yard_fashion", 0) + filtered.get("on_yard_imports", 0)
+                filtered.get("on_yard_fashion", 0) + filtered.get("on_yard_imports", 0) +
+                filtered.get("on_yard_icc", 0)
             )
             filtered["dc_labeled_units"] = (
                 filtered.get("dc_labeled_grocery", 0) + filtered.get("dc_labeled_regional", 0) +
@@ -611,6 +613,8 @@ class DataCache:
              "labeled_col": "dc_labeled_regional", "unlabeled_col": "dc_unlabeled_regional"},
             {"name": "Imports", "dc_oh_col": "dc_oh_imports", "sto_col": "sto_imports", "yard_col": "on_yard_imports",
              "labeled_col": "dc_labeled_imports", "unlabeled_col": "dc_unlabeled_imports"},
+            {"name": "ICC", "dc_oh_col": "dc_oh_imports", "sto_col": "sto_imports", "yard_col": "on_yard_icc",
+             "labeled_col": "dc_labeled_imports", "unlabeled_col": "dc_unlabeled_imports"},
             {"name": "Fashion", "dc_oh_col": "dc_oh_fashion", "sto_col": "sto_fashion", "yard_col": "on_yard_fashion",
              "labeled_col": "dc_labeled_fashion", "unlabeled_col": "dc_unlabeled_fashion"},
         ]
@@ -664,6 +668,8 @@ class DataCache:
             {"name": "Regional", "dc_oh_col": "dc_oh_regional", "sto_col": "sto_regional", "yard_col": "on_yard_regional",
              "labeled_col": "dc_labeled_regional", "unlabeled_col": "dc_unlabeled_regional"},
             {"name": "Imports", "dc_oh_col": "dc_oh_imports", "sto_col": "sto_imports", "yard_col": "on_yard_imports",
+             "labeled_col": "dc_labeled_imports", "unlabeled_col": "dc_unlabeled_imports"},
+            {"name": "ICC", "dc_oh_col": "dc_oh_imports", "sto_col": "sto_imports", "yard_col": "on_yard_icc",
              "labeled_col": "dc_labeled_imports", "unlabeled_col": "dc_unlabeled_imports"},
             {"name": "Fashion", "dc_oh_col": "dc_oh_fashion", "sto_col": "sto_fashion", "yard_col": "on_yard_fashion",
              "labeled_col": "dc_labeled_fashion", "unlabeled_col": "dc_unlabeled_fashion"},
@@ -850,6 +856,7 @@ class HistoricalCache:
                 SUM(COALESCE(ON_YARD_GROCERY_UNITS, 0)) AS on_yard_grocery,
                 SUM(COALESCE(ON_YARD_FASHION_UNITS, 0)) AS on_yard_fashion,
                 SUM(COALESCE(ON_YARD_IMPORTS_UNITS, 0)) AS on_yard_imports,
+                SUM(COALESCE(ON_YARD_ICC_UNITS, 0)) AS on_yard_icc,
                 -- Cube: HIST_COMBINED stores TOTAL_CUBE; derive wtavg by dividing by units
                 SAFE_DIVIDE(SUM(COALESCE(STORE_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(STORE_OH_UNITS,0)),0)) AS store_wtavg_cube,
                 SAFE_DIVIDE(SUM(COALESCE(BACKROOM_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(BACKROOM_UNITS,0)),0)) AS backroom_wtavg_cube,
@@ -1175,12 +1182,25 @@ class HistoricalCache:
 
             _cc = check_catg  # capture for closure
 
+            # Snapshot stale data so we can restore it if BQ refresh fails
+            # (e.g. HIST_COMBINED is mid-rebuild → 404 → would null out good data)
+            _stale_enterprise = self.enterprise_df
+            _stale_sbu = self.sbu_df
+            _stale_dept = self.dept_df
+
             def _hist_bg_refresh():
                 try:
                     client = self._get_client()
                     self._do_load(client, time.time(), check_catg=_cc)
                 except Exception as e:
-                    print(f"[HIST] [BG] Refresh failed: {e}", flush=True)
+                    print(f"[HIST] [BG] Refresh failed: {e} — restoring stale data", flush=True)
+                    # Restore stale DataFrames so the dashboard stays usable
+                    if self.enterprise_df is None:
+                        self.enterprise_df = _stale_enterprise
+                    if self.sbu_df is None:
+                        self.sbu_df = _stale_sbu
+                    if self.dept_df is None:
+                        self.dept_df = _stale_dept
 
             threading.Thread(target=_hist_bg_refresh, daemon=True, name="hist-stale-refresh").start()
             return
@@ -1257,6 +1277,7 @@ class HistoricalCache:
             SUM(COALESCE(ON_YARD_GROCERY_UNITS, 0)) AS on_yard_grocery,
             SUM(COALESCE(ON_YARD_FASHION_UNITS, 0)) AS on_yard_fashion,
             SUM(COALESCE(ON_YARD_IMPORTS_UNITS, 0)) AS on_yard_imports,
+            SUM(COALESCE(ON_YARD_ICC_UNITS, 0)) AS on_yard_icc,
             -- Cube: HIST_COMBINED stores TOTAL_CUBE (sum of units×cube); derive wtavg by dividing by units
             SAFE_DIVIDE(SUM(COALESCE(STORE_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(STORE_OH_UNITS,0)),0)) AS store_wtavg_cube,
             SAFE_DIVIDE(SUM(COALESCE(BACKROOM_TOTAL_CUBE,0)), NULLIF(SUM(COALESCE(BACKROOM_UNITS,0)),0)) AS backroom_wtavg_cube,

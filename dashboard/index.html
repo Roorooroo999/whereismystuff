@@ -792,6 +792,24 @@
         }
 
         // ========== API FETCH (Parallel) ==========
+        async function fetchWithRetry(url, name, maxRetries = 5, delayMs = 3000) {
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                const r = await fetch(url, { cache: 'no-store' });
+                if (r.ok) {
+                    const data = await r.json();
+                    console.log(`[API] ${name}: ${Array.isArray(data) ? data.length + ' rows' : 'object'}`);
+                    return data;
+                }
+                if (r.status === 503 && attempt < maxRetries) {
+                    console.warn(`[API] ${name} 503 (attempt ${attempt}/${maxRetries}) — pod warming up, retrying in ${delayMs/1000}s`);
+                    setStatus('live', `Warming up… (${attempt}/${maxRetries})`);
+                    await new Promise(res => setTimeout(res, delayMs));
+                    continue;
+                }
+                throw new Error(`${name} failed: ${r.status}`);
+            }
+        }
+
         async function fetchAllData(filters) {
             const qs = buildQueryString(filters);
             const suffix = qs ? '?' + qs : '';
@@ -809,18 +827,9 @@
                 'dept-categories'
             ];
 
-            const requests = endpoints.map(name => {
-                const url = `${API_BASE}/api/${name}${suffix}`;
-                return fetch(url, { cache: 'no-store' })
-                    .then(r => {
-                        if (!r.ok) throw new Error(`${name} failed: ${r.status}`);
-                        return r.json();
-                    })
-                    .then(data => {
-                        console.log(`[API] ${name}: ${Array.isArray(data) ? data.length + ' rows' : 'object'}`);
-                        return data;
-                    })
-            });
+            const requests = endpoints.map(name =>
+                fetchWithRetry(`${API_BASE}/api/${name}${suffix}`, name)
+            );
 
             const [summary, sbu, sbu_dept, dc_type, dc_type_sbu, dept, dept_catg] =
                 await Promise.all(requests);
@@ -1731,7 +1740,9 @@
                 setStatus('live', 'Live');
             } catch (err) {
                 console.error('refreshData error:', err);
-                setStatus('error', 'Error');
+                // Show friendlier status for 503 cold-start vs real errors
+                const is503 = err.message && err.message.includes('503');
+                setStatus('error', is503 ? 'Pod warming up — retry in a moment' : 'Error');
                 // Silent failure — Current view is hidden; Historical view loads independently
                 // Do NOT show an alert dialog for WCNP cold-start 503s
             } finally {
